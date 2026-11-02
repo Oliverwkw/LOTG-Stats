@@ -122,6 +122,7 @@ the answer, not a silent choice.
 | `scripts/fast.py` (`lotg_support.fast`, `lotg_support.live`) | **start here for a stat check**: per-team-week counts of players over a line (starter / bench / any, positions, win / loss, at any stage of the week such as "entering the late window"), where a value would rank in any column, the live week straight from Sleeper placed against history, and a one-expression `q` over preloaded typed frames. Every output carries its caveats. Reconciled in `tests/test_fast.py` against `Margin entering SNF/Monday` and player_week `Points` |
 | `scripts/inquire.py` (`lotg_support.inquiry`) | finding, filtering and ranking anything in the fourteen export sheets, and reading the raw Sleeper snapshot |
 | `scripts/whatif.py` (`lotg_support.replay`) | counterfactual seasons: rewind a trade (3-team deals included) — or a whole sequence of them — or move a player, replay every week under four lineup models (incl. the `Wins added` rule), re-seed, re-run the bracket |
+| `scripts/rulechange.py` (`lotg_support.rules`) | the commissioner's rule-change simulator: every completed season (and this season's forecast) under different scoring, lineup slots or playoff format, as composable JSON specs in `plan/rule_specs/` — champions, playoff fields, records, positional value, who gains or loses, under the managers' real lineups and under optimal ones |
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/streaks/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, runs beating / missing a projection, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
@@ -687,6 +688,53 @@ average (week 1 used to be a tie at 0, so its surplus cut was arbitrary).
 
 **Report where the models disagree rather than picking one.** If they agree, say
 so — that is the strongest form the answer can take.
+
+### Rule changes — "what if the league had voted X in?"
+
+```bash
+python scripts/rulechange.py plan/rule_specs/te_premium.json            # every completed season
+python scripts/rulechange.py plan/rule_specs/half_ppr.json plan/rule_specs/six_team_playoffs.json --brief
+python scripts/rulechange.py --add bonus_rec_te=0.5 --slots +FLEX --median --save plan/rule_specs/proposal.json
+python scripts/rulechange.py plan/rule_specs/median_game.json --forecast  # + this season's odds, same seed
+python scripts/rulechange.py --keys                                       # scoring keys that can change
+```
+
+A spec (`lotg_support.rules.RuleSpec`, JSON) changes scoring (`set` / `scale` /
+`add` per Sleeper key, applied to **each season's own table**: 2020 is the ESPN
+one), the lineup template (`add` / `remove` / full `slots`, again per season:
+9 starters 2020-23, 10 from 2024), and the playoffs (`teams` with byes filling
+the bracket to a power of two, `home_bonus` / `home_bonus_round` for the +5,
+`median_game`, `seeding`, `regular_season_weeks`, `two_week_final`). Specs
+compose left to right, scoring as per-key affine maps.
+
+What to know before quoting one:
+
+- **Scoring is a delta on the real points**: each player-week moves by the
+  changed keys on his nflverse line (the build's `_LEAGUE_SCORE_MAP`, through the
+  persisted gsis bridge), so the real rules reproduce reality to the cent and the
+  0.06% Sleeper/nflverse stat-correction mismatches cannot leak in.
+  `tests/test_rules.py` checks the delta against `lotg._league_score` row by row.
+- **Two lineup variants, always report both**: `actual` keeps the managers'
+  real starters (an added slot filled from the bench by the `Wins added`
+  plausibility rule — within 5 of the h-th best last-3 form, no rookie in his
+  first 3 games, no flagged absence, filler capped at 1.5x form; a removed
+  slot benches a plausible starter); `optimal` is the build's Max PF lineup under
+  each template, compared with optimal-under-the-real-rules, never with reality.
+- **A bigger bracket takes its weeks from the regular season** only when it
+  would not finish by the season's real last week (6 teams in 2024 = 14-week
+  season, rounds 15/16/17; a one-week final in 2026 keeps week 15 as semis
+  and leaves week 17 unplayed); the report's warnings say which.
+- **Rosters are the real ones.** Managers would have drafted and traded
+  differently under other rules; this is the rule's effect on the rosters that
+  existed. Bench includes taxi (no weekly taxi flag).
+- **Forecast mode** re-scores the weeks already played, carries each team's mean
+  weekly change into the simulated weeks (the forward projection is not
+  re-scored), and plays the new table and bracket through `forecast.forecast(rules=...)`.
+  With the real rules the hook is an exact no-op (tested).
+- The guards (empty spec reproduces every record / PF / bracket / champion
+  2020-2025; optimal reproduces `Max PF`) run before every answer. The League is
+  pickled under `.rules_cache/` (gitignored), keyed by a fingerprint of its
+  inputs, so only the first run in a checkout pays the ~10-70 s load.
 
 ### "Why is this move −7?" — `Wins added`, game by game
 
