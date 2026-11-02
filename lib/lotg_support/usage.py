@@ -319,6 +319,36 @@ def pfr_to_gsis_bridge(rosters: Iterable[pd.DataFrame], dp_ids: Optional[pd.Data
     return out
 
 
+def _gsis(value: Any) -> Optional[str]:
+    """`value` as a GSIS id string, or None (NaN, blank, a placeholder)."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    return v if looks_like_gsis(v) else None
+
+
+def roster_sleeper_bridge(cfg: "X.ExternalConfig", seasons: Iterable[int]) -> Dict[str, str]:
+    """Sleeper id -> GSIS id from nflverse's weekly rosters (their `sleeper_id`
+    column), read from the cached files. The usage columns use it only to FILL
+    a gap in the build's own bridge (pid_meta), never to override it, so no
+    other stat moves."""
+    out: Dict[str, str] = {}
+    for season in sorted({int(s) for s in seasons}, reverse=True):
+        path = Path(cfg.cache_dir) / f"nflverse_weekly_rosters_{season}.csv"
+        if not path.exists():
+            continue
+        try:
+            wr = X.read_cached_csv(path, usecols=["sleeper_id", "gsis_id"], dtype=str)
+        except Exception:
+            continue
+        for sid, gs in wr[["sleeper_id", "gsis_id"]].dropna().itertuples(index=False):
+            sid = str(sid).strip().removesuffix(".0")
+            g = _gsis(gs)
+            if sid and g:
+                out.setdefault(sid, g)
+    return out
+
+
 def season_usage(season: int, stats: pd.DataFrame, snaps: pd.DataFrame, ffo: pd.DataFrame,
                  red_zone: pd.DataFrame, pfr_bridge: Mapping[str, str],
                  scoring: Mapping[str, Any]) -> pd.DataFrame:
@@ -386,6 +416,9 @@ def season_usage(season: int, stats: pd.DataFrame, snaps: pd.DataFrame, ffo: pd.
         out[TSHARE] = None
     # A played week with no target-share row (no targets) is a 0 share.
     out[TSHARE] = pd.to_numeric(out[TSHARE], errors="coerce").fillna(0.0)
+    # Only rows keyed by a real GSIS id: an unbridged id must never form a key
+    # an unbridged player could match.
+    out = out[out["gsis_id"].map(lambda g: _gsis(g) is not None)].copy()
     out["Year"] = int(season)
     return out
 
@@ -406,7 +439,9 @@ def attach(pw: pd.DataFrame, usage: pd.DataFrame, pid_to_gsis: Mapping[str, Opti
         return pw, pd.DataFrame()
     yr = pd.to_numeric(pw["Year"], errors="coerce")
     wk = pd.to_numeric(pw["Week"], errors="coerce")
-    gsis = pw["Player ID"].map(lambda p: pid_to_gsis.get(str(p)) if pd.notna(p) else None)
+    # A plain list, not Series.map: under pandas 3 a missing id comes back NaN,
+    # which is truthy, and was looked up as the gsis "nan" (Jack Strand 2026).
+    gsis = [_gsis(pid_to_gsis.get(str(p))) if pd.notna(p) else None for p in pw["Player ID"]]
     in_scope = yr >= FIRST_SEASON
     u = usage.set_index(["gsis_id", "Year", "week"]) if not usage.empty else None
     rows = []

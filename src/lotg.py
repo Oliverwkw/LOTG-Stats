@@ -23729,6 +23729,10 @@ def build_all(repo_root: Path) -> None:
             ext, _u_seasons, _bold_scoring, current_season=_current_lotg_season,
             force_refresh_seasons=[s for s in _u_seasons if _force_refresh_season(s)],
             log=lambda m: _log(debug, f"[{_now_iso()}] WARN {m}"))
+        # nflverse weekly rosters' sleeper_id fills gaps in the bridge (usage only).
+        _u_fill = {k: v for k, v in _usage.roster_sleeper_bridge(ext, _u_seasons).items()
+                   if k not in _u_bridge}
+        _u_bridge.update(_u_fill)
         pw, _u_report = _usage.attach(pw, _u_frame, _u_bridge, _bold_scoring)
         for _uk, _ukeys in (("player_year", ["Player ID", "Year"]), ("player_all", ["Player ID"])):
             _udf = player_year if _uk == "player_year" else player_all
@@ -23774,7 +23778,8 @@ def build_all(repo_root: Path) -> None:
             pass
         _log(debug, f"[{_now_iso()}] INFO usage/xFP: {len(_u_frame)} nflverse player-weeks, "
                     f"{int((_u_report['status'] == 'matched').sum()) if not _u_report.empty else 0} player_week rows matched, "
-                    f"{len(_uun)} rostered players with no gsis, "
+                    f"{len(_uun)} rostered players with no gsis "
+                    f"({len(_u_fill)} ids filled from nflverse rosters' sleeper_id), "
                     f"{(datetime.now() - _t_usage).total_seconds():.1f}s")
         for _r in _usum.to_dict("records"):
             _log(debug, f"[{_now_iso()}] INFO usage match {_r['Year']}: rows={_r['rows']} "

@@ -92,30 +92,30 @@ def test_red_zone_counts_only_red_zone_targets_and_carries():
 
 
 def _season():
-    stats = pd.DataFrame({"player_id": ["G1", "G2", "G1"], "season_type": ["REG", "REG", "POST"],
+    stats = pd.DataFrame({"player_id": ["00-0000001", "00-0000002", "00-0000001"], "season_type": ["REG", "REG", "POST"],
                           "week": [1, 1, 19], "targets": [8, 0, 5], "carries": [1, 14, 0],
                           "receiving_air_yards": [90, -3, 10], "target_share": [0.3, None, 0.2]})
     snaps = pd.DataFrame({"pfr_player_id": ["P1", "P2", "P3", "P4"], "game_type": ["REG"] * 4,
                           "week": [1, 1, 2, 1], "offense_snaps": [50, 40, 10, 0],
                           "defense_snaps": [0, 0, 0, 0], "st_snaps": [0, 0, 2, 0],
                           "offense_pct": [0.8, 0.6, 0.15, 0.0]})
-    bridge = {"P1": "G1", "P2": "G2", "P3": "G3", "P4": "G4"}
-    ffo = pd.DataFrame([_ffo_row(player_id="G1", week=1, receptions_exp=5.0, rec_yards_gained_exp=60.0),
-                        _ffo_row(player_id="G2", week=1, rush_yards_gained_exp=70.0, rush_touchdown_exp=0.5),
-                        _ffo_row(player_id="G1", week=19, receptions_exp=9.0)])
-    rz = pd.DataFrame({"gsis_id": ["G2"], "week": [1], "rz_targets": [0], "rz_carries": [3]})
+    bridge = {"P1": "00-0000001", "P2": "00-0000002", "P3": "00-0000003", "P4": "00-0000004"}
+    ffo = pd.DataFrame([_ffo_row(player_id="00-0000001", week=1, receptions_exp=5.0, rec_yards_gained_exp=60.0),
+                        _ffo_row(player_id="00-0000002", week=1, rush_yards_gained_exp=70.0, rush_touchdown_exp=0.5),
+                        _ffo_row(player_id="00-0000001", week=19, receptions_exp=9.0)])
+    rz = pd.DataFrame({"gsis_id": ["00-0000002"], "week": [1], "rz_targets": [0], "rz_carries": [3]})
     return U.season_usage(2025, stats, snaps, ffo, rz, bridge, PPR)
 
 
 def test_season_usage_bridges_snaps_and_drops_the_postseason():
     u = _season().set_index(["gsis_id", "week"])
-    assert (("G1", 19) not in u.index)                        # ffopportunity's playoff week
-    assert u.at[("G1", 1), U.SNAP] == 0.8 and u.at[("G1", 1), U.TARGETS] == 8
-    assert u.at[("G2", 1), U.TSHARE] == 0.0                   # played, no target row -> 0
-    assert u.at[("G2", 1), U.RZ] == 3
-    assert abs(u.at[("G2", 1), "_xfp_base"] - 10.0) < 1e-9
-    assert u.at[("G3", 2), "_xfp_base"] == 0.0                # special-teams snaps only
-    assert ("G4", 1) not in u.index                           # 0 snaps is not an appearance
+    assert (("00-0000001", 19) not in u.index)                        # ffopportunity's playoff week
+    assert u.at[("00-0000001", 1), U.SNAP] == 0.8 and u.at[("00-0000001", 1), U.TARGETS] == 8
+    assert u.at[("00-0000002", 1), U.TSHARE] == 0.0                   # played, no target row -> 0
+    assert u.at[("00-0000002", 1), U.RZ] == 3
+    assert abs(u.at[("00-0000002", 1), "_xfp_base"] - 10.0) < 1e-9
+    assert u.at[("00-0000003", 2), "_xfp_base"] == 0.0                # special-teams snaps only
+    assert ("00-0000004", 1) not in u.index                           # 0 snaps is not an appearance
 
 
 def _pw():
@@ -132,7 +132,7 @@ def _pw():
 
 
 def test_attach_blanks_did_not_play_and_reports_unbridged():
-    bridge = {"s1": "G1", "s2": "G2", "s3": "G3"}           # s4 has no gsis
+    bridge = {"s1": "00-0000001", "s2": "00-0000002", "s3": "00-0000003"}           # s4 has no gsis
     pw, rep = U.attach(_pw(), _season(), bridge, {2025: dict(PPR, bonus_rec_te=0.5)})
     r = pw.set_index(["Player ID", "Week"])
     assert abs(r.at[("s1", 1), U.XFP] - (5 + 6 + 2.5)) < 1e-9          # TE premium on expected catches
@@ -141,6 +141,9 @@ def test_attach_blanks_did_not_play_and_reports_unbridged():
     assert pd.isna(r.at[("s1", 2), U.XFP])                              # no game that week
     assert r.at[("s3", 2), U.XFP] == 0.0                                # snaps only
     st = rep.set_index(["Player ID", "Week"])["status"]
+    # a NaN / placeholder id is unbridged too, never the gsis "nan" (pandas 3 maps a miss to NaN)
+    _, rep2 = U.attach(_pw(), _season(), {"s1": float("nan"), "s2": "", "s3": "TBD"}, {2025: PPR})
+    assert set(rep2["status"]) == {"no gsis"}, rep2
     assert st[("s4", 1)] == "no gsis" and st[("s1", 2)] == "did not play" and st[("s1", 1)] == "matched"
     un = U.unmatched_players(rep)
     assert list(un["Player ID"]) == ["s4"] and un.at[0, "Player-weeks"] == 1
@@ -149,7 +152,7 @@ def test_attach_blanks_did_not_play_and_reports_unbridged():
 
 
 def test_rollups_sum_over_weeks_with_data():
-    pw, _ = U.attach(_pw(), _season(), {"s1": "G1", "s2": "G2", "s3": "G3"}, {2025: PPR})
+    pw, _ = U.attach(_pw(), _season(), {"s1": "00-0000001", "s2": "00-0000002", "s3": "00-0000003"}, {2025: PPR})
     py = U.player_rollup(pw, ["Player ID", "Year"]).set_index("Player ID")
     assert py.at["s1", U.WEEKS] == 1 and py.at["s1", U.XFP] == 11.0 and py.at["s1", U.AVG_XFP] == 11.0
     assert py.at["s4", U.WEEKS] == 0 and pd.isna(py.at["s4", U.XFP])
