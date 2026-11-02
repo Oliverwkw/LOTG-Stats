@@ -1739,8 +1739,14 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
     # re-spelled name cannot then borrow another player's count), else by name.
     by_id = player_ids.PLAYER_ID in pat.columns
     if by_id and not ledger.empty:
-        ids = ledger["player_id"].map(player_ids.clean_id)
-        keys = ("id:" + ids.astype(str)).where(ids.notna(), "name:" + ledger["player"].astype(str))
+        # An id counts only when the row's name is that id's name (the ledger
+        # spells id'd rows from the dictionary): a row whose name and id
+        # disagree — cash mistaken for a player — stays a name, so the phantom
+        # check below still sees it.
+        names = Q.players()
+        ids = [player_ids.clean_id(p) for p in ledger["player_id"]]
+        keys = pd.Series([f"id:{p}" if p and names.name(p) == n else f"name:{n}"
+                          for p, n in zip(ids, ledger["player"].astype(str))], index=ledger.index)
         label = dict(zip(keys, ledger["player"].astype(str)))
     elif not ledger.empty:
         keys = "name:" + ledger["player"].astype(str)
