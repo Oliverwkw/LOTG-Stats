@@ -64,3 +64,6 @@ exports/raw/pae_additions.json.gz
 # the committed CSVs in seconds (and shipped in the run artifact); a binary, so never commit it.
 .cache/lotg.duckdb
 .cache/lotg.duckdb.*
+
+# scripts/grade_tools.py replay caches (Sleeper stats/projections slim copies, trade forecasts, track record)
+.cache/grade/
