@@ -100,8 +100,10 @@ def add_export_ids(plan_key: str, frame: pd.DataFrame,
     if plan_key in _PLAYER_SHEETS and PLAYER_ID in out.columns:
         out[PLAYER_ID] = out[PLAYER_ID].map(clean_id).astype(object)
     if plan_key == "Player-Week":
-        ref = _col(out, REFERENCE_ID).map(clean_id)
-        out[REFERENCE_ID] = ref.where(ref.ne(EMPTY_SLOT_ID), None).astype(object)
+        # A list, not Series.where: pandas 3 turns a None fill into NaN.
+        out[REFERENCE_ID] = pd.Series(
+            [None if r == EMPTY_SLOT_ID else r for r in _col(out, REFERENCE_ID).map(clean_id)],
+            index=out.index, dtype=object)
     if plan_key == "Player-all-time" and gsis_of is not None and PLAYER_ID in out.columns:
         out[GSIS_ID] = out[PLAYER_ID].map(lambda p: clean_id(gsis_of(p)) if p else None).astype(object)
     if plan_key == "add_drops":
@@ -131,9 +133,13 @@ PAIRS = (
 )
 
 
+# Cells that name no player: an empty lineup slot, an unmade (future) pick.
+_NOT_A_PLAYER = {"empty slot", "unknown"}
+
+
 def _is_named(v: Any) -> bool:
     s = clean_id(v)
-    return bool(s) and s != "Empty slot"
+    return bool(s) and s.lower() not in _NOT_A_PLAYER
 
 
 def unmapped_rows(sheets: Dict[str, pd.DataFrame],
