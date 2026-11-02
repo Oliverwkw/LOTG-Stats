@@ -1200,7 +1200,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     if "pick value" in n:
         return "Activity"
     # The trade sides' player ids sit beside "Assets received / sent".
-    if n in ("player ids received", "player ids sent"):
+    if n.startswith("player ids "):
         return "Activity"
     # The game-time families, each one band whatever its members' keywords:
     # win odds (pre-week and live win %, per projection), comebacks / chokes
@@ -1753,6 +1753,12 @@ def _column_kind(col: str) -> str:
         "player picked id",
         "player ids received",
         "player ids sent",
+        "player ids retained now",
+        "player ids traded away",
+        "player ids dropped to fa",
+        "player ids in return from trades",
+        "player ids in additional assets traded away",
+        "player ids in full return chain",
         "gsis id",
         "nfl team",
         "position",
@@ -13510,6 +13516,10 @@ def build_all(repo_root: Path) -> None:
             return_immediate: List[str] = []
             additional_immediate: List[str] = []
             return_full: List[str] = []
+            # The asset KEY behind each display above, same order, so the
+            # player ids of every chain cell can be written beside it
+            # (lotg_support.player_ids); the display cells are unchanged.
+            chain_keys: Dict[str, List[Tuple[str, Tuple[str, Any]]]] = defaultdict(list)
             visited: Set[Tuple] = set()
 
             def _next_event(key_tuple: Tuple[str, Any], after: str) -> Optional[Dict[str, Any]]:
@@ -13545,25 +13555,31 @@ def build_all(repo_root: Path) -> None:
                     if fa_drop_date < trade_date:
                         # FA drop came first → chain ends here.
                         dropped_to_fa.append(asset_disp)
+                        chain_keys["fa"].append((asset_disp, asset_key))
                         continue
                     # else trade came first → fall through to trade handling
                 elif fa_drop_date and not trade_date:
                     dropped_to_fa.append(asset_disp)
+                    chain_keys["fa"].append((asset_disp, asset_key))
                     continue
 
                 if nx is None:
                     retained.append(asset_disp)
+                    chain_keys["retained"].append((asset_disp, asset_key))
                     continue
 
                 traded_away.append(asset_disp)
+                chain_keys["traded"].append((asset_disp, asset_key))
                 nx_keys, nx_disp = _next_trade_received(nx["tx_idx"])
                 return_immediate.extend(nx_disp)
+                chain_keys["return"].extend(zip(nx_disp, nx_keys))
                 # Additional assets traded away in the next trade
                 # alongside our asset (anything else this team gave up).
                 dr_keys, dr_disp = _next_trade_dropped(nx["tx_idx"])
                 for dk, dd in zip(dr_keys, dr_disp):
                     if dk != asset_key:
                         additional_immediate.append(dd)
+                        chain_keys["additional"].append((dd, dk))
                 # Recurse to build full chain.
                 queue: List[Tuple[Tuple[str, Any], str, str]] = []
                 for k, d in zip(nx_keys, nx_disp):
@@ -13574,6 +13590,7 @@ def build_all(repo_root: Path) -> None:
                         continue
                     visited.add(cur_k)
                     return_full.append(cur_d)
+                    chain_keys["full"].append((cur_d, cur_k))
                     nxt = _next_event(cur_k, cur_after)
                     if nxt is None:
                         continue
@@ -13593,6 +13610,11 @@ def build_all(repo_root: Path) -> None:
                 row["Additional assets traded away in those deals"] = "; ".join(dict.fromkeys(additional_immediate))
             if return_full:
                 row["Return from trades of trades...of trades. Keep going until present day"] = "; ".join(dict.fromkeys(return_full))
+            # Internal (lotg_support.player_ids writes the export columns): the
+            # player ids of each chain cell, deduplicated the way its cell is.
+            for _ck, _dedup in (("retained", False), ("traded", False), ("fa", False),
+                                ("return", True), ("additional", True), ("full", True)):
+                row[f"_chain_ids_{_ck}"] = _player_ids.chain_player_ids(chain_keys[_ck], _dedup)
 
         # WINS ADDED (trades + add_drops). For every week from the move to today —
         # playoffs and consolation games included, each week on its own — would

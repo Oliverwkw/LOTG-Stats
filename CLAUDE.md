@@ -125,7 +125,8 @@ non-starter, taxi and IR included** (no weekly taxi flag exists). Name the
 as-of week.
 **Join players by id, never by name**: every sheet that names a player
 carries his Sleeper id (`Player ID`; `Reference player ID`, `Player Added ID` /
-`Player Dropped ID`, `Player Picked ID`, trades' `Player IDs received` / `sent`;
+`Player Dropped ID`, `Player Picked ID`, trades' `Player IDs received` / `sent`
+and one `Player IDs …` list per chain-of-custody cell;
 `GSIS ID` on player_all_time for nflverse). Names get re-spelled (Jr./II) and
 collide (Josh Allen QB/G). `lotg_support.player_ids` has the helpers.
 **Let pandas do every count** ("more than once", "how many times", "who has

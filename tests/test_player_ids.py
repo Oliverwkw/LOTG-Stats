@@ -89,9 +89,19 @@ def test_add_export_ids_per_sheet():
     assert ph["Player Picked ID"].tolist() == ["9", None]
 
     tr = P.add_export_ids("trades", pd.DataFrame({"_recv_player_ids": [["1", "2"], []],
-                                                  "_drop_player_ids": [[], ["3"]]}))
+                                                  "_drop_player_ids": [[], ["3"]],
+                                                  "_chain_ids_full": [["4"], []]}))
     assert tr["Player IDs received"].tolist() == ["1; 2", None]
     assert tr["Player IDs sent"].tolist() == [None, "3"]
+    assert tr["Player IDs in full return chain"].tolist() == ["4", None]
+    assert tr["Player IDs retained now"].tolist() == [None, None]
+
+
+def test_chain_ids_follow_the_cell():
+    pairs = [("A", ("player", "1")), ("2025 1.05(B)", ("pick", (2025, 1, "x"))),
+             ("A", ("player", "1")), ("C", ("player", 3.0))]
+    assert P.chain_player_ids(pairs, dedup=True) == ["1", "3"]
+    assert P.chain_player_ids(pairs, dedup=False) == ["1", "1", "3"]
 
 
 def test_unmapped_rows_flags_both_directions():
@@ -140,7 +150,9 @@ def test_trade_ids_are_the_listed_players():
     tr, pat = sheets["trades"], sheets["player_all_time"]
     name_of = dict(zip(pat["Player ID"], pat["Player"]))
     wrong = []
-    for side, ids_col in (("Assets received", P.RECEIVED_IDS), ("Assets sent", P.SENT_IDS)):
+    sides = [("Assets received", P.RECEIVED_IDS), ("Assets sent", P.SENT_IDS)]
+    sides += [(cell, col) for cell, (_k, col) in P.CHAIN_IDS.items() if col in tr.columns]
+    for side, ids_col in sides:
         for i, (cell, ids) in enumerate(zip(tr[side], tr[ids_col])):
             names = [a.strip() for a in cell.split(";") if a.strip() and _is_player_asset(a.strip())]
             got = [name_of.get(p) for p in P.split_ids(ids)]

@@ -49,6 +49,10 @@ _VOLATILE_EXACT = {
     "Assets retained now", "Assets traded away", "Assets dropped to FA",
     "Return from trades", "Additional assets traded away in those deals",
     "Return from trades of trades...of trades. Keep going until present day",
+    # ... and the player ids of each of those cells (lotg_support.player_ids).
+    "Player IDs retained now", "Player IDs traded away", "Player IDs dropped to FA",
+    "Player IDs in return from trades", "Player IDs in additional assets traded away",
+    "Player IDs in full return chain",
 }
 
 

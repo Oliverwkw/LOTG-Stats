@@ -822,9 +822,11 @@ list is here so an answer written by hand does not walk into them.
   QB/CB). Every sheet that names a player carries his Sleeper id beside it
   (`Player ID`, `Reference player ID`, `Player Added ID` / `Player Dropped ID`,
   `Player Picked ID`, trades' `Player IDs received` / `Player IDs sent` in the
-  order the assets cell lists the players) and player_all_time has `GSIS ID`
+  order the assets cell lists the players, and one `Player IDs …` list per
+  chain-of-custody cell) and player_all_time has `GSIS ID`
   for nflverse joins (`lotg_support.player_ids`). Join on those. `fast.py`'s stint
-  join, `analysis.with_position` and `inquiry.unavailable` already do; on
+  join, `analysis.with_position`, `analysis.ownership_ledger` (and the trade-count
+  check) and `inquiry.unavailable` already do; on
   exports older than the ids they fall back to names.
 
 - **A comeback is measured against the opponent's FINAL score, not the margin
