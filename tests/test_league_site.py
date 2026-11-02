@@ -109,6 +109,22 @@ def test_digest_parser_reads_sections_and_flags_edits():
     assert secs[-1]["edits"] is True and not secs[0]["edits"]
 
 
+def test_board_keeps_ties_only_when_they_fit():
+    s = pd.Series([10, 9, 9, 8, 7, 7, 6])
+    assert [(v, r) for _i, v, r in S.board(s, ascending=False)] == [(10, 1), (9, 2), (9, 2), (8, 4)]
+    assert [(v, r) for _i, v, r in S.board(pd.Series([1, 1, 2, 3, 4, 5]), ascending=True)] == \
+        [(1, 1), (1, 1), (2, 3), (3, 4), (4, 5)]
+    assert S.board(pd.Series([3, 3, 3, 3, 3, 3]), ascending=False) == []
+
+
+def test_week_kinds():
+    assert S.week_kind("Week 15") == "reg"
+    assert S.week_kind("Semifinal") == S.week_kind("Final") == "playoffs"
+    assert S.week_kind("3rd Place") == "third"            # not playoffs (user, 2026-11-02)
+    assert S.week_kind("Toilet Semis") == S.week_kind("Toilet Final") == "toilet"
+    assert S.week_kind("Toilet Trash") == "trash"
+
+
 def test_shell_does_not_shadow_the_rating_page():
     names = {f.name for f in S.SHELL.iterdir()}
     assert {"index.html", "app.js", "style.css"} <= names
@@ -152,7 +168,15 @@ def _head_to_head_matches_team_week():
         assert (c["w"], c["l"]) == (other["l"], other["w"]), (a, b)
         mask = (tw.Team == a) & (tw.Opponent == b)
         assert c["w"] == int(win[mask].sum()) and c["w"] + c["l"] == int(mask.sum())
-        assert c["rw"] + c["pw"] == c["w"]
+        assert sum(c[k + "w"] for k in S.WEEK_KINDS) == c["w"]
+        assert sum(c[k + "l"] for k in S.WEEK_KINDS) == c["l"]
+    # each week type's record, summed over opponents, is the build's own team record
+    ta = pd.read_csv(_ROOT / "exports" / "team_all_time.csv").set_index("Team")
+    for team in m["teams"]:
+        for kind, col in S.KIND_RECORD.items():
+            w = sum(v[kind + "w"] for k, v in m["cells"].items() if k.split("|")[0] == team)
+            l = sum(v[kind + "l"] for k, v in m["cells"].items() if k.split("|")[0] == team)
+            assert f"{w}-{l}" == str(ta.at[team, col]), (team, col)
 
 
 def _standings_count_regular_season_games():
@@ -235,6 +259,29 @@ def _held_picks_match_future_draft_capital():
         assert abs(sum(w[r] for _y, r, _o in ps) - float(cur[team])) < 1e-6, team
 
 
+def _record_boards_follow_the_digest():
+    """At most 5 per end, every week sheet split by week type, and a trade on
+    a board at most once."""
+    for sheet in S.RECORD_SHEETS:
+        r = _load(f"records/{sheet}.json")
+        for c in r["columns"]:
+            for scope, b in c["scopes"].items():
+                for end, rows in b.items():
+                    assert len(rows) <= S.RECORD_DEPTH, (sheet, c["col"], scope, end)
+                    ranks = [x[3] for x in rows]
+                    assert ranks == sorted(ranks) and all(x <= S.RECORD_DEPTH for x in ranks)
+        if sheet in ("team_week", "player_week"):
+            assert r["scopes"] == ["all", *S.WEEK_KINDS]
+    tr = _load("records/trades.json")
+    for c in tr["columns"]:
+        for b in c["scopes"].values():
+            for rows in b.values():
+                keys = [(x[1][2], frozenset(x[1][:2])) for x in rows]   # date + the two teams
+                assert len(keys) == len(set(keys)), c["col"]
+    ktc = next(c for c in tr["columns"] if c["col"] == "KTC value difference at deal time")
+    assert ktc.get("mirror") and "lo" not in ktc["scopes"]["all"]
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -258,7 +305,7 @@ def test_built_site_reconciles():
                   _head_to_head_matches_team_week, _standings_count_regular_season_games,
                   _players_have_unique_pages, _usage_reaches_player_and_team_pages,
                   _every_export_cell_is_on_the_site,
-                  _held_picks_match_future_draft_capital,
+                  _held_picks_match_future_draft_capital, _record_boards_follow_the_digest,
                   _output_has_nothing_private):
         check()
 
@@ -274,6 +321,8 @@ TESTS = [
     test_column_format_follows_the_workbook,
     test_clean_is_json_safe,
     test_digest_parser_reads_sections_and_flags_edits,
+    test_board_keeps_ties_only_when_they_fit,
+    test_week_kinds,
     test_shell_does_not_shadow_the_rating_page,
     test_built_site_reconciles,
     test_privacy_scan_catches_a_leak,
