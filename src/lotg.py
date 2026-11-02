@@ -2084,6 +2084,11 @@ def _preserve_na(col: str) -> bool:
     # their streaks and "Times …" counts keep the 0 fill like the other awards.
     if col_l in {"sleeper boldness", "sleeper lineup boldness"}:
         return True
+    # Usage / xFP (lotg_support.usage): blank = no NFL game that week / no
+    # usage data, never 0 — a 0-fill turned ~5,400 did-not-play weeks into
+    # "played, no opportunity". The weeks count is a count and keeps its 0.
+    if col_l in _USAGE_TOPIC and col_l != _usage.WEEKS.lower():
+        return True
     if "projection" in col_l and "streak" not in col_l \
             and not col_l.startswith(("overachiever", "underachiever", "times ", "combined ")):
         return True   # (the Combined block keeps its own "winner" convention)

@@ -238,6 +238,12 @@ def test_player_week_difference_and_match_rate():
     print(f"  xFP coverage of scoring 2021+ completed-season player-weeks: {rate:.4f}; misses: {len(miss)}")
     print(miss.groupby("Player").size().sort_values(ascending=False).head(25).to_string())
     assert rate >= 0.97, rate
+    # a week with no NFL game exports BLANK, never a 0-fill (run 41465363194
+    # wrote 0 on ~5,400 did-not-play rows): every bye week of a completed season
+    bye = pw["Bye?"].astype(str).str.lower().isin(["true", "1", "1.0"]) & (yr >= 2020) & (yr < yr.max())
+    assert bye.sum() > 0 and x[bye].isna().all(), int(x[bye].notna().sum())
+    for c in (U.SNAP, U.TARGETS, U.CARRIES, U.RZ, U.DIFF):
+        assert _num(pw.loc[bye, c]).isna().all(), c
 
 
 def test_team_week_and_year_sheets_add_up():

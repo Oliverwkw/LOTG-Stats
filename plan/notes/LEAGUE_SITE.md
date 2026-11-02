@@ -8,7 +8,7 @@ A static site for league-mates, published on GitHub Pages at
 | Home: standings, title/final/playoff odds, this week's results, the digest's items | `#/` | `data/home.json` |
 | Teams table | `#/teams` | `data/team/*.json` |
 | Team: all-time tiles, head to head, roster age vs league by position, this season, seasons, current roster, trades, rookie picks | `#/team/<team>` | `data/team/<team>.json` |
-| Player: career tiles, career by team, every acquisition (player_additions), seasons, trades | `#/player/<key>` | `data/player/<key>.json` |
+| Player: career tiles (incl. career xFP, points minus xFP), career by team, every acquisition (player_additions), seasons, usage per season (snaps, targets, carries, red-zone looks, xFP), trades | `#/player/<key>` | `data/player/<key>.json` |
 | Record book: top/bottom 10 of **every** numeric column on 12 sheets, filterable | `#/records/<sheet>` | `data/records/<sheet>.json` |
 | Head-to-head matrix (all / regular season / postseason) | `#/h2h` | `data/h2h.json` |
 | Trade history with each side's KTC difference at the deal, season end, +1 and +2 years, impact score, wins added, net points | `#/trades` | `data/trades.json` |

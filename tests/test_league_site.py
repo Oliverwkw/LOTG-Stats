@@ -177,6 +177,27 @@ def _players_have_unique_pages():
     assert set(keys) == files
 
 
+def _usage_reaches_player_and_team_pages():
+    """lotg_support.usage: a player's Usage table is his player_year seasons with
+    usage data, and the team pages carry the starters' xFP (skips on exports
+    that predate the columns)."""
+    py = pd.read_csv(_ROOT / "exports" / "player_year.csv", low_memory=False)
+    if "xFP" not in py.columns:
+        return _skip("exports have no usage columns yet")
+    idx = _load("search.json")
+    key_of = {r[2]: r[1] for r in idx if r[0] == "p"}
+    py["_n"] = pd.to_numeric(py["Weeks with usage data"], errors="coerce").fillna(0)
+    best = py.sort_values("xFP", key=lambda s: pd.to_numeric(s, errors="coerce"), ascending=False)
+    name = next(n for n in best.Player if n in key_of)
+    p = _load(f"player/{key_of[name]}.json")
+    assert p["usage"]["cols"][:2] == ["Year", "Weeks with usage data"], p["usage"]["cols"]
+    assert len(p["usage"]["rows"]) == int((py[(py.Player == name)]["_n"] > 0).sum())
+    assert "xFP" in p["summary"] and "Points minus xFP" in p["summary"]
+    assert S.column_format("Avg snap %") == {"d": 2, "p": "x"}
+    t = _load(f"team/{S.slug(_load('meta.json')['teams'][0])}.json")
+    assert "Starters' xFP" in t["seasons"]["cols"] and "Starters' xFP" in t["weeks"]["cols"]
+
+
 def _every_export_cell_is_on_the_site():
     """The Data page carries every sheet in exports/, every row and every column,
     and the downloads are the committed CSVs byte for byte."""
@@ -235,7 +256,8 @@ def test_built_site_reconciles():
         return _skip("no exports/")
     for check in (_build_writes_every_page, _every_trade_row_is_one_side,
                   _head_to_head_matches_team_week, _standings_count_regular_season_games,
-                  _players_have_unique_pages, _every_export_cell_is_on_the_site,
+                  _players_have_unique_pages, _usage_reaches_player_and_team_pages,
+                  _every_export_cell_is_on_the_site,
                   _held_picks_match_future_draft_capital,
                   _output_has_nothing_private):
         check()
