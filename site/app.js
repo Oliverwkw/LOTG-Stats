@@ -249,9 +249,8 @@ async function team(slug) {
       <div class="card"><h2>Head to head</h2>${table([
         { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
         { k: (r) => r.w / Math.max(1, r.w + r.l), label: "W-L", html: (r) => `${r.w}-${r.l}` },
-        { k: (r) => r.rw / Math.max(1, r.rw + r.rl), label: "Regular", html: (r) => `${r.rw}-${r.rl}` },
-        { k: "pw", label: "Playoffs", html: (r) => `${r.pw}-${r.pl}` },
-        { k: "tw", label: "Toilet", html: (r) => `${r.tw}-${r.tl}` },
+        ...[["reg", "Regular"], ["playoffs", "Playoffs"], ["third", "3rd place"], ["toilet", "Toilet"], ["trash", "Toilet losers"]].map(([k, n]) =>
+          ({ k: (r) => r[k + "w"] / Math.max(1, r[k + "w"] + r[k + "l"]), label: n, html: (r) => `${r[k + "w"]}-${r[k + "l"]}` })),
         { k: "pf", label: "Avg PF", spec: { d: 2 } },
         { k: "pa", label: "Avg PA", spec: { d: 2 } },
       ], t.h2h, { sort: 1 })}<p class="small"><a href="#/h2h">Full matrix →</a></p></div>
@@ -372,7 +371,7 @@ async function h2h() {
   const m = await load("h2h.json");
   let mode = "all";
   function draw() {
-    const key = { all: ["w", "l"], reg: ["rw", "rl"], po: ["pw", "pl"], tb: ["tw", "tl"] }[mode];
+    const key = mode === "all" ? ["w", "l"] : [mode + "w", mode + "l"];
     const head = `<tr><th class="l">Team ↓ vs →</th>${m.teams.map((t) => `<th>${esc(t.slice(0, 8))}</th>`).join("")}<th>Total</th></tr>`;
     const body = m.teams.map((a) => {
       let W = 0, L = 0;
@@ -391,8 +390,8 @@ async function h2h() {
     document.getElementById("mx").innerHTML = `<table class="matrix"><thead>${head}</thead><tbody>${body}</tbody></table>`;
   }
   $app.innerHTML = `<h1>Head to head</h1>
-    <div class="seg"><button data-m="all" aria-pressed="true">All games</button><button data-m="reg" aria-pressed="false">Regular season</button><button data-m="po" aria-pressed="false">Playoffs</button><button data-m="tb" aria-pressed="false">Toilet bowl</button></div>
-    <div class="card"><div class="scroll" id="mx"></div><p class="muted small">Row team's record against the column team. Tap a cell for details. Playoffs = the winners' bracket (semifinals, final, 3rd-place game); toilet bowl = the losers' bracket (toilet semis, final and trash game). ${esc(m.note)}</p></div>
+    <div class="seg"><button data-m="all" aria-pressed="true">All games</button>${Object.entries(m.kinds).map(([k, n]) => `<button data-m="${k}" aria-pressed="false">${esc(n)}</button>`).join("")}</div>
+    <div class="card"><div class="scroll" id="mx"></div><p class="muted small">Row team's record against the column team. Tap a cell for details. Playoffs = semifinals and final; the 3rd-place game, the toilet bowl (toilet semis and final) and the toilet losers game are each their own record, as on the team sheets. ${esc(m.note)}</p></div>
     <div class="card" id="cell"><p class="muted">Tap a cell.</p></div>`;
   $app.querySelectorAll("[data-m]").forEach((b) => b.onclick = () => { mode = b.dataset.m; $app.querySelectorAll("[data-m]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("mx").onclick = (e) => {
@@ -400,7 +399,7 @@ async function h2h() {
     if (!td) return;
     const c = m.cells[`${td.dataset.a}|${td.dataset.b}`];
     document.getElementById("cell").innerHTML = `<h2>${teamLink(td.dataset.a)} vs ${teamLink(td.dataset.b)}</h2>
-      <p>All games <b>${c.w}-${c.l}</b> · regular season ${c.rw}-${c.rl} · playoffs ${c.pw}-${c.pl} · toilet bowl ${c.tw}-${c.tl}</p>
+      <p>All games <b>${c.w}-${c.l}</b> · ${Object.entries(m.kinds).map(([k, n]) => `${esc(n.toLowerCase())} ${c[k + "w"]}-${c[k + "l"]}`).join(" · ")}</p>
       <p>Points ${fmt({ d: 2 }, c.pf)} – ${fmt({ d: 2 }, c.pa)} · last meeting: ${esc(c.last)}</p>`;
   };
   draw();

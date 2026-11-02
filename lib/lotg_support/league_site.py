@@ -69,21 +69,28 @@ RECORD_SHEETS = {
 # the 5 (memory digest-line-rules-0922, `_tie_fits`): no 2-way tie for 5th.
 RECORD_DEPTH = 5
 
-# Week types. "Postseason" used to lump these together; the boards and head to
-# head keep them apart.
-WEEK_KINDS = {"reg": "Regular season", "playoffs": "Playoffs", "toilet": "Toilet bowl"}
-PLAYOFF_WEEKS = ("Semifinal", "Final", "3rd Place", "Quarterfinal")
+# Week types, as the build's team records split them (team_all_time "Playoff
+# record" / "Third place game record" / "Toilet bowl record" / "Toilet losers
+# game record"; tests reconcile each). The 3rd-place game is NOT playoffs (user,
+# 2026-11-02), and the toilet losers game is not the toilet bowl.
+WEEK_KINDS = {"reg": "Regular season", "playoffs": "Playoffs", "third": "3rd place game",
+              "toilet": "Toilet bowl", "trash": "Toilet losers game"}
+KIND_RECORD = {"playoffs": "Playoff record", "third": "Third place game record",
+               "toilet": "Toilet bowl record", "trash": "Toilet losers game record"}
 
 
 def week_kind(name) -> str:
-    """"reg" for a regular-season week ("Week 7"), "toilet" for the toilet
-    bowl (Toilet Semis / Final / Trash), "playoffs" for the winners' bracket
-    (Semifinal, Final, 3rd Place)."""
+    """"reg" for a regular-season week ("Week 7"); "playoffs" for Semifinal and
+    Final; "third" for the 3rd-place game; "toilet" for Toilet Semis and Toilet
+    Final; "trash" for the toilet losers game (Toilet Trash)."""
     n = str(name)
     if n.startswith("Week "):
         return "reg"
-    if n.lower().startswith("toilet"):
-        return "toilet"
+    low = n.lower()
+    if "3rd" in low or "third" in low:
+        return "third"
+    if low.startswith("toilet"):
+        return "trash" if ("trash" in low or "loser" in low) else "toilet"
     return "playoffs"
 
 
@@ -118,7 +125,8 @@ SEASON_COLUMNS = [
     "Draft Value", "Times Highest score?", "Week of playoff elimination",
 ]
 TEAM_SUMMARY_COLUMNS = [
-    "All time record", "All time win %", "Regular season record", "Playoff record", "Toilet bowl record",
+    "All time record", "All time win %", "Regular season record", "Playoff record",
+    "Third place game record", "Toilet bowl record", "Toilet losers game record",
     "Championships", "Number of championship appearances", "Number of playoff appearances",
     "Number of last place finishes", "Points", "Avg points", "Points against", "Efficiency",
     "All-play win %", "Avg yearly luck", "Drafting skill", "Trading skill", "Add/Drop skill",
@@ -350,6 +358,15 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
              "next": None if o.next_week is None else round(o.next_week, 2)}
             for o in fc.by_champion()]
     return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows}
+
+
+def _kind_records(x: pd.DataFrame) -> Dict[str, int]:
+    """Wins and losses per week type: {"regw": .., "regl": .., "playoffsw": ..}."""
+    out = {}
+    for k in WEEK_KINDS:
+        y = x[x.Kind == k]
+        out[k + "w"], out[k + "l"] = int(y.W.sum()), int((~y.W).sum())
+    return out
 
 
 def _zero_sum(values: pd.Series, deal: pd.Series) -> bool:
@@ -606,25 +623,19 @@ class Site:
         g["Points against"] = pd.to_numeric(g["Points against"], errors="coerce")
         g["W"] = g["Win?"].astype(str).str.lower().eq("true")
         g["Kind"] = g["Week Name"].map(week_kind)
-        g["Playoff"] = g.Kind == "playoffs"
-        g["Toilet"] = g.Kind == "toilet"
         return g
 
     def h2h(self) -> Dict[str, object]:
         g = self.games()
         cells = {}
         for (a, b), x in g.groupby(["Team", "Opponent"]):
-            reg, po, tb = x[x.Kind == "reg"], x[x.Playoff], x[x.Toilet]
             last = x.sort_values(["Year", "Week"]).iloc[-1]
             cells[f"{a}|{b}"] = {
-                "w": int(x.W.sum()), "l": int((~x.W).sum()),
-                "rw": int(reg.W.sum()), "rl": int((~reg.W).sum()),
-                "pw": int(po.W.sum()), "pl": int((~po.W).sum()),
-                "tw": int(tb.W.sum()), "tl": int((~tb.W).sum()),
+                "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                 "pf": round(float(x.PF.sum()), 2), "pa": round(float(x["Points against"].sum()), 2),
                 "last": f"{int(last.Year)} {last['Week Name']}: {'W' if last.W else 'L'} "
                         f"{last.PF:.2f}-{last['Points against']:.2f}"}
-        return {"teams": self.teams, "cells": cells,
+        return {"teams": self.teams, "cells": cells, "kinds": WEEK_KINDS,
                 "note": "PF includes the semifinal +5 bonus (team PF does; player points do not)."}
 
     # -- trades
@@ -734,10 +745,7 @@ class Site:
         mine = g[g.Team == team]
         h2h = []
         for opp, x in mine.groupby("Opponent"):
-            h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()),
-                        "rw": int(x[x.Kind == "reg"].W.sum()), "rl": int((~x[x.Kind == "reg"].W).sum()),
-                        "pw": int(x[x.Playoff].W.sum()), "pl": int((~x[x.Playoff].W).sum()),
-                        "tw": int(x[x.Toilet].W.sum()), "tl": int((~x[x.Toilet].W).sum()),
+            h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                         "pf": round(float(x.PF.mean()), 2), "pa": round(float(x["Points against"].mean()), 2)})
         week_cols = ["Year", "Week Name", "Opponent", "Win?", "PF", "Points against", "Margin",
                      "Max PF", "Efficiency"]

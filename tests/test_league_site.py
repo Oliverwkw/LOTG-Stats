@@ -119,8 +119,10 @@ def test_board_keeps_ties_only_when_they_fit():
 
 def test_week_kinds():
     assert S.week_kind("Week 15") == "reg"
-    assert S.week_kind("Toilet Trash") == S.week_kind("Toilet Semis") == "toilet"
-    assert S.week_kind("Semifinal") == S.week_kind("Final") == S.week_kind("3rd Place") == "playoffs"
+    assert S.week_kind("Semifinal") == S.week_kind("Final") == "playoffs"
+    assert S.week_kind("3rd Place") == "third"            # not playoffs (user, 2026-11-02)
+    assert S.week_kind("Toilet Semis") == S.week_kind("Toilet Final") == "toilet"
+    assert S.week_kind("Toilet Trash") == "trash"
 
 
 def test_shell_does_not_shadow_the_rating_page():
@@ -166,10 +168,15 @@ def _head_to_head_matches_team_week():
         assert (c["w"], c["l"]) == (other["l"], other["w"]), (a, b)
         mask = (tw.Team == a) & (tw.Opponent == b)
         assert c["w"] == int(win[mask].sum()) and c["w"] + c["l"] == int(mask.sum())
-        assert c["rw"] + c["pw"] + c["tw"] == c["w"] and c["rl"] + c["pl"] + c["tl"] == c["l"]
-        kinds = tw.loc[mask, "Week Name"].map(S.week_kind)
-        assert c["tw"] + c["tl"] == int((kinds == "toilet").sum()), (a, b)
-        assert c["pw"] + c["pl"] == int((kinds == "playoffs").sum()), (a, b)
+        assert sum(c[k + "w"] for k in S.WEEK_KINDS) == c["w"]
+        assert sum(c[k + "l"] for k in S.WEEK_KINDS) == c["l"]
+    # each week type's record, summed over opponents, is the build's own team record
+    ta = pd.read_csv(_ROOT / "exports" / "team_all_time.csv").set_index("Team")
+    for team in m["teams"]:
+        for kind, col in S.KIND_RECORD.items():
+            w = sum(v[kind + "w"] for k, v in m["cells"].items() if k.split("|")[0] == team)
+            l = sum(v[kind + "l"] for k, v in m["cells"].items() if k.split("|")[0] == team)
+            assert f"{w}-{l}" == str(ta.at[team, col]), (team, col)
 
 
 def _standings_count_regular_season_games():
@@ -243,7 +250,7 @@ def _record_boards_follow_the_digest():
                     ranks = [x[3] for x in rows]
                     assert ranks == sorted(ranks) and all(x <= S.RECORD_DEPTH for x in ranks)
         if sheet in ("team_week", "player_week"):
-            assert r["scopes"] == ["all", "reg", "playoffs", "toilet"]
+            assert r["scopes"] == ["all", *S.WEEK_KINDS]
     tr = _load("records/trades.json")
     for c in tr["columns"]:
         for b in c["scopes"].values():
