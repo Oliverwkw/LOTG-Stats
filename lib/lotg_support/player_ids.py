@@ -84,6 +84,12 @@ def split_ids(cell: Any) -> List[str]:
     return [t.strip() for t in s.split(";") if t.strip()] if s else []
 
 
+def _obj(frame: pd.DataFrame, values: Iterable[Any]) -> pd.Series:
+    """An object column holding real None for a blank. (Series.map(...).astype(
+    object) leaves NaN under pandas 3's string dtype, which CI runs.)"""
+    return pd.Series(list(values), index=frame.index, dtype=object)
+
+
 def _col(frame: pd.DataFrame, name: str) -> pd.Series:
     if name in frame.columns:
         return frame[name]
@@ -98,22 +104,20 @@ def add_export_ids(plan_key: str, frame: pd.DataFrame,
         return frame
     out = frame.copy()
     if plan_key in _PLAYER_SHEETS and PLAYER_ID in out.columns:
-        out[PLAYER_ID] = out[PLAYER_ID].map(clean_id).astype(object)
+        out[PLAYER_ID] = _obj(out, map(clean_id, out[PLAYER_ID]))
     if plan_key == "Player-Week":
-        # A list, not Series.where: pandas 3 turns a None fill into NaN.
-        out[REFERENCE_ID] = pd.Series(
-            [None if r == EMPTY_SLOT_ID else r for r in _col(out, REFERENCE_ID).map(clean_id)],
-            index=out.index, dtype=object)
+        out[REFERENCE_ID] = _obj(out, (None if r == EMPTY_SLOT_ID else r
+                                       for r in map(clean_id, _col(out, REFERENCE_ID))))
     if plan_key == "Player-all-time" and gsis_of is not None and PLAYER_ID in out.columns:
-        out[GSIS_ID] = out[PLAYER_ID].map(lambda p: clean_id(gsis_of(p)) if p else None).astype(object)
+        out[GSIS_ID] = _obj(out, (clean_id(gsis_of(p)) if p else None for p in out[PLAYER_ID]))
     if plan_key == "add_drops":
-        out[ADDED_ID] = _col(out, "_added_pid").map(clean_id).astype(object)
-        out[DROPPED_ID] = _col(out, "_dropped_pid").map(clean_id).astype(object)
+        out[ADDED_ID] = _obj(out, map(clean_id, _col(out, "_added_pid")))
+        out[DROPPED_ID] = _obj(out, map(clean_id, _col(out, "_dropped_pid")))
     if plan_key in _PICK_SHEETS:
-        out[PICKED_ID] = _col(out, "_player_id").map(clean_id).astype(object)
+        out[PICKED_ID] = _obj(out, map(clean_id, _col(out, "_player_id")))
     if plan_key == "trades":
-        out[RECEIVED_IDS] = _col(out, "_recv_player_ids").map(join_ids).astype(object)
-        out[SENT_IDS] = _col(out, "_drop_player_ids").map(join_ids).astype(object)
+        out[RECEIVED_IDS] = _obj(out, map(join_ids, _col(out, "_recv_player_ids")))
+        out[SENT_IDS] = _obj(out, map(join_ids, _col(out, "_drop_player_ids")))
     return out
 
 
