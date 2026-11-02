@@ -77,6 +77,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 
 from lotg_support import inquiry as Q
+from lotg_support import player_ids
 
 POSITIONS: Tuple[str, ...] = ("QB", "RB", "WR", "TE")
 
@@ -99,6 +100,24 @@ def _positions_cached(root: str) -> Dict[Tuple[str, int], str]:
         if pos and pd.notna(year):
             out[(str(name), int(year))] = str(pos)
     return out
+
+
+@functools.lru_cache(maxsize=1)
+def _positions_by_id_cached(root: str) -> Dict[Tuple[str, int], str]:
+    pw = Q.load_sheet("player_week")
+    if player_ids.PLAYER_ID not in pw.columns:
+        return {}
+    years = Q.numeric(pw, "Year")
+    out: Dict[Tuple[str, int], str] = {}
+    for idx, (pid, pos) in enumerate(zip(pw[player_ids.PLAYER_ID], pw["Position"])):
+        year, pid = years.iloc[idx], player_ids.clean_id(pid)
+        if pid and pos and pd.notna(year):
+            out[(pid, int(year))] = str(pos)
+    return out
+
+
+# A sheet's player-name column -> the column holding that player's Sleeper id.
+_ID_OF_NAME = {name: id_col for _s, name, id_col, joined in player_ids.PAIRS if not joined}
 
 
 def positions_by_season() -> Dict[Tuple[str, int], str]:
@@ -147,6 +166,12 @@ def with_position(df: pd.DataFrame, name_column: str = "Player",
     (`unplaced()` gives them back).
     """
     table = positions_by_season()
+    # Keyed by Sleeper id first when the frame carries the name's id column
+    # (exports from 2026-10 on): a renamed player or a namesake still places.
+    id_col = _ID_OF_NAME.get(name_column)
+    ids = (df[id_col].map(player_ids.clean_id).tolist()
+           if id_col and id_col in df.columns else None)
+    by_id = _positions_by_id_cached(str(Q.repo_root())) if ids is not None else {}
     seasons = (Q.numeric(df, season_column)
                if season_column and season_column in df.columns else None)
     values = []
@@ -157,7 +182,9 @@ def with_position(df: pd.DataFrame, name_column: str = "Player",
         year = seasons.iloc[i] if seasons is not None else None
         pos = None
         if year is not None and pd.notna(year):
-            pos = table.get((str(name), int(year)))
+            if ids is not None and ids[i]:
+                pos = by_id.get((ids[i], int(year)))
+            pos = pos or table.get((str(name), int(year)))
         values.append(pos or position_of(name) or _dictionary_position(str(name)) or "")
     return df.assign(Position=values)
 
@@ -471,7 +498,8 @@ def compare(df: pd.DataFrame, condition: str, metric: str,
 def numeric_columns(frame: pd.DataFrame, exclude: Sequence[str] = (),
                     min_values: int = 2) -> List[str]:
     """Every column of an arbitrary frame that can be compared as a number."""
-    skip = set(exclude) | {"Team", "Year", "Week", "Week Name", "Player", "Position"}
+    skip = (set(exclude) | {"Team", "Year", "Week", "Week Name", "Player", "Position"}
+            | set(player_ids.ID_COLUMNS))
     out = []
     for col in frame.columns:
         if col in skip:
@@ -1826,7 +1854,8 @@ def position_source_disagreements(buckets: Sequence[str] = _POSITION_BUCKETS) ->
             col = f"Number of {pos} {kind}"
             if col not in tw.columns:
                 continue
-            derived = (pool.groupby(keys)["Player"].nunique()
+            who = player_ids.PLAYER_ID if player_ids.PLAYER_ID in pool.columns else "Player"
+            derived = (pool.groupby(keys)[who].nunique()
                        .rename("player_week").reset_index())
             merged = tw[keys + [col]].merge(derived, on=keys, how="left")
             merged["player_week"] = merged["player_week"].fillna(0)
