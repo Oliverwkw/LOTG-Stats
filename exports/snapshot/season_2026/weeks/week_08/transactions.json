@@ -5,6 +5,36 @@
     "metadata": {
       "notes": "Your waiver claim was processed successfully!"
     },
+    "created": 1793388249426,
+    "settings": {
+      "seq": 0,
+      "waiver_bid": 0
+    },
+    "leg": 8,
+    "draft_picks": [],
+    "creator": "620863288632233984",
+    "transaction_id": "1421977017909252096",
+    "adds": {
+      "7049": 3
+    },
+    "consenter_ids": [
+      3
+    ],
+    "drops": {
+      "13150": 3
+    },
+    "roster_ids": [
+      3
+    ],
+    "status_updated": 1793397890249,
+    "waiver_budget": []
+  },
+  {
+    "status": "complete",
+    "type": "waiver",
+    "metadata": {
+      "notes": "Your waiver claim was processed successfully!"
+    },
     "created": 1793220931279,
     "settings": {
       "seq": 0,
@@ -17,12 +47,12 @@
     "adds": {
       "13302": 1
     },
-    "drops": {
-      "7049": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "7049": 1
+    },
     "roster_ids": [
       1
     ],
@@ -47,12 +77,12 @@
     "adds": {
       "8135": 3
     },
-    "drops": {
-      "4147": 3
-    },
     "consenter_ids": [
       3
     ],
+    "drops": {
+      "4147": 3
+    },
     "roster_ids": [
       3
     ],
@@ -77,10 +107,10 @@
     "adds": {
       "8135": 8
     },
-    "drops": null,
     "consenter_ids": [
       8
     ],
+    "drops": null,
     "roster_ids": [
       8
     ],
@@ -105,10 +135,10 @@
     "adds": {
       "6130": 8
     },
-    "drops": null,
     "consenter_ids": [
       8
     ],
+    "drops": null,
     "roster_ids": [
       8
     ],
@@ -133,12 +163,12 @@
     "adds": {
       "11435": 8
     },
-    "drops": {
-      "11655": 8
-    },
     "consenter_ids": [
       8
     ],
+    "drops": {
+      "11655": 8
+    },
     "roster_ids": [
       8
     ],
@@ -163,12 +193,12 @@
     "adds": {
       "3214": 1
     },
-    "drops": {
-      "13302": 1
-    },
     "consenter_ids": [
       1
     ],
+    "drops": {
+      "13302": 1
+    },
     "roster_ids": [
       1
     ],
@@ -193,12 +223,12 @@
     "adds": {
       "10219": 3
     },
-    "drops": {
-      "10235": 3
-    },
     "consenter_ids": [
       3
     ],
+    "drops": {
+      "10235": 3
+    },
     "roster_ids": [
       3
     ],
@@ -223,12 +253,12 @@
     "adds": {
       "12499": 4
     },
-    "drops": {
-      "4017": 4
-    },
     "consenter_ids": [
       4
     ],
+    "drops": {
+      "4017": 4
+    },
     "roster_ids": [
       4
     ],

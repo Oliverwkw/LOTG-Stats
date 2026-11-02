@@ -7,7 +7,7 @@ Collecting wheel
 Collecting packaging>=24.0 (from wheel)
   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
 Downloading setuptools-84.2.1-py3-none-any.whl (876 kB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 876.3/876.3 kB 100.1 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 876.3/876.3 kB 32.0 MB/s  0:00:00
 Downloading wheel-0.48.0-py3-none-any.whl (33 kB)
 Downloading packaging-26.3-py3-none-any.whl (129 kB)
 Installing collected packages: setuptools, packaging, wheel
@@ -26,7 +26,7 @@ Collecting requests>=2.31.0 (from -r requirements.txt (line 5))
 Collecting pyyaml>=6.0.2 (from -r requirements.txt (line 6))
   Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
 Collecting python-dateutil>=2.9.0 (from -r requirements.txt (line 7))
-  Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB)
+  Downloading python_dateutil-4.0.0-py3-none-any.whl.metadata (7.3 kB)
 Collecting openpyxl>=3.1.5 (from -r requirements.txt (line 8))
   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
 Collecting lxml==6.1.3 (from -r requirements.txt (line 12))
@@ -47,8 +47,6 @@ Collecting urllib3<3,>=1.26 (from requests>=2.31.0->-r requirements.txt (line 5)
   Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
 Collecting certifi>=2023.5.7 (from requests>=2.31.0->-r requirements.txt (line 5))
   Downloading certifi-2026.10.23-py3-none-any.whl.metadata (2.5 kB)
-Collecting six>=1.6 (from python-dateutil>=2.9.0->-r requirements.txt (line 7))
-  Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
 Collecting tzdata (from python-dateutil>=2.9.0->-r requirements.txt (line 7))
   Downloading tzdata-2026.6-py2.py3-none-any.whl.metadata (1.4 kB)
 Collecting et-xmlfile (from openpyxl>=3.1.5->-r requirements.txt (line 8))
@@ -62,35 +60,34 @@ Collecting typing-extensions>=4.12 (from ortools>=9.10.4067->-r requirements.txt
 Collecting immutabledict>=3.0.0 (from ortools>=9.10.4067->-r requirements.txt (line 14))
   Downloading immutabledict-4.3.1-py3-none-any.whl.metadata (3.5 kB)
 Downloading pandas-3.0.6-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (11.1 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.1/11.1 MB 207.7 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.1/11.1 MB 141.7 MB/s  0:00:00
 Downloading lxml-6.1.3-cp311-cp311-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 512.5 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 726.6 MB/s  0:00:00
 Downloading pyarrow-25.0.1-cp311-cp311-manylinux_2_28_x86_64.whl (50.1 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.1/50.1 MB 195.0 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.1/50.1 MB 256.1 MB/s  0:00:00
 Downloading requests-2.34.2-py3-none-any.whl (73 kB)
 Downloading charset_normalizer-3.5.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (269 kB)
 Downloading idna-3.20-py3-none-any.whl (69 kB)
 Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
 Downloading pyyaml-6.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (806 kB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 806.6/806.6 kB 759.1 MB/s  0:00:00
-Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 806.6/806.6 kB 1.3 GB/s  0:00:00
+Downloading python_dateutil-4.0.0-py3-none-any.whl (92 kB)
 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
 Downloading tqdm-4.70.1-py3-none-any.whl (80 kB)
 Downloading ortools-9.15.6755-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (29.8 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 29.8/29.8 MB 172.0 MB/s  0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 29.8/29.8 MB 157.2 MB/s  0:00:00
 Downloading protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
 Downloading absl_py-2.5.1-py3-none-any.whl (137 kB)
 Downloading certifi-2026.10.23-py3-none-any.whl (135 kB)
 Downloading immutabledict-4.3.1-py3-none-any.whl (5.0 kB)
 Downloading numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.9 MB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.9/16.9 MB 488.1 MB/s  0:00:00
-Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.9/16.9 MB 461.0 MB/s  0:00:00
 Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
 Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
 Downloading tzdata-2026.6-py2.py3-none-any.whl (348 kB)
-Installing collected packages: urllib3, tzdata, typing-extensions, tqdm, six, pyyaml, pyarrow, protobuf, numpy, lxml, immutabledict, idna, et-xmlfile, charset_normalizer, certifi, absl-py, requests, python-dateutil, openpyxl, pandas, ortools
+Installing collected packages: urllib3, tzdata, typing-extensions, tqdm, pyyaml, pyarrow, protobuf, numpy, lxml, immutabledict, idna, et-xmlfile, charset_normalizer, certifi, absl-py, requests, python-dateutil, openpyxl, pandas, ortools
 
-Successfully installed absl-py-2.5.1 certifi-2026.10.23 charset_normalizer-3.5.2 et-xmlfile-2.0.0 idna-3.20 immutabledict-4.3.1 lxml-6.1.3 numpy-2.4.6 openpyxl-3.1.5 ortools-9.15.6755 pandas-3.0.6 protobuf-6.33.6 pyarrow-25.0.1 python-dateutil-3.0.0 pyyaml-6.0.3 requests-2.34.2 six-1.17.0 tqdm-4.70.1 typing-extensions-4.16.0 tzdata-2026.6 urllib3-2.8.0
+Successfully installed absl-py-2.5.1 certifi-2026.10.23 charset_normalizer-3.5.2 et-xmlfile-2.0.0 idna-3.20 immutabledict-4.3.1 lxml-6.1.3 numpy-2.4.6 openpyxl-3.1.5 ortools-9.15.6755 pandas-3.0.6 protobuf-6.33.6 pyarrow-25.0.1 python-dateutil-4.0.0 pyyaml-6.0.3 requests-2.34.2 tqdm-4.70.1 typing-extensions-4.16.0 tzdata-2026.6 urllib3-2.8.0
 Obtaining file:///home/runner/work/LOTG-Stats/LOTG-Stats
   Checking if build backend supports build_editable: started
   Checking if build backend supports build_editable: finished with status 'done'
@@ -99,8 +96,8 @@ Obtaining file:///home/runner/work/LOTG-Stats/LOTG-Stats
 Building wheels for collected packages: lotg
   Building editable for lotg (pyproject.toml): started
   Building editable for lotg (pyproject.toml): finished with status 'done'
-  Created wheel for lotg: filename=lotg-2.0.0-0.editable-py3-none-any.whl size=1216 sha256=bd830f05c30edbaf738b0b29c9989f7899e27ed72fe17e2e4b58f18e77ba3a85
-  Stored in directory: /tmp/pip-ephem-wheel-cache-bzbxmirj/wheels/ef/ed/13/44e256507283aec69b5fcc835b473d152e1110cbdef8472794
+  Created wheel for lotg: filename=lotg-2.0.0-0.editable-py3-none-any.whl size=1216 sha256=959b9cb1d73385f361a7920b1d29b987cbcfac9cc0138183fb0c45cb952d7d29
+  Stored in directory: /tmp/pip-ephem-wheel-cache-41ex_c5j/wheels/ef/ed/13/44e256507283aec69b5fcc835b473d152e1110cbdef8472794
 Successfully built lotg
 Installing collected packages: lotg
 Successfully installed lotg-2.0.0
