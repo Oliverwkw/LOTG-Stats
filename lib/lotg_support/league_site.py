@@ -82,6 +82,21 @@ TEAM_SUMMARY_COLUMNS = [
     "Number of last place finishes", "Points", "Avg points", "Points against", "Efficiency",
     "All-play win %", "Avg yearly luck", "Drafting skill", "Trading skill", "Add/Drop skill",
     "Times Highest score?", "Times Lowest score?",
+    "Avg weekly score", "Weekly score swing %", "Boom week %", "Bust week %", "Avg lineup riskiness",
+]
+# Scoring level vs swing (lotg_support.team_variance; AceMatthew's league-chat charts)
+SWING_COLUMNS = [
+    "Year", "Avg weekly score", "Weekly score swing", "Weekly score swing %", "Scoring style",
+    "Avg weekly score (first 6 weeks)", "Weekly score swing % (first 6 weeks)",
+    "Avg weekly score (to this point)", "Weekly score swing % (to this point)", "Scoring style (to this point)",
+    "Avg weekly score percentile (to this point)", "Weekly score swing % percentile (to this point)",
+    "Boom week %", "Bust week %",
+]
+RISK_COLUMNS = [
+    "Year", "Avg lineup riskiness", "Avg lineup riskiness as underdog", "Avg lineup riskiness as favorite",
+    "Underdog win % (risky lineup)", "Underdog win % (safe lineup)", "Avg lineup swing vs league",
+    "QB-receiver stacks", "Avg swing added by stacking", "Starter pairs in the same NFL game",
+    "Pairs sharing an NFL game with opponent",
 ]
 PLAYER_SUMMARY_COLUMNS = [
     "Top team", "Last team", "Points", "Total points as starter", "PPG starter",
@@ -674,6 +689,8 @@ class Site:
             "summary_labels": {c: _display(c, "team_all_time") for c in summary},
             "summary_fmt": {c: column_format(c) for c in summary},
             "seasons": _table(seasons, SEASON_COLUMNS, "team_year"),
+            "swing": _table(seasons, SWING_COLUMNS, "team_year"),
+            "risk": _table(seasons, RISK_COLUMNS, "team_year"),
             "h2h": sorted(h2h, key=lambda r: -(r["w"] - r["l"])),
             "weeks": _table(this.sort_values("Week"), week_cols, "team_week"),
             "roster": _table(roster, ["Player", "slug", "Position", "NFL team", "Age", "Starter/Bench",

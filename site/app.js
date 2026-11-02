@@ -264,6 +264,10 @@ async function team(slug) {
       ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
     <div class="card"><h2>This season</h2>${dataTable(t.weeks)}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(t.seasons)}</div>
+    ${t.swing && t.swing.rows && t.swing.rows.length && t.swing.cols.length > 1 ? `<div class="card"><h2>Scoring style</h2>${dataTable(t.swing)}
+      <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p></div>
+    <div class="card"><h2>Lineup risk and stacks</h2>${dataTable(t.risk)}
+      <p class="muted small">Riskiness 1.00 = the usual swing for a lineup of that projected strength; above 1 = boom-or-bust picks. Underdog = pre-week win % under 50%; risky = riskiness 1.00 or more. League-wide, risk has not helped underdogs (see the record book's League season).</p></div>` : ""}
     <div class="card"><h2>Current roster</h2>${roster}<p class="muted small">Bench includes taxi and IR. Age is the player's age for this season.</p></div>
     <div class="card"><h2>Trades (${t.trades.length})</h2>${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
       ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}</div>
@@ -302,8 +306,8 @@ const SHEETS = [
 ];
 const FEATURED = {
   team_week: ["PF", "Margin", "Max PF", "Efficiency", "Points left on bench", "Bench points"],
-  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness"],
-  team_all_time: ["Championships", "All time win %", "Avg points", "Trading skill", "Drafting skill", "Add/Drop skill"],
+  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness", "Avg weekly score", "Weekly score swing %"],
+  team_all_time: ["Championships", "All time win %", "Avg points", "Trading skill", "Drafting skill", "Add/Drop skill", "Avg weekly score", "Weekly score swing %"],
   player_week: ["Points"],
   player_year: ["Points", "PPG starter", "Starter PAR", "Times as Player of the week?"],
   player_all_time: ["Points", "Total points as starter", "Starter PAR", "Number of teams", "Number of trades"],
