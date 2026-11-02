@@ -23,10 +23,6 @@ command whose output already carries its caveats.
     python scripts/fast.py rank player_week Points 44.2 --where Starter/Bench=Starter
     python scripts/fast.py rank team_week PF 199.48 --where 'Win?=False'
 
-    # scoring level vs consistency per team-season (AceMatthew's charts as a
-    # table), with lineup riskiness and the underdog split once built
-    python scripts/fast.py swing --sort "Avg score" :: swing --first 6 --year 2026
-
     # several parts of one question: chain with `::` (one process, one tool call)
     python scripts/fast.py count 20 --bench :: count 20 --bench --no-qb
 
@@ -235,17 +231,6 @@ class _Lazy(dict):
         return v
 
 
-def cmd_swing(args) -> None:
-    t, notes = fast.swing_table(args.first)
-    _notes(notes)
-    if args.team:
-        t = t[t["Team"] == Q.canonical_team(args.team)]
-    if args.year:
-        t = t[t["Year"].isin([int(y) for y in args.year.split(",")])]
-    t = t.sort_values(args.sort, ascending=False)
-    print((t.head(args.n) if args.n else t).to_string(index=False))
-
-
 def cmd_q(args) -> None:
     import ast
     # the lazy frames are the GLOBALS, so lambdas and comprehensions see them too
@@ -309,14 +294,6 @@ def main(argv=None) -> None:
     p.add_argument("--low", action="store_true", help="lower is better")
     p.add_argument("-n", type=int, default=5)
     p.set_defaults(fn=cmd_rank)
-
-    p = sub.add_parser("swing", help="scoring level vs consistency per team-season (+ riskiness, underdog)")
-    p.add_argument("--team")
-    p.add_argument("--year", help="comma list")
-    p.add_argument("--first", type=int, help="only weeks 1..N (e.g. 6, to compare a season in progress)")
-    p.add_argument("--sort", default="Weekly score swing %")
-    p.add_argument("-n", type=int, default=0, help="rows (0 = all)")
-    p.set_defaults(fn=cmd_swing)
 
     p = sub.add_parser("q", help="evaluate one pandas expression over preloaded frames")
     p.add_argument("expr")

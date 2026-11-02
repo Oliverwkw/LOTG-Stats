@@ -283,18 +283,6 @@ def test_committed_sheets_match_recompute():
         assert ((a - b).abs() < 0.011).mean() > 0.99, c
 
 
-def test_fast_swing_table():
-    if not (_EXPORTS / "player_week.csv").exists():
-        print("exports/ absent — check not run")
-        return
-    from lotg_support import fast
-    t, notes = fast.swing_table(6)
-    assert {"Avg score", "Weekly score swing %", "Quadrant"}.issubset(t.columns)
-    assert any("r = -0.2" in n for n in notes), notes
-    full, notes = fast.swing_table()
-    assert any("r = -0.4" in n for n in notes), notes
-
-
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):
