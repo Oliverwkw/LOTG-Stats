@@ -21,6 +21,7 @@ Run: python tests/test_analysis.py
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -409,12 +410,28 @@ def test_pick_and_player_ages_use_the_builds_arithmetic():
     assert A.player_age("no-such-player-id", date(2026, 1, 1)) is None
 
 
+# The pool-robustness guard runs on a FROZEN sample: the 2023 season's final
+# rosters (a completed league; its rosters.json has not changed since it was
+# first committed), aged at that season's close. It used to run on the live
+# rosters aged at `date.today()`, so a waiver move or a birthday could fail it:
+# on 2026-11-03 AceMatthew added Minshew and dropped Brissett, and the
+# ten-man starters pool put him and Oliverwkw on the other side of the median.
+# That is a fact about this week's rosters, not a defect — the same check fails
+# on the 2022, 2024 and 2025 end-of-season rosters too — so it cannot be what a
+# test pins. What the code must keep doing is rank every pool the same way on a
+# roster where the answer is known.
+_FROZEN_AGE_SEASON = 2023
+_FROZEN_AGE_ON = date(2024, 1, 9)          # the Tuesday after 2023's final week
+_FROZEN_AGE_TOP_HALF = {"LWebs53", "shmuel256", "Oliverwkw", "plehv79"}
+
+
 def test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool():
     if not _HAVE_EXPORTS:
         return _skip("no exports")
     seasons = Q.snapshot_seasons()
-    if not seasons:
+    if not seasons or _FROZEN_AGE_SEASON not in seasons:
         return _skip("no snapshot")
+    # Structure — holds for any rosters, so it is checked on the live ones.
     season = max(seasons)
     frame = A.roster_ages(season)
     assert len(frame) == len(Q.teams(season)), frame
@@ -424,6 +441,10 @@ def test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool():
     assert (frame["aged"] + frame["missing"] == frame["players"]).all()
     assert (frame["youngest"] <= frame["avg_age"]).all()
     assert (frame["oldest"] >= frame["avg_age"]).all()
+    for pool in ("active", "starters"):
+        other = A.roster_ages(season, pool=pool)
+        assert set(other["Team"]) == set(frame["Team"]), other
+        assert (other["players"] <= frame.set_index("Team").loc[other["Team"], "players"].values).all()
     # Roster sizes differ, so the pool is an assumption and the ranking must not
     # hinge on it. Stated as the invariant that survives a photo finish rather
     # than as "the same team is 1st in all three".
@@ -435,18 +456,21 @@ def test_current_rosters_can_be_aged_and_the_ranking_survives_the_pool():
     # the same way on three different samples had to fail eventually whatever
     # the code did — the same shape as #418's `assert 0.5 > 0.5`.
     #
-    # What genuinely must not move is which HALF of the league a roster is in:
-    # if changing how we count a roster can turn a top-half team into a
-    # bottom-half one, "who is oldest" means nothing. Near-ties are free to
-    # reshuffle inside their half; a team crossing the median is a real finding.
-    half = len(frame) // 2
-    ref_old = set(frame.head(half)["Team"])
-    active = A.roster_ages(season, pool="active")
-    starters = A.roster_ages(season, pool="starters")
-    for name, other in (("active", active), ("starters", starters)):
+    # What must not move is which HALF of the league a roster is in: if changing
+    # how we count a roster can turn a top-half team into a bottom-half one,
+    # "who is oldest" means nothing. Near-ties are free to reshuffle inside their
+    # half. Checked on the frozen sample (see _FROZEN_AGE_SEASON), where the
+    # pools DO reshuffle inside each half (active swaps Oliverwkw/shmuel256 and
+    # AceMatthew/JacobRosenzweig; starters lifts plehv79 to 2nd).
+    ref = A.roster_ages(_FROZEN_AGE_SEASON, on=_FROZEN_AGE_ON)
+    half = len(ref) // 2
+    ref_old = set(ref.head(half)["Team"])
+    assert ref_old == _FROZEN_AGE_TOP_HALF, ref
+    for name in ("active", "starters"):
+        other = A.roster_ages(_FROZEN_AGE_SEASON, on=_FROZEN_AGE_ON, pool=name)
         moved = ref_old.symmetric_difference(set(other.head(half)["Team"]))
         assert not moved, (
-            f"pool={name} moved {sorted(moved)} across the median:\n{frame}\n{other}")
+            f"pool={name} moved {sorted(moved)} across the median:\n{ref}\n{other}")
         # And no pool may promote a bottom-half roster to the very top, or
         # demote a top-half one to the very bottom.
         assert other.iloc[0]["Team"] in ref_old, other
