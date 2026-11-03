@@ -212,12 +212,12 @@ def _usage_reaches_player_and_team_pages():
         return _skip("exports have no usage columns yet")
     idx = _load("search.json")
     key_of = {r[2]: r[1] for r in idx if r[0] == "p"}
-    py["_n"] = pd.to_numeric(py["Weeks with usage data"], errors="coerce").fillna(0)
+    weeks = pd.to_numeric(py["Weeks with usage data"], errors="coerce").fillna(0)
     best = py.sort_values("xFP", key=lambda s: pd.to_numeric(s, errors="coerce"), ascending=False)
     name = next(n for n in best.Player if n in key_of)
     p = _load(f"player/{key_of[name]}.json")
     assert p["usage"]["cols"][:2] == ["Year", "Weeks with usage data"], p["usage"]["cols"]
-    assert len(p["usage"]["rows"]) == int((py[(py.Player == name)]["_n"] > 0).sum())
+    assert len(p["usage"]["rows"]) == int((weeks[py.Player == name] > 0).sum())
     assert "xFP" in p["summary"] and "Points minus xFP" in p["summary"]
     assert S.column_format("Avg snap %") == {"d": 2, "p": "x"}
     t = _load(f"team/{S.slug(_load('meta.json')['teams'][0])}.json")
