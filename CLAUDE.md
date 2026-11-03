@@ -80,9 +80,9 @@ python scripts/sql.py --tables          # every table/view: rows, key, caveats; 
 
 `lotg_support.db` builds a typed DuckDB copy into `.cache/lotg.duckdb`
 (gitignored) on first use and again whenever an input changes (about 6-15 s;
-each query after that about 1 s; also in the CI run artifact). Typing is
-`typed_sheet`'s: `Year`/`Week` INTEGER, `Win?` BOOLEAN, dates DATE/TIMESTAMP,
-blanks NULL (`IS NULL`, not `= ''`). Quote names with spaces or `?`.
+each query after that about 1 s; each CI run also uploads it as the
+`LOTG_query_db` artifact). Typing is `typed_sheet`'s: `Year`/`Week`
+INTEGER, `Win?` BOOLEAN, dates DATE/TIMESTAMP, blanks NULL (`IS NULL`, not `= ''`). Quote names with spaces or `?`.
 Tables: every export sheet by name plus the aliases (`tw`, `ty`, `py`, `pa`,
 `lw`, `ly`, `twt`, …); `pw` (= `fast.py q`'s `pw`, acquisition columns
 included) and `ts`; views `starters`, `bench`, `pw_full` (every player_week
