@@ -12,6 +12,8 @@
 - future picks held reproduce team_year's "Future draft capital";
 - every record row links to a page that exists (player, team, trade, matchup,
   pick), and every team-week has its matchup file;
+- the live layer gets the league id, a name for every rostered Sleeper id and
+  the traded picks the build already counted;
 - privacy: nothing in the output carries a private marker (DM/chat exports,
   negotiation notes, manager profiles, credentials), and the shell never
   shadows docs/rate/ (the rating page and its vote collection).
@@ -325,6 +327,23 @@ def _every_detail_link_resolves():
         assert set(g.Team.astype(str)) <= set(wk["teams"]), (y, w)
 
 
+def _live_layer_has_what_it_needs():
+    """The page reads rosters and traded picks from Sleeper itself; the build
+    must hand it the league id, a name for every id Sleeper can return for a
+    roster, and the traded picks it already counted (so only later moves apply)."""
+    meta = _load("meta.json")
+    league = json.loads((_ROOT / "exports" / "snapshot" / f"season_{meta['season']}" / "league.json").read_text())
+    assert meta["league_id"] == str(league["league_id"])
+    names = _load("nfl_players.json")
+    rosters = json.loads((_ROOT / "exports" / "snapshot" / f"season_{meta['season']}" / "rosters.json").read_text())
+    rostered = {p for r in rosters for p in (r.get("players") or [])}
+    assert rostered <= set(names), sorted(rostered - set(names))[:5]
+    assert all(v[0] for v in names.values())
+    pk = _load("picks.json")
+    teams = set(meta["teams"])
+    assert all(y in pk["years"] and o in teams and t in teams for y, _r, o, t in pk["sleeper_at_build"])
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -349,9 +368,21 @@ def test_built_site_reconciles():
                   _players_have_unique_pages, _usage_reaches_player_and_team_pages,
                   _every_export_cell_is_on_the_site,
                   _held_picks_match_future_draft_capital, _record_boards_follow_the_digest,
-                  _every_detail_link_resolves,
+                  _every_detail_link_resolves, _live_layer_has_what_it_needs,
                   _output_has_nothing_private):
         check()
+
+
+def test_shell_assets_are_versioned():
+    """A deploy must not hide behind a browser's cached app.js: index.html asks
+    for each asset with a hash of its contents."""
+    import hashlib
+    out = Path(tempfile.mkdtemp(prefix="lotg_shell_"))
+    S.copy_shell(out)
+    html_text = (out / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        v = hashlib.sha1((S.SHELL / name).read_bytes()).hexdigest()[:10]
+        assert f'"{name}?v={v}"' in html_text, name
 
 
 def test_privacy_scan_catches_a_leak():
@@ -369,6 +400,7 @@ TESTS = [
     test_week_kinds,
     test_shell_does_not_shadow_the_rating_page,
     test_built_site_reconciles,
+    test_shell_assets_are_versioned,
     test_privacy_scan_catches_a_leak,
 ]
 

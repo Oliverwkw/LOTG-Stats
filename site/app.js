@@ -29,7 +29,7 @@ const pct1 = (v) => (v === null || v === undefined ? "—" : v < 0.05 && v > 0 ?
 const signed = (spec, v) => (typeof v === "number" && v > 0 ? "+" : "") + fmt(spec, v);
 const tslug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const teamLink = (t) => t ? `<a href="#/team/${tslug(t)}">${esc(t)}</a>` : "—";
-let NAMES = {};   // player name -> page key, from search.json
+let NAMES = {}, NAMES_BY_ID = {};   // player name -> page key, from search.json
 const playerLink = (n) => NAMES[n] ? `<a href="#/player/${NAMES[n]}">${esc(n)}</a>` : esc(n);
 const assetLink = (a) => NAMES[a] ? playerLink(a) : esc(a);
 
@@ -93,6 +93,61 @@ const idx = (t, c) => t.cols.indexOf(c);
 const routes = {
   "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick,
 };
+
+// ---------- live layer: rosters and traded picks straight from Sleeper on open.
+// Stats come from the last main build (the site redeploys after each one); rosters
+// and pick ownership come from Sleeper as of this page view, so a trade made since
+// the build already shows. Three small requests (~40 KB, ~0.2 s); on any failure or
+// after 4 s the page keeps the build's rosters and says so.
+let liveP = null, nflP = null, liveStatus = "pending";
+const loadNfl = () => nflP || (nflP = load("nfl_players.json").catch(() => ({})));
+function loadLive() {
+  if (liveP) return liveP;
+  liveP = (async () => {
+    const meta = await load("meta.json");
+    if (!meta.league_id) return null;
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+    try {
+      const base = `https://api.sleeper.app/v1/league/${meta.league_id}/`;
+      const [rosters, users, traded] = await Promise.all(["rosters", "users", "traded_picks"].map((p) =>
+        fetch(base + p, { signal: ctl.signal, cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(p); return r.json(); })));
+      const uname = Object.fromEntries(users.map((u) => [u.user_id, u.display_name]));
+      const canon = (n) => meta.teams.find((t) => t.toLowerCase() === String(n || "").toLowerCase()) || n;
+      const byRid = {}, rosterOf = {}, owner = {};
+      for (const r of rosters) {
+        const t = canon(uname[r.owner_id]);
+        byRid[r.roster_id] = t;
+        rosterOf[t] = { players: r.players || [], starters: new Set(r.starters || []), taxi: new Set(r.taxi || []), ir: new Set(r.reserve || []) };
+        for (const p of r.players || []) owner[p] = t;
+      }
+      const picks = traded.map((p) => [+p.season, +p.round, byRid[p.roster_id], byRid[p.owner_id]]);
+      liveStatus = "ok";
+      return { at: new Date(), rosterOf, owner, picks };
+    } catch (e) {
+      liveStatus = "failed";
+      return null;
+    } finally { clearTimeout(timer); }
+  })();
+  return liveP;
+}
+// future picks held, with every pick Sleeper shows moved SINCE the build applied
+function livePicks(PK, live) {
+  const own = {};
+  for (const [t, ps] of Object.entries(PK.held)) for (const [y, r, o] of ps) own[`${y}|${r}|${o}`] = t;
+  if (live) {
+    const atBuild = {}, now = {};
+    for (const [y, r, o, t] of PK.sleeper_at_build || []) atBuild[`${y}|${r}|${o}`] = t;
+    for (const [y, r, o, t] of live.picks) if (PK.years.includes(y)) now[`${y}|${r}|${o}`] = t;
+    for (const k of new Set([...Object.keys(atBuild), ...Object.keys(now)])) {
+      const orig = k.split("|")[2], then = atBuild[k] || orig, cur = now[k] || orig;
+      if (cur !== then && k in own) own[k] = cur;
+    }
+  }
+  const held = {};
+  for (const [k, t] of Object.entries(own)) { const [y, r, o] = k.split("|"); (held[t] = held[t] || []).push([+y, +r, o]); }
+  return held;
+}
+const liveNote = (live) => live ? `<span class="chip live">live from Sleeper ${live.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>` : (liveStatus === "failed" ? '<span class="chip">Sleeper unreachable: as of the last build</span>' : '<span class="chip">as of the last build</span>');
 
 // ---------- FAAB board (docs/rate/board.json, published with the rating page)
 let boardP = null;
@@ -232,15 +287,36 @@ function tradeCard(t, meta) {
   return `<div class="trade" id="trade-${t.id}"><div class="small muted"><a href="#/trades/${t.id}">Trade #${t.id}</a> · ${esc(t.date)}${t.sides.length > 1 && (best["Trade impact score"] ?? 0) > (t.sides[1]["Trade impact score"] ?? 0) ? ` · impact edge: ${esc(best.team)}` : ""}</div><div class="sides">${sides}</div></div>`;
 }
 
-async function team(slug) {
+async function team(slug, _q, live) {
   const [t, tr, PK, B] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard()]);
-  const mine = (PK.held[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
+  const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
   const leagueAvg = (k) => { const v = Object.values(t.league_ages).map((a) => k ? a.by_pos?.[k] : a.avg).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const ageRows = ["QB", "RB", "WR", "TE"].map((p) => [p, ages.by_pos?.[p], leagueAvg(p)]);
   const ri = idx(t.roster, "slug");
-  const roster = dataTable(t.roster, { hide: ["slug"], links: { Player: (v, r) => ri >= 0 && r[ri] ? `<a href="#/player/${r[ri]}">${esc(v)}</a>` : esc(v) } });
+  let roster = dataTable(t.roster, { hide: ["slug"], links: { Player: (v, r) => ri >= 0 && r[ri] ? `<a href="#/player/${r[ri]}">${esc(v)}</a>` : esc(v) } });
+  let rosterNote = "Bench includes taxi and IR. Age is the player's age for this season. Lineup roles are the last built week's.";
+  const lr = live && live.rosterOf[t.team];
+  if (lr) {
+    const nfl = await loadNfl();
+    const built = new Map(t.roster.rows.map((r) => [String(r[ri]), r]));
+    const age = idx(t.roster, "Age");
+    const pos = { QB: 0, RB: 1, WR: 2, TE: 3 };
+    const rows = lr.players.map((pid) => {
+      const n = nfl[pid] || [];
+      const b = built.get(String(pid));
+      return { pid, name: n[0] || (b && b[0]) || pid, pos: n[1] || "", nfl: n[2] || "", age: (b && age >= 0 ? b[age] : null) ?? n[3] ?? null,
+               role: lr.ir.has(pid) ? "IR" : lr.taxi.has(pid) ? "Taxi" : lr.starters.has(pid) ? "Starter" : "Bench", isNew: !b };
+    }).sort((a, b) => (a.role === "Starter" ? 0 : a.role === "Bench" ? 1 : 2) - (b.role === "Starter" ? 0 : b.role === "Bench" ? 1 : 2) || (pos[a.pos] ?? 9) - (pos[b.pos] ?? 9));
+    const gone = [...built.keys()].filter((pid) => !lr.players.includes(pid)).map((pid) => built.get(pid)[0]);
+    roster = table([
+      { k: "name", label: "Player", left: true, html: (r) => `${NAMES_BY_ID[r.pid] ? `<a href="#/player/${esc(r.pid)}">${esc(r.name)}</a>` : esc(r.name)}${r.isNew ? ' <span class="chip live">new since the build</span>' : ""}` },
+      { k: "pos", label: "Pos", left: true }, { k: "nfl", label: "NFL", left: true },
+      { k: "age", label: "Age", spec: { d: 2 } }, { k: "role", label: "Now", left: true },
+    ], rows);
+    rosterNote = `${rows.length} players on Sleeper now (Now = current lineup role).${gone.length ? ` Gone since the last build: ${gone.map(esc).join(", ")}.` : ""} Ages are this season's, for players the build has seen.`;
+  }
   $app.innerHTML = `
     <h1>${esc(t.team)}</h1>
     ${tiles(t.summary, t.summary_labels, t.summary_fmt)}
@@ -260,7 +336,7 @@ async function team(slug) {
                  { k: (r) => (r[1] ?? 0) - (r[2] ?? 0), label: "vs league", html: (r) => r[1] == null ? "—" : `<span class="${r[1] > r[2] ? "neg" : "pos"}">${signed({ d: 2 }, r[1] - r[2])}</span>` }], ageRows)}
       </div>
     </div>
-    <div class="card"><h2>Future picks held (${mine.length})</h2>
+    <div class="card"><h2>Future picks held (${mine.length}) ${liveNote(live)}</h2>
       ${PK.years.map((y) => `<p><b>${y}</b> ${mine.filter((p) => p.y === y).map((p) => `<span class="chip">${ORD[p.r] || p.r}${p.o === t.team ? "" : " (" + esc(p.o) + ")"}${p.v != null ? " · " + money(p.v) : ""}</span>`).join("") || '<span class="muted">none</span>'}</p>`).join("")}
       ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
     <div class="card"><h2>This season</h2>${dataTable(t.weeks, { hide: ["Week"], links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } })}</div>
@@ -269,13 +345,13 @@ async function team(slug) {
       <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p></div>
     <div class="card"><h2>Lineup risk and stacks</h2>${dataTable(t.risk)}
       <p class="muted small">Riskiness 1.00 = the usual swing for a lineup of that projected strength; above 1 = boom-or-bust picks. Underdog = pre-week win % under 50%; risky = riskiness 1.00 or more. League-wide, risk has not helped underdogs (see the record book's League season).</p></div>` : ""}
-    <div class="card"><h2>Current roster</h2>${roster}<p class="muted small">Bench includes taxi and IR. Age is the player's age for this season.</p></div>
+    <div class="card"><h2>Current roster ${liveNote(live)}</h2>${roster}<p class="muted small">${rosterNote}</p></div>
     <div class="card"><h2>Trades (${t.trades.length})</h2>${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
       ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}</div>
     <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team", "_row"], links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
 }
 
-async function player(key) {
+async function player(key, _q, live) {
   const [p, tr, B] = await Promise.all([load(`player/${key}.json`), load("trades.json"), loadBoard()]);
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const d = p.draft;
@@ -283,7 +359,7 @@ async function player(key) {
   const enc = encodeURIComponent(p.name);
   $app.innerHTML = `
     <h1>${esc(p.name)}</h1>
-    <p class="muted">${[p.pos, p.nfl, p.team ? "on " + teamLink(p.team) : "not on a roster now"].filter(Boolean).join(" · ")}
+    <p class="muted">${[p.pos, p.nfl, ((t) => t ? "on " + teamLink(t) : "not on a roster now")(live && /^\d+$/.test(key) ? live.owner[key] : p.team)].filter(Boolean).join(" · ")} ${live ? liveNote(live) : ""}
       ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}` : ""}</p>
     ${fv ? `<div class="card"><b>FAAB value ${money(fv.value)}</b> <span class="muted">· #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span> · <a href="#/faab">board</a> · <a href="rate/">rate it</a></div>` : ""}
     ${tiles(p.summary, p.summary_labels, p.summary_fmt)}
@@ -490,14 +566,15 @@ async function search(q) {
     ${ql ? `<div class="card"><h2>Stats named “${esc(q)}”</h2><p>${SHEETS.map(([k, n]) => `<a class="chip" href="#/records/${k}?q=${encodeURIComponent(q)}">${n}</a>`).join("")}</p></div>` : ""}`;
 }
 
-async function faab(_, query) {
+async function faab(_, query, live) {
   const [B, meta, PK] = await Promise.all([loadBoard(), load("meta.json"), load("picks.json")]);
   if (!B) { $app.innerHTML = `<h1>FAAB values</h1><p class="muted">The board is not published yet.</p>`; return; }
   const held = {};
-  for (const [t, ps] of Object.entries(PK.held)) held[t] = ps.map(([y, r, o]) => ({ y, r, o, v: futurePickValue(B, y, r) }));
+  for (const [t, ps] of Object.entries(livePicks(PK, live))) held[t] = ps.map(([y, r, o]) => ({ y, r, o, v: futurePickValue(B, y, r) }));
   const params = new URLSearchParams(query || "");
   let pos = params.get("pos") || "", owner = params.get("owner") || "", q = "";
-  const rows = B.players.map((x) => ({ ...x, own: ownerTeam(x.owner, meta.teams) }));
+  // owners: Sleeper's rosters right now when reachable, else the board's (its date)
+  const rows = B.players.map((x) => ({ ...x, own: live ? (live.owner[x.sid] || null) : ownerTeam(x.owner, meta.teams) }));
   const totals = meta.teams.map((t) => {
     const mine = rows.filter((r) => r.own === t);
     const by = (p) => mine.filter((r) => r.pos === p).reduce((a, r) => a + r.value, 0);
@@ -528,7 +605,7 @@ async function faab(_, query) {
     <div class="card"><p>The model prices every player in league FAAB (the house 100-dollar budget scale). It uses stats only: general rules fitted to this league's trades, cuts and calls, with no hand-set prices. The league's answers on the rating page show which rules fit. They are a capped signal and never move a player's value directly.</p>
       <p><a class="chip" style="font-size:14px;padding:6px 12px;background:var(--accent);color:var(--accent-ink)" href="rate/">Rate the board →</a> <span class="muted small">Pick which of two players is worth more and say whether each value looks right. It takes a minute.</span></p>
       <details><summary>Answer here without leaving this page</summary><iframe src="rate/" title="LOTG value check" loading="lazy" style="width:100%;height:1100px;border:1px solid var(--line);border-radius:12px;background:var(--bg)"></iframe></details></div>
-    <div class="card"><h2>Roster value by team</h2>${table([
+    <div class="card"><h2>Roster value by team ${liveNote(live)}</h2>${table([
       { k: "t", label: "Team", left: true, html: (r) => `<a href="#/faab?owner=${encodeURIComponent(r.t)}" onclick="">${esc(r.t)}</a>` },
       { k: "total", label: "Total", html: (r) => `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><b>${money(r.total)}</b><div class="bar-h" style="width:90px"><i style="width:${(100 * r.total) / maxT}%"></i></div></div>` },
       { k: "players", label: "Players", html: (r) => money(r.players) },
@@ -777,13 +854,24 @@ async function route() {
     $app.innerHTML = `<h1>Not found</h1><p class="muted">${esc(e.message)}</p><p><a href="#/">Home</a></p>`;
   }
   window.scrollTo(0, 0);
+  // pages that show rosters or pick ownership redraw once Sleeper answers
+  if (LIVE_PAGES.has(fn)) {
+    const at = location.hash;
+    loadLive().then((live) => {
+      if (location.hash !== at) return;
+      const y = window.scrollY;
+      fn(rest.join("/") || undefined, query, live).then(() => window.scrollTo(0, y)).catch(() => {});
+    });
+  }
 }
+const LIVE_PAGES = new Set([team, player, faab]);
 document.getElementById("searchForm").onsubmit = (e) => { e.preventDefault(); location.hash = "#/search/" + encodeURIComponent(document.getElementById("q").value); };
 let typing;
 document.getElementById("q").oninput = (e) => { clearTimeout(typing); typing = setTimeout(() => { if (e.target.value.trim().length > 1) location.hash = "#/search/" + encodeURIComponent(e.target.value); }, 250); };
 window.addEventListener("hashchange", route);
 Promise.all([load("search.json"), load("meta.json")]).then(([ix, meta]) => {
-  ix.forEach((r) => { if (r[0] === "p") NAMES[r[2]] = r[1]; });
-  document.getElementById("foot").innerHTML = `Built from the league's stats exports (${meta.seasons[0]}–${meta.season}), through ${esc(meta.week_name)} ${meta.season}. Rebuilt after every weekly build. <a href="rate/">Rate player values</a>.`;
+  ix.forEach((r) => { if (r[0] === "p") { NAMES[r[2]] = r[1]; NAMES_BY_ID[r[1]] = r[2]; } });
+  const built = meta.build_time ? new Date(meta.build_time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : meta.built;
+  document.getElementById("foot").innerHTML = `Stats through ${esc(meta.week_name)} ${meta.season}, from the league's stats exports (${meta.seasons[0]}–${meta.season}) as of the main build${meta.build_run ? ` <a href="https://github.com/Oliverwkw/LOTG-Stats/actions/runs/${esc(meta.build_run)}">run ${esc(meta.build_run)}</a>` : ""} (${esc(built)}); the site rebuilds after every main build. Rosters and pick ownership are read live from Sleeper when a page opens. <a href="rate/">Rate player values</a>.`;
   route();
 }).catch((e) => { $app.innerHTML = `<p>Could not load the site data: ${esc(e.message)}</p>`; });

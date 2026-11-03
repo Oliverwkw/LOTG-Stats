@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 import json
 import math
+import os
 import re
 import shutil
 import time
@@ -472,6 +473,31 @@ def _sleeper_pick_owners(season: int, canon: Dict[str, str]) -> Dict[tuple, str]
             for p in traded if name(p["roster_id"]) and name(p["owner_id"])}
 
 
+def _league_id(season: int) -> Optional[str]:
+    try:
+        return str(json.loads((EXPORTS / "snapshot" / f"season_{int(season)}" / "league.json").read_text())["league_id"])
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def nfl_players(extra_ids: Iterable[str] = (), ages: Optional[Dict[str, float]] = None) -> Dict[str, list]:
+    """Sleeper id -> [name, position, NFL team, age] for every active QB/RB/WR/TE
+    plus anyone rostered: the live roster layer gets ids only from Sleeper. Age is
+    player_year's for the current season (the build's), where the build has one."""
+    ages = ages or {}
+    path = EXPORTS / "snapshot" / "sleeper_players_nfl.json"
+    if not path.exists():
+        return {}
+    players = json.loads(path.read_text())
+    keep = set(map(str, extra_ids))
+    out = {}
+    for pid, v in players.items():
+        if (v.get("position") in ("QB", "RB", "WR", "TE") and v.get("active")) or pid in keep:
+            name = v.get("full_name") or f"{v.get('first_name', '')} {v.get('last_name', '')}".strip()
+            out[pid] = [name, v.get("position"), v.get("team"), ages.get(pid)]
+    return out
+
+
 # ---------------------------------------------------------------- builders
 
 _TRADE_LINE = re.compile(r"^(\d{4}-\d{2}-\d{2}): (?:pick )?traded to (.+?) \(")
@@ -535,7 +561,13 @@ class Site:
                                          & (pd.to_numeric(self.tw.Week, errors="coerce") == self.week)]
                                  ["Week Name"].iloc[0]),
                 "teams": self.teams, "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-                "seasons": sorted(int(y) for y in self.tw["Year"].dropna().unique())}
+                "seasons": sorted(int(y) for y in self.tw["Year"].dropna().unique()),
+                # the live layer: the page reads this league's rosters and traded picks
+                # straight from Sleeper on open (lotg_support.league_site docs)
+                "league_id": _league_id(self.season),
+                # which main build the stats came from (site.yml passes it)
+                "build_run": os.environ.get("LOTG_BUILD_RUN") or None,
+                "build_time": os.environ.get("LOTG_BUILD_TIME") or None}
 
     # -- home
     def standings(self) -> List[dict]:
@@ -847,7 +879,10 @@ class Site:
         held: Dict[str, list] = {t: [] for t in self.teams}
         for (y, r, orig), team in sorted(owner.items()):
             held.setdefault(team, []).append([y, r, orig])
+        snap = [[y, r, o, cur] for (y, r, o), cur in _sleeper_pick_owners(self.season, canon).items()
+                if y in years]
         return {"season": self.season, "years": years, "rounds": PICK_ROUNDS, "held": held,
+                "sleeper_at_build": snap,
                 "weights": FUTURE_PICK_WEIGHTS}
 
     # -- rosters
@@ -1040,6 +1075,17 @@ class Site:
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
         put("draft.json", self.draft())
         put("picks.json", self.held_picks())
+        rostered = []
+        for r in json.loads((EXPORTS / "snapshot" / f"season_{self.season}" / "rosters.json").read_text()) \
+                if (EXPORTS / "snapshot" / f"season_{self.season}" / "rosters.json").exists() else []:
+            rostered += r.get("players") or []
+        ages = {}
+        if "Player ID" in self.py.columns:
+            cur = self.py[self.py.Year == self.season]
+            for pid, age in zip(cur["Player ID"], pd.to_numeric(cur["Age"], errors="coerce")):
+                if pd.notna(pid) and pd.notna(age):
+                    ages[str(pid).split(".")[0]] = round(float(age), 2)
+        put("nfl_players.json", nfl_players(rostered, ages))
         put("pick_history.json", {"has_workbook": self._histories is not None, **self.pick_histories()})
         t = time.time()
         self.weeks(put)
@@ -1062,9 +1108,21 @@ class Site:
 
 
 def copy_shell(out: Path, shell: Path = SHELL) -> None:
+    """Copy the page shell; index.html asks for app.js / style.css with a hash of
+    their contents (`app.js?v=…`), so a deploy is never hidden behind the copy a
+    browser cached (GitHub Pages lets browsers keep files for 10 minutes)."""
+    import hashlib
     for f in shell.iterdir():
         if f.is_file():
             shutil.copy2(f, out / f.name)
+    index = out / "index.html"
+    if index.exists():
+        html_text = index.read_text(encoding="utf-8")
+        for name in ("app.js", "style.css"):
+            if (shell / name).exists():
+                v = hashlib.sha1((shell / name).read_bytes()).hexdigest()[:10]
+                html_text = re.sub(rf'(["\']){re.escape(name)}(["\'])', rf"\g<1>{name}?v={v}\g<2>", html_text)
+        index.write_text(html_text, encoding="utf-8")
 
 
 def build(out_dir, forecast: bool = True, sims: int = 20000, workbook=None) -> Dict[str, object]:

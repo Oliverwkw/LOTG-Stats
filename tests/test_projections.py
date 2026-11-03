@@ -200,6 +200,47 @@ def test_qb_cameo_rule():
     ], columns=["game_id", "season", "game_type", "week", "away_team", "home_team"])
     got = P.did_not_play(pw, gsis, log, games, snaps=snaps).tolist()
     assert got == [True, False, False, False, False, False, True], got
+    # [per user, 2026-11-03] the team's games he was KNOWN OUT are skipped:
+    # Lamar Jackson 2026 wk 8 (out wks 5-7, BAL's QB in wk 4, 1 snap) is a bust,
+    # not a cameo; without `out` the wk 7 backup's game reads him as a backup.
+    # Browning (healthy, not out in wk 7) stays a cameo.
+    pw2 = pd.DataFrame([
+        (2026, 4, "BAL", "QB", 20.0), (2026, 5, "BAL", "QB", 0.0), (2026, 6, "BAL", "QB", 0.0),
+        (2026, 7, "BAL", "QB", 0.0), (2026, 8, "BAL", "QB", 0.0), (2024, 8, "CIN", "QB", 0.0),
+    ], columns=["Year", "Week", "NFL team", "Position", "Points"])
+    gsis2 = pd.Series(["L", "L", "L", "L", "L", "B"])
+    out2 = pd.Series([False, True, True, True, False, False])
+    snaps2 = pd.DataFrame([
+        ("L", 2026, 4, "BAL", 0.52), ("H", 2026, 4, "BAL", 0.48), ("H", 2026, 5, "BAL", 1.0),
+        ("H", 2026, 6, "BAL", 1.0), ("H", 2026, 7, "BAL", 1.0), ("L", 2026, 8, "BAL", 0.02),
+        ("H", 2026, 8, "BAL", 0.98), ("Q", 2024, 7, "CIN", 1.0), ("B", 2024, 8, "CIN", 0.05),
+        ("B", 2023, 18, "CIN", 1.0),
+    ], columns=["gsis_id", "season", "week", "team", "offense_pct"])
+    log2 = snaps2[["gsis_id", "season", "week", "team"]]
+    games2 = pd.DataFrame([(f"2026_{w:02d}_BAL", 2026, "REG", w, "X", "BAL") for w in (4, 5, 6, 7, 8)]
+                          + [("2024_08_PHI_CIN", 2024, "REG", 8, "PHI", "CIN")],
+                          columns=["game_id", "season", "game_type", "week", "away_team", "home_team"])
+    got = P.did_not_play(pw2, gsis2, log2, games2, snaps=snaps2, out=out2).tolist()
+    assert got[4] is False and got[5] is True, got
+    # out for EVERY earlier game: last season counts only for the same team
+    # (Quinn Ewers 2026 wk 3: JAX backup, out wks 1-2, MIA's starter in 2025)
+    pw3 = pd.DataFrame([(2026, 1, "JAX", "QB", 0.0), (2026, 2, "JAX", "QB", 0.0), (2026, 3, "JAX", "QB", 0.0),
+                        (2026, 3, "BAL", "QB", 0.0)], columns=["Year", "Week", "NFL team", "Position", "Points"])
+    snaps3 = pd.DataFrame([("E", 2025, 18, "MIA", 1.0), ("T", 2026, 1, "JAX", 1.0), ("T", 2026, 2, "JAX", 1.0),
+                           ("E", 2026, 3, "JAX", 0.05), ("T", 2026, 3, "JAX", 0.95),
+                           ("L", 2025, 18, "BAL", 1.0), ("H", 2026, 1, "BAL", 1.0), ("H", 2026, 2, "BAL", 1.0),
+                           ("L", 2026, 3, "BAL", 0.02), ("H", 2026, 3, "BAL", 0.98)],
+                          columns=["gsis_id", "season", "week", "team", "offense_pct"])
+    games3 = pd.DataFrame([(f"2026_{w:02d}_{t}", 2026, "REG", w, "X", t) for w in (1, 2, 3) for t in ("JAX", "BAL")],
+                          columns=["game_id", "season", "game_type", "week", "away_team", "home_team"])
+    pw3x = pd.concat([pw3, pd.DataFrame([(2026, 1, "BAL", "QB", 0.0), (2026, 2, "BAL", "QB", 0.0)],
+                                        columns=pw3.columns)], ignore_index=True)
+    g3 = pd.Series(["E", "E", "E", "L", "L", "L"])
+    o3 = pd.Series([True, True, False, False, True, True])
+    got = P.did_not_play(pw3x, g3, snaps3[["gsis_id", "season", "week", "team"]], games3,
+                         snaps=snaps3, out=o3).tolist()
+    assert got[2] is True and got[3] is False, got
+    assert P.did_not_play(pw2, gsis2, log2, games2, snaps=snaps2).tolist()[4] is True
     # without snap shares only the no-appearance half runs: nothing here
     assert not P.did_not_play(pw, gsis, log, games).any()
 

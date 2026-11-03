@@ -550,7 +550,15 @@ Final once it was won) is counted in team_week `Empty slots`, summed on
 team_year / team_all_time, and `boldness()` keeps its row with no Boldness. A DEAD START (a starter
 flagged bye / injured / suspended who scored 0) is judged exactly like an empty
 slot — no Boldness, slot out of the comparison, `Dead start?` in `boldness()` —
-and is counted in `Empty slots` too [per user, 2026-10-05].
+and is counted in `Empty slots` too [per user, 2026-10-05]. So is a start the
+build found DID NOT PLAY (`projections.did_not_play`: no stat line or snap in a
+played game, or a QB cameo), whose projections it zeroes — judged on that 0 it
+read as the boldest start possible (Donovan Peoples-Jones 2021 wk 7 held the
+record at 12.05) [per user, 2026-11-03]. The QB-cameo test skips the team's
+games the QB was known out, so a starter back from injury who is hurt on his
+first snap keeps his projection (Lamar Jackson 2026 wk 8). The inquiry path
+(`boldness()` outside the build) has no did-not-play input and still judges
+those starts on their own E.
 
 ## The season that has not happened yet
 

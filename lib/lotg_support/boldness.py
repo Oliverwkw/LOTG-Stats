@@ -33,7 +33,11 @@ start/sit gamble. Both halves judge the lineup on the slots that were FILLED
 only: the ex-ante max fills only those, and a starter's reference must be able
 to take his place among them. Empty slots are counted instead (`Empty slots`).
 A dead start (below) is judged the same way, and is counted as empty too
-[per user, 2026-10-05].
+[per user, 2026-10-05]. So is a start the build found DID NOT PLAY
+(`lotg_support.projections.did_not_play`: no stat line or snap in a played
+game, or a QB cameo), whose projections the build zeroes: judged on that 0 it
+would read as the boldest start possible [per user, 2026-11-03: Donovan
+Peoples-Jones 2021 wk 7, 12.05].
 An empty-slot row still appears in `boldness()` (its reference shows what could
 have filled it) but carries no Boldness.
 
@@ -247,7 +251,8 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
                  score: Callable[..., float],
                  score_map: Dict[str, Tuple[str, ...]],
                  bridge: Dict[str, str],
-                 expect_override: Optional[Dict[Tuple[int, int, str], float]] = None):
+                 expect_override: Optional[Dict[Tuple[int, int, str], float]] = None,
+                 did_not_play: Optional[Dict[int, Set[Tuple[str, int]]]] = None):
     """Point the module at the build's own data for the duration.
 
     matchups {season: {week: Sleeper matchup dicts}} (late-listing corrected),
@@ -259,7 +264,10 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
     `expect_override` {(season, week, gsis): E}: the projection the stat judges
     lineups on where given — the build passes the Enhanced projection
     (lotg_support.projections) [approved by the user, 2026-10-07]; a player it
-    lacks keeps this module's own E (the Claude projection)."""
+    lacks keeps this module's own E (the Claude projection).
+    `did_not_play` {season: {(player_id, week)}}: the build's did-not-play rows
+    (`projections.did_not_play`); a starter in it is a dead start. Read only
+    when the columns are built, so it is not part of the warm-cache key."""
     global _INJECTED, _WARM, LAST_BLOCK_REUSED
     inputs = dict(matchups=matchups, roster_positions=roster_positions, teams=teams,
                   unavailable=unavailable, rookie_picks=rookie_picks, scoring=scoring,
@@ -270,7 +278,8 @@ def build_inputs(*, matchups: Dict[int, Dict[int, List[dict]]],
     else:
         _clear_caches()
     _WARM = None
-    _INJECTED = dict(inputs, expect_override=dict(expect_override or {}))
+    _INJECTED = dict(inputs, expect_override=dict(expect_override or {}),
+                     did_not_play={int(k): set(v) for k, v in (did_not_play or {}).items()})
     try:
         yield
     finally:
@@ -321,6 +330,12 @@ def build_columns(params: "Params" = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
     cat = lambda fr, cols: pd.concat(fr, ignore_index=True) if fr else pd.DataFrame(columns=cols)
     return (cat(starts, ["Year", "Week", "Team", "Player ID", "Boldness", "E starter", "Dead start?"]),
             cat(lineups, ["Year", "Week", "Team", "Lineup Boldness", "Empty slots"]))
+
+
+def _did_not_play(season: int) -> Set[Tuple[str, int]]:
+    if _INJECTED is not None:
+        return set((_INJECTED.get("did_not_play") or {}).get(int(season), set()))
+    return set()
 
 
 def _unavailable(season: int) -> Set[Tuple[str, int]]:
@@ -1161,13 +1176,17 @@ def filled_slots(starters: Sequence[str], slots: Sequence[Tuple[str, ...]]
     return [starters[i] for i in idx], [slots[i] for i in idx], len(slots) - len(idx)
 
 
-def dead_starts(wr: "Q.WeekRow", unavail: Set[str], is_live: bool) -> Set[str]:
-    """Starters ruled out (bye / injured / suspended) who scored 0: judged as
-    empty slots, not as bold starts. None in a live week (no points yet)."""
+def dead_starts(wr: "Q.WeekRow", unavail: Set[str], is_live: bool,
+                dnp: Optional[Set[str]] = None) -> Set[str]:
+    """Starters ruled out (bye / injured / suspended) who scored 0, and starters
+    the build found did not play (`dnp`, already 0 or a QB cameo under 1):
+    judged as empty slots, not as bold starts. None in a live week (no points
+    yet)."""
     if is_live:
         return set()
-    return {s for s in wr.starters if s != Q.EMPTY_SLOT and s in unavail
-            and float(wr.players_points.get(s) or 0.0) == 0.0}
+    dnp = dnp or set()
+    return {s for s in wr.starters if s != Q.EMPTY_SLOT and (
+        s in dnp or (s in unavail and float(wr.players_points.get(s) or 0.0) == 0.0))}
 
 
 def boldness(season: int, weeks: Optional[Sequence[int]] = None,
@@ -1188,6 +1207,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
     bridge = _bridge()
     elig = season_eligibility(season)
     unavail_hist = _unavailable(season)
+    dnp_hist = _did_not_play(season)
     teams = season_teams(season)
     names = Q.players().names()
     rows = []
@@ -1203,7 +1223,7 @@ def boldness(season: int, weeks: Optional[Sequence[int]] = None,
                 g = bridge.get(pid)
                 return E_idx.get((g, wk)) if g else None
 
-            dead = dead_starts(wr, unavail, is_live)
+            dead = dead_starts(wr, unavail, is_live, {pid for pid, w in dnp_hist if w == wk})
             filled, filled_sl, _ = filled_slots(
                 [Q.EMPTY_SLOT if p in dead else p for p in starters], slots)
             for idx, s in enumerate(starters):
@@ -1281,13 +1301,14 @@ def team_boldness(season: int, weeks: Optional[Sequence[int]] = None,
     slots = season_slots(season)
     elig = season_eligibility(season)
     unavail_hist = _unavailable(season)
+    dnp_hist = _did_not_play(season)
     teams = season_teams(season)
     rows = []
     for wk in sorted(wks):
         is_live = wk == live
         unavail = _live_unavailable(season, wk) if is_live else {pid for pid, w in unavail_hist if w == wk}
         for rid, wr in week_rows(season, wk).items():
-            dead = dead_starts(wr, unavail, is_live)
+            dead = dead_starts(wr, unavail, is_live, {pid for pid, w in dnp_hist if w == wk})
             # a dead start counts as an empty slot [per user, 2026-10-05]
             starters, filled_sl, n_empty = filled_slots(
                 [Q.EMPTY_SLOT if p in dead else p for p in wr.starters], slots)

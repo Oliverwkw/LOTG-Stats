@@ -408,13 +408,15 @@ def source_frame(inp: Inputs) -> pd.DataFrame:
 QB_CAMEO_SHARE = 0.10        # at most this share of his team's offensive snaps ...
 QB_CAMEO_POINTS = 1.0        # ... and under this many points ...
 QB_ROLE_SHARE = 0.5          # ... and NOT his team's quarterback going in (under this
-                             # share of its previous game this season): the starter
+                             # share of its previous game this season, skipping the
+                             # games he was known out [per user, 2026-11-03]): the starter
                              # hurt on the first drive (Kyler Murray 2022 wk 14,
                              # Aaron Rodgers 2023 wk 1) is a bust, not a cameo
 
 
 def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
-                 games: pd.DataFrame, snaps: Optional[pd.DataFrame] = None) -> pd.Series:
+                 games: pd.DataFrame, snaps: Optional[pd.DataFrame] = None,
+                 out: Optional[pd.Series] = None) -> pd.Series:
     """Per player_week row: True when the player did not take the field in a
     game his NFL team played — no stat line and no offensive snap (`appeared`:
     `boldness.game_log` rows, gsis_id / season / week / team, the same "sat
@@ -433,7 +435,12 @@ def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
     QB_CAMEO_SHARE of his team's offensive snaps who scored under
     QB_CAMEO_POINTS, unless he was its quarterback going in — QB_ROLE_SHARE or
     more of its snaps in its previous game this season (in its first game, his
-    last game of the season before). Jake Browning 2024 wk 8 (3 kneel-downs,
+    last game of the season before). With `out` (per pw row: known out that
+    week, the projections' `out`), the team's games he was known out are
+    skipped, so a starter back from injury who is hurt on his first snap is his
+    team's QB going in, not a cameo [per user, 2026-11-03: Lamar Jackson 2026
+    wk 8, out wks 5-7, 1 snap in wk 8]. A week he was not rostered has no row,
+    so it is never known out. Jake Browning 2024 wk 8 (3 kneel-downs,
     Burrow had every snap the week before) is a cameo."""
     from lotg_support.struck_games import STRUCK_GAME_IDS
     res = pd.Series(False, index=pw.index)
@@ -466,11 +473,11 @@ def did_not_play(pw: pd.DataFrame, gsis: pd.Series, appeared: pd.DataFrame,
         if key in played and key in landed and (str(g_), int(y), int(w)) not in seen:
             res.at[i] = True
     if snaps is not None and not snaps.empty and "Position" in pw.columns:
-        res |= _qb_cameo(pw, gs, yr, wk, snaps, played)
+        res |= _qb_cameo(pw, gs, yr, wk, snaps, played, out)
     return res
 
 
-def _qb_cameo(pw, gs, yr, wk, snaps, played) -> pd.Series:
+def _qb_cameo(pw, gs, yr, wk, snaps, played, known_out_rows=None) -> pd.Series:
     """The QB-cameo half of `did_not_play` (see there)."""
     out = pd.Series(False, index=pw.index)
     sn = snaps.dropna(subset=["gsis_id", "season", "week"])
@@ -484,6 +491,11 @@ def _qb_cameo(pw, gs, yr, wk, snaps, played) -> pd.Series:
             last_share[(g, s)] = (w, p)
     for k in team_weeks:
         team_weeks[k] = sorted(set(team_weeks[k]))
+    known_out = set()
+    if known_out_rows is not None:
+        o = known_out_rows.reindex(pw.index).fillna(False).astype(bool)
+        known_out = {(str(g), int(y), int(w)) for g, y, w, f in zip(gs, yr, wk, o)
+                     if f and pd.notna(g) and pd.notna(y) and pd.notna(w)}
     qb = pw["Position"].astype(str).str.upper().eq("QB")
     low = pd.to_numeric(pw["Points"], errors="coerce").fillna(0) < QB_CAMEO_POINTS
     for i, y, w, g_ in zip(pw.index, yr, wk, gs):
@@ -493,9 +505,16 @@ def _qb_cameo(pw, gs, yr, wk, snaps, played) -> pd.Series:
         p, team = pct.get((g_, y, w), (0.0, ""))
         if not (0 < p <= QB_CAMEO_SHARE) or (y, w, team) not in played:
             continue
-        prev = [x for x in team_weeks.get((y, team), []) if x < w]
-        role = (pct.get((g_, y, prev[-1]), (0.0, ""))[0] if prev
-                else last_share.get((g_, y - 1), (0, 0.0))[1])
+        before = [x for x in team_weeks.get((y, team), []) if x < w]
+        prev = [x for x in before if (g_, y, x) not in known_out]
+        if prev:
+            role = pct.get((g_, y, prev[-1]), (0.0, ""))[0]
+        else:
+            lw, lp = last_share.get((g_, y - 1), (0, 0.0))
+            # Out for every earlier game: last season counts only if it was for
+            # this team (Quinn Ewers 2026 wk 3, JAX's backup, out wks 1-2, had
+            # started for MIA in 2025 — still a cameo).
+            role = lp if (not before or pct.get((g_, y - 1, lw), (0.0, ""))[1] == team) else 0.0
         if role < QB_ROLE_SHARE:
             out.at[i] = True
     return out

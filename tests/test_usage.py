@@ -190,15 +190,15 @@ def test_topic_and_number_formats():
 
 # --------------------------------------------------------------------------- committed cache
 def test_cached_ffopportunity_reconciles_with_its_own_totals():
-    files = sorted(_CACHE.glob("ffopportunity_ep_weekly_*.csv.gz"))
+    files = sorted(_CACHE.glob("ffopportunity_ep_weekly_*.csv"))
     snap = _EXPORTS / "snapshot"
-    done = [f for f in files if int(f.name[-11:-7]) < 2026 and (snap / f"season_{f.name[-11:-7]}" / "league.json").exists()]
+    done = [f for f in files if int(f.name[-8:-4]) < 2026 and (snap / f"season_{f.name[-8:-4]}" / "league.json").exists()]
     if not done and _skip("no completed-season ffopportunity file in .cache"):
         return
     for f in done:
-        y = int(f.name[-11:-7])
+        y = int(f.name[-8:-4])
         sc = json.loads((snap / f"season_{y}" / "league.json").read_text())["scoring_settings"]
-        d = pd.read_csv(f, compression="gzip", low_memory=False)
+        d = pd.read_csv(f, low_memory=False)
         x = U.component_points(d, sc)
         assert (x - d["total_fantasy_points_exp"]).abs().max() < 0.6, y      # rounded components (max 0.51, 2022)
         a = U.component_points(d, sc, U.ACTUAL_SCORE_MAP) - 2 * (d["rec_fumble_lost"].fillna(0) + d["rush_fumble_lost"].fillna(0))

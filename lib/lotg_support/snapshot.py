@@ -79,6 +79,32 @@ def _safe_write_json(path: Path, obj: Any) -> None:
         path.write_text(json.dumps(str(obj)))
 
 
+def canonical_players(players: Dict[str, Any]) -> Dict[str, Any]:
+    """Sleeper's /players/nfl with each player's fields in sorted key order.
+
+    Sleeper returns the players themselves in a stable order but shuffles the
+    ~50 fields INSIDE every record from one fetch to the next. Between two
+    builds a handful of values change (on 2026-11-03: six `news_updated`), yet
+    all 12k records move, so git cannot delta the file. Each refresh stored a
+    fresh ~2 MB blob: 90 versions were 182 MB of the 765 MB repo, two thirds of
+    its monthly growth. Sorted, the next version costs a few KB.
+
+    Only the order inside a record changes. The player order (what a first-wins
+    name lookup sees) is Sleeper's, every value is untouched, and every reader
+    looks fields up by name (tests/test_snapshot_canonical.py pins both)."""
+
+    def _sorted(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {k: _sorted(v[k]) for k in sorted(v, key=str)}
+        if isinstance(v, list):
+            return [_sorted(x) for x in v]
+        return v
+
+    if not isinstance(players, dict):
+        return players
+    return {pid: _sorted(rec) for pid, rec in players.items()}
+
+
 def _safe_write_df(path: Path, df: pd.DataFrame) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -179,7 +205,7 @@ def snapshot_all(
         players_nfl = sc.players_nfl()
     except Exception:
         players_nfl = {}
-    _safe_write_json(snapshot_dir / "sleeper_players_nfl.json", players_nfl)
+    _safe_write_json(snapshot_dir / "sleeper_players_nfl.json", canonical_players(players_nfl))
 
     # DynastyProcess ids (for gsis_id joins)
     try:

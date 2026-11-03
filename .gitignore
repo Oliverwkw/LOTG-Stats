@@ -70,3 +70,10 @@ exports/raw/pae_additions.json.gz
 
 # scripts/grade_tools.py replay caches (Sleeper stats/projections slim copies, trade forecasts, track record)
 .cache/grade/
+
+# A local venv built from requirements.lock (see CLAUDE.md).
+.venv/
+
+# usage.py caches ffopportunity as plain CSV (git deltas it); a .gz left by an older
+# build or restored from the Actions cache must not be re-committed.
+.cache/ffopportunity_ep_weekly_*.csv.gz
