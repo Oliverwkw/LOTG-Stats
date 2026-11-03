@@ -187,7 +187,7 @@ def test_exports_did_not_play_starts_carry_no_boldness():
         return _skip("exports predate the did-not-play dead starts")
     yr, wk = Q.numeric(pw, "Year"), Q.numeric(pw, "Week")
     row = (pw["Player"] == "Donovan Peoples-Jones") & (yr == 2021) & (wk == 7)
-    assert row.sum() == 1 and pw.loc[row, "Boldness"].isna().all()
+    assert row.sum() == 1 and Q.numeric(pw, "Boldness")[row].isna().all()   # text sheet: "N/A"
     lamar = (pw["Player"] == "Lamar Jackson") & (yr == 2026) & (wk == 8)
     if lamar.any():
         assert (Q.numeric(pw, "Enhanced Projection")[lamar] > 5).all()
