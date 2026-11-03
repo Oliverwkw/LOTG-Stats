@@ -12021,6 +12021,9 @@ def build_all(repo_root: Path) -> None:
     # 2026-10-13). Nothing between here and the awards adds or drops a
     # player_week row.
     _proj_res = None
+    # (Player ID, Year, Week) the build found did not play — Boldness judges
+    # those starts as dead starts [per user, 2026-11-03].
+    _dnp_rows: Dict[int, Set[Tuple[str, int]]] = defaultdict(set)
     try:
         from lotg_support import projections as _proj
         from lotg_support import boldness as _bold
@@ -12066,7 +12069,12 @@ def build_all(repo_root: Path) -> None:
         _claude = pd.concat(_cl, ignore_index=True).dropna(subset=["Player ID"]) if _cl else pd.DataFrame(columns=["Year", "Week", "Player ID", "E"])
         _ids = _safe_df(load_dynastyprocess_playerids(ext))
         _proj_dnp = _proj.did_not_play(pw, pw["Player ID"].astype(str).map(_proj_bridge),
-                                       _appeared, _proj_games, snaps=_snap_shares)
+                                       _appeared, _proj_games, snaps=_snap_shares,
+                                       out=pw["_proj_out"])
+        for _pid, _y, _w in pw.loc[_proj_dnp.reindex(pw.index).fillna(False).astype(bool),
+                                   ["Player ID", "Year", "Week"]].itertuples(index=False, name=None):
+            if pd.notna(_y) and pd.notna(_w):
+                _dnp_rows[int(_y)].add((str(_pid), int(_w)))
         _inp = _proj.Inputs(
             player_week=pw.assign(out=pw["_proj_out"], did_not_play=_proj_dnp), claude=_claude, games=_proj_games,
             ids=_ids.astype(str), scoring=lambda y: _scoring_tables.get(int(y), {}), current_season=_cur,
@@ -19803,7 +19811,8 @@ def build_all(repo_root: Path) -> None:
                 unavailable=dict(_bold_unavail),
                 rookie_picks=_rk[["Year", "Number", "Player Picked"]] if not _rk.empty else pd.DataFrame(columns=["Year", "Number", "Player Picked"]),
                 scoring=_bold_scoring, score=_league_score, score_map=_LEAGUE_SCORE_MAP,
-                bridge=_bold_bridge, expect_override=_bold_override):
+                bridge=_bold_bridge, expect_override=_bold_override,
+                did_not_play=dict(_dnp_rows)):
             _bold_warm = _bold.LAST_BLOCK_REUSED
             _bstarts, _blineups = _bold.build_columns()
             _bold_secs = (datetime.now() - _t0).total_seconds()
@@ -19848,7 +19857,8 @@ def build_all(repo_root: Path) -> None:
             team_all["Lineup Boldness"] = [_amap.get(str(t)) for t in team_all["Team"]]
             _aemap = _bl.groupby("Team")["Empty slots"].sum().astype(int).to_dict()
             team_all["Empty slots"] = [_aemap.get(str(t)) for t in team_all["Team"]]
-        _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups "
+        _log(debug, f"[{_now_iso()}] INFO boldness: {len(_bstarts)} starts, {len(_blineups)} lineups, "
+                    f"{sum(len(v) for v in _dnp_rows.values())} did-not-play rows passed as dnp dead starts "
                     f"in {_bold_secs:.0f}s"
                     + (" (caches carried over from the projection pass)" if _bold_warm
                        else " (cold: inputs differ from the projection pass)"))
