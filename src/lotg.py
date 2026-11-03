@@ -686,6 +686,12 @@ def live_status_applies(season: Any, current_season: Any) -> bool:
         return True
 
 
+# nflverse weekly-roster statuses that mean "on this team this week" (active,
+# inactive, reserve/IR, practice squad, PUP). CUT / RET / TRD / TRC / TRT / E14
+# rows name a team he has left or is not playing for.
+_ON_TEAM_ROSTER_STATUSES = frozenset({"ACT", "INA", "RES", "DEV", "PUP"})
+
+
 def _valid_pid(pid: Any) -> bool:
     """Return True if pid is a real Sleeper player id (not placeholders like '0')."""
     if pid is None:
@@ -5009,6 +5015,8 @@ def build_all(repo_root: Path) -> None:
     _season_playoff_start: Dict[int, int] = {}
     _bold_scoring: Dict[int, Dict[str, Any]] = {}
 
+    # player_week rows whose NFL team the week-first order moved (logged below).
+    _nfl_team_week_moves: List[str] = []
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -5053,6 +5061,17 @@ def build_all(repo_root: Path) -> None:
         # instead of the 'NFL' free-agent sentinel.
         roster_team_by_week: Dict[Tuple[str, int, int], str] = {}
         roster_team_by_season: Dict[Tuple[str, int], str] = {}
+        # nflverse SNAP COUNTS: (gsis, week) -> the team he took the field for.
+        # A week-level source, so it outranks the season fallbacks below (a
+        # player traded mid-season with no stat line that week — Mike Williams
+        # 2024 wk 12, 19 snaps for PIT — used to read his old team and its bye).
+        snap_team_by_week: Dict[Tuple[str, int], str] = {}
+        # The weekly roster's team ONLY where its status says he is on that
+        # team that week (active, inactive, reserve, practice squad, PUP) — a
+        # CUT / RET / traded row names the team he just LEFT (Cam Newton 2021
+        # wk 1: "NE", CUT). This one ranks with the week sources; the any-status
+        # roster_team_by_week keeps its old place behind the season fallback.
+        roster_on_team_by_week: Dict[Tuple[str, int], str] = {}
         # APPEARANCE, not events. `played_players_by_week` starts from
         # stats_player_week (an EVENT list) and is then unioned with the
         # snap-count appearance set below, because a player who took the field
@@ -5184,6 +5203,13 @@ def build_all(repo_root: Path) -> None:
                     _pf, _gs = str(_r.pfr_id).strip(), str(_r.gsis_id).strip()
                     if _pf and _pf != "nan" and _looks_like_gsis(_gs):
                         pfr_to_gsis.setdefault(_pf, _gs)
+            if not wr.empty and {"gsis_id", "team", "week", "status"}.issubset(wr.columns):
+                _on = wr[wr["status"].astype(str).str.upper().isin(_ON_TEAM_ROSTER_STATUSES)]
+                _on = _on[["gsis_id", "week", "team"]].dropna()
+                for _gs, _w, _tm in zip(_on["gsis_id"].astype(str),
+                                        pd.to_numeric(_on["week"], errors="coerce"), _on["team"].astype(str)):
+                    if pd.notna(_w) and _looks_like_gsis(_gs) and _tm and _tm != "nan":
+                        roster_on_team_by_week.setdefault((_gs.strip(), int(_w)), _tm)
             if not wr.empty and "gsis_id" in wr.columns and "team" in wr.columns and "week" in wr.columns:
                 wr = wr[["gsis_id", "week", "team"]].dropna()
                 wr["week"] = pd.to_numeric(wr["week"], errors="coerce").astype("Int64")
@@ -5262,6 +5288,12 @@ def build_all(repo_root: Path) -> None:
                     _tot = sum(pd.to_numeric(snaps[c], errors="coerce").fillna(0)
                                for c in _snap_cols)
                     snaps = snaps[_tot > 0]
+                if "team" in snaps.columns:
+                    for _r in snaps[["pfr_player_id", "week", "team"]].dropna().itertuples(index=False):
+                        _gs = pfr_to_gsis.get(str(_r.pfr_player_id).strip())
+                        _tm = str(_r.team).strip()
+                        if _gs and _tm and _tm.lower() != "nan":
+                            snap_team_by_week.setdefault((_gs, int(_r.week)), _tm)
                 _added = 0
                 for _r in snaps[["pfr_player_id", "week"]].dropna().itertuples(index=False):
                     _gs = pfr_to_gsis.get(str(_r.pfr_player_id).strip())
@@ -6780,10 +6812,15 @@ def build_all(repo_root: Path) -> None:
                         m = pid_meta.get(str(pid_val), {}) if isinstance(pid_meta, dict) else {}
                         gs = dp_sleeper_to_gsis.get(str(pid_val)) or m.get("gsis_id") or sleeper_to_gsis.get(str(pid_val))
                         tm = (
+                            # Every source for THIS week before any season-level
+                            # fallback, so a mid-season NFL trade shows up the
+                            # week it happens: the stat line, the snap counts,
+                            # then the weekly roster (IR / suspended / PUP, no
+                            # stats) -> keep their real team.
                             (player_team_by_week.get((str(gs), int(wk))) if gs else None)
+                            or (snap_team_by_week.get((str(gs), int(wk))) if gs else None)
+                            or (roster_on_team_by_week.get((str(gs), int(wk))) if gs else None)
                             or (player_season_team.get(str(gs)) if gs else None)
-                            # On a roster that week/season but with no stats
-                            # (IR / suspended / PUP) -> keep their real team.
                             or (roster_team_by_week.get((str(gs), int(season), int(wk))) if gs else None)
                             or (roster_team_by_season.get((str(gs), int(season))) if gs else None)
                             # A real NFL identity (gsis) but on NO roster that
@@ -7055,15 +7092,33 @@ def build_all(repo_root: Path) -> None:
                         # deterministically instead of via the churny Sleeper
                         # snapshot. No-gsis players (DSTs / unmapped) keep it.
                         nfl_team = (
+                            # This week's sources first (stat line, snap counts,
+                            # weekly roster — the last covers IR / suspended / PUP
+                            # with no stats), then the season fallbacks: a player
+                            # traded mid-season reads his NEW team (and its bye)
+                            # on a week he played without a stat line.
                             (player_team_by_week.get((str(gsis), int(wk))) if gsis else None)
+                            or (snap_team_by_week.get((str(gsis), int(wk))) if gsis else None)
+                            or (roster_on_team_by_week.get((str(gsis), int(wk))) if gsis else None)
                             or (player_season_team.get(str(gsis)) if gsis else None)
-                            # On a roster but no stats (IR / suspended / PUP).
                             or (roster_team_by_week.get((str(gsis), int(season), int(wk))) if gsis else None)
                             or (roster_team_by_season.get((str(gsis), int(season))) if gsis else None)
                             or ("NFL" if gsis else None)
                             or meta.get("team")
                         )
                         nfl_team = _norm_team(nfl_team)
+                        # Audit trail: every row where the week-first order picks
+                        # a different team than the old season-first one did.
+                        if gsis:
+                            _old_order = _norm_team(
+                                player_team_by_week.get((str(gsis), int(wk)))
+                                or player_season_team.get(str(gsis))
+                                or roster_team_by_week.get((str(gsis), int(season), int(wk)))
+                                or roster_team_by_season.get((str(gsis), int(season)))
+                                or "NFL")
+                            if _old_order != nfl_team:
+                                _nfl_team_week_moves.append(
+                                    f"{full_name} ({pid}) {season} wk{wk}: {_old_order} -> {nfl_team}")
 
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
@@ -7927,6 +7982,10 @@ def build_all(repo_root: Path) -> None:
     # Commissioner pick-trade overlay: warn on any row that never matched a
     # transaction (a stale timestamp or a trade dropped upstream) so the ledger
     # stays honest rather than silently skipping picks.
+    _log(debug, f"[{_now_iso()}] INFO nfl_team_week_first: {len(_nfl_team_week_moves)} player_week "
+                f"row(s) take this week's team over the season's (snap counts / on-team roster)")
+    for _mv in _nfl_team_week_moves:
+        _log(debug, f"[{_now_iso()}] INFO nfl_team_week_first {_mv}")
     _cpt_unmatched = [_o for _o in _commish_overlay_rows if not _o.get("matched")]
     if _cpt_unmatched:
         for _o in _cpt_unmatched:
