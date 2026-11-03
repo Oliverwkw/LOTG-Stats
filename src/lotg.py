@@ -5009,6 +5009,8 @@ def build_all(repo_root: Path) -> None:
     _season_playoff_start: Dict[int, int] = {}
     _bold_scoring: Dict[int, Dict[str, Any]] = {}
 
+    # player_week rows whose NFL team the week-first order moved (logged below).
+    _nfl_team_week_moves: List[str] = []
     for lg in leagues:
         league_id = str(lg.get("league_id"))
         season = _to_int(lg.get("season"), 0) or 0
@@ -7099,6 +7101,18 @@ def build_all(repo_root: Path) -> None:
                             or meta.get("team")
                         )
                         nfl_team = _norm_team(nfl_team)
+                        # Audit trail: every row where the week-first order picks
+                        # a different team than the old season-first one did.
+                        if gsis:
+                            _old_order = _norm_team(
+                                player_team_by_week.get((str(gsis), int(wk)))
+                                or player_season_team.get(str(gsis))
+                                or roster_team_by_week.get((str(gsis), int(season), int(wk)))
+                                or roster_team_by_season.get((str(gsis), int(season)))
+                                or "NFL")
+                            if _old_order != nfl_team:
+                                _nfl_team_week_moves.append(
+                                    f"{full_name} ({pid}) {season} wk{wk}: {_old_order} -> {nfl_team}")
 
                         pts = float(ppts.get(pid, 0.0))
                         started = pid in starters
@@ -7962,6 +7976,10 @@ def build_all(repo_root: Path) -> None:
     # Commissioner pick-trade overlay: warn on any row that never matched a
     # transaction (a stale timestamp or a trade dropped upstream) so the ledger
     # stays honest rather than silently skipping picks.
+    _log(debug, f"[{_now_iso()}] INFO nfl_team_week_first: {len(_nfl_team_week_moves)} player_week "
+                f"row(s) take this week's team over the season's (snap counts / on-team roster)")
+    for _mv in _nfl_team_week_moves:
+        _log(debug, f"[{_now_iso()}] INFO nfl_team_week_first {_mv}")
     _cpt_unmatched = [_o for _o in _commish_overlay_rows if not _o.get("matched")]
     if _cpt_unmatched:
         for _o in _cpt_unmatched:
