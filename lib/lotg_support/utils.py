@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +56,27 @@ def get_logger(path: Path) -> BuildLogger:
     return BuildLogger(path)
 
 
+# One keep-alive session per (process, thread, proxy mode). A fresh Session per
+# call opened a new TLS connection every time: the build's ~410 Sleeper GETs spent
+# ~20 s of a ~43 s network bill on handshakes (cProfile, run 41670756117). Per
+# thread because Session is not thread-safe; per process because a pooled socket
+# inherited across fork (Wins added forks) must never be shared with the parent.
+# Only the transport changes: the same URL, headers, retries and parsing.
+_SESSIONS = threading.local()
+
+
+def _session(trust_env: bool) -> requests.Session:
+    pool = getattr(_SESSIONS, "pool", None)
+    if pool is None or getattr(_SESSIONS, "pid", None) != os.getpid():
+        pool = _SESSIONS.pool = {}
+        _SESSIONS.pid = os.getpid()
+    sess = pool.get(trust_env)
+    if sess is None:
+        sess = pool[trust_env] = requests.Session()
+        sess.trust_env = trust_env
+    return sess
+
+
 def fetch_json(url: str, cfg: HttpConfig, logger: Optional[BuildLogger] = None) -> Optional[Any]:
     """GET JSON with retries. Returns parsed object or None.
 
@@ -67,8 +90,7 @@ def fetch_json(url: str, cfg: HttpConfig, logger: Optional[BuildLogger] = None) 
 
     def _attempt(trust_env: bool) -> Optional[Any]:
         nonlocal last_status
-        session = requests.Session()
-        session.trust_env = trust_env
+        session = _session(trust_env)
 
         for attempt in range(cfg.max_retries):
             try:
