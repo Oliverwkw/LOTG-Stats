@@ -72,10 +72,28 @@ def snapshot_is_stale(repo_root: Path, max_age_days: float,
     return age is None or age > max_age_days
 
 
-def _safe_write_json(path: Path, obj: Any) -> None:
+def _sorted_keys(v: Any) -> Any:
+    """`v` with every dict's keys in sorted order; lists keep their order."""
+    if isinstance(v, dict):
+        return {k: _sorted_keys(v[k]) for k in sorted(v, key=str)}
+    if isinstance(v, list):
+        return [_sorted_keys(x) for x in v]
+    return v
+
+
+def _safe_write_json(path: Path, obj: Any, sort_keys: bool = True) -> None:
+    """Write `obj` as indented JSON, every dict's keys sorted unless `sort_keys=False`.
+
+    Sleeper serves the same record with its keys in a different order from one
+    fetch to the next (nested `adds` / `drops` / `metadata` / `settings` in
+    transactions, the per-player maps in matchups). Written as fetched, 48 past
+    weeks' transactions.json changed bytes on one export commit with no value
+    changed (b71b8e42 -> 57d482f4, run 820). Sorted, a file changes only when its
+    data does. Lists (starters, roster player lists) keep Sleeper's order, which
+    carries meaning; every reader looks dict fields up by name."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        path.write_text(json.dumps(obj, indent=2))
+        path.write_text(json.dumps(_sorted_keys(obj) if sort_keys else obj, indent=2))
     except Exception:
         path.write_text(json.dumps(str(obj)))
 
@@ -94,16 +112,9 @@ def canonical_players(players: Dict[str, Any]) -> Dict[str, Any]:
     name lookup sees) is Sleeper's, every value is untouched, and every reader
     looks fields up by name (tests/test_snapshot_canonical.py pins both)."""
 
-    def _sorted(v: Any) -> Any:
-        if isinstance(v, dict):
-            return {k: _sorted(v[k]) for k in sorted(v, key=str)}
-        if isinstance(v, list):
-            return [_sorted(x) for x in v]
-        return v
-
     if not isinstance(players, dict):
         return players
-    return {pid: _sorted(rec) for pid, rec in players.items()}
+    return {pid: _sorted_keys(rec) for pid, rec in players.items()}
 
 
 def _safe_write_df(path: Path, df: pd.DataFrame) -> None:
@@ -206,7 +217,10 @@ def snapshot_all(
         players_nfl = sc.players_nfl()
     except Exception:
         players_nfl = {}
-    _safe_write_json(snapshot_dir / "sleeper_players_nfl.json", canonical_players(players_nfl))
+    # Player order stays Sleeper's (what a first-wins name lookup sees); only the
+    # fields inside each record are sorted.
+    _safe_write_json(snapshot_dir / "sleeper_players_nfl.json", canonical_players(players_nfl),
+                     sort_keys=False)
 
     # DynastyProcess ids (for gsis_id joins)
     try:

@@ -59,6 +59,39 @@ def test_committed_dictionary_parses_to_the_same_values_canonicalised():
     assert out == raw and list(out) == list(raw)
 
 
+def test_every_snapshot_json_is_written_key_sorted():
+    """Nested dicts sorted at every depth, lists in Sleeper's order, values equal."""
+    import tempfile
+    tx = [{"type": "waiver", "adds": {"9": 3, "1": 3}, "metadata": {"z": 1, "a": None},
+           "roster_ids": [3, 1], "status": "complete"}]
+    shuffled = [{"status": "complete", "roster_ids": [3, 1], "metadata": {"a": None, "z": 1},
+                 "adds": {"1": 3, "9": 3}, "type": "waiver"}]
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d) / "a.json", Path(d) / "b.json"
+        snapshot._safe_write_json(a, tx)
+        snapshot._safe_write_json(b, shuffled)
+        assert a.read_bytes() == b.read_bytes()           # same data, same bytes
+        got = json.loads(a.read_text())
+        assert got == tx and list(got[0]) == sorted(tx[0]) and list(got[0]["adds"]) == ["1", "9"]
+        assert got[0]["roster_ids"] == [3, 1]             # list order kept
+
+
+def test_the_players_file_keeps_sleeper_player_order():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "p.json"
+        snapshot._safe_write_json(p, snapshot.canonical_players(_blob()), sort_keys=False)
+        assert list(json.loads(p.read_text())) == list(_blob())
+
+
+def test_committed_weekly_files_hold_the_same_values_canonicalised():
+    snap = _ROOT / "exports" / "snapshot"
+    files = sorted(snap.glob("season_*/weeks/week_*/transactions.json"))[:40]
+    for f in files:
+        raw = json.loads(f.read_text())
+        assert snapshot._sorted_keys(raw) == raw
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
