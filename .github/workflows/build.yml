@@ -630,9 +630,10 @@ jobs:
       - name: Build the SQL query database for the artifact
         # lotg_support.db's DuckDB copy of the exports + snapshot, so an
         # inquiry can download it from the run instead of building it (it
-        # builds in seconds anyway: scripts/sql.py). Written OUTSIDE exports/
-        # and .cache/ (both are committed back by the refresh steps) — it is a
-        # binary and must never enter history. Best-effort; never fails the job.
+        # builds in seconds anyway: scripts/sql.py); uploaded as its own
+        # LOTG_query_db artifact. Written OUTSIDE exports/ and .cache/ (both
+        # are committed back by the refresh steps) — it is a binary and must
+        # never enter history. Best-effort; never fails the job.
         if: always()
         continue-on-error: true
         env:
@@ -652,4 +653,17 @@ jobs:
             exports/LOTG_Exports.zip
             exports/*.csv
             exports/raw/*
-            ${{ runner.temp }}/query_db/lotg.duckdb
+
+      - name: Upload the SQL query database
+        # Its own artifact: upload-artifact roots a multi-path upload at the
+        # paths' common ancestor, so adding this runner.temp file to
+        # LOTG_outputs nested every export under LOTG-Stats/LOTG-Stats/exports/
+        # (PR #538). LOTG_outputs keeps its flat layout; this one holds only
+        # lotg.duckdb at its root.
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: LOTG_query_db
+          path: ${{ runner.temp }}/query_db/lotg.duckdb
+          if-no-files-found: ignore
