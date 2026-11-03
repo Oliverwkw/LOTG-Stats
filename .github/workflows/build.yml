@@ -212,6 +212,14 @@ jobs:
           set -o pipefail
           python -m lotg 2>&1 | tee exports/raw/runner.log
 
+      - name: Record the build's inputs
+        # sha256 of every input file the build had on disk (.cache, the snapshot,
+        # the KTC histories) plus the installed packages: two builds with equal
+        # manifests read the same bytes, and `scripts/reproduce_exports.py --diff`
+        # names the inputs that moved between two builds. Rides with the exports.
+        continue-on-error: true
+        run: python scripts/reproduce_exports.py --manifest > exports/raw/inputs_manifest.json
+
       # Split save steps (paired with actions/cache/restore above): the restore
       # can be skipped via force_refresh_cache, but the freshly built caches are
       # always persisted for the next run. The per-run key never collides, and

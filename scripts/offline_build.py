@@ -6,6 +6,15 @@ without touching the network (the sandbox has no Sleeper egress). Targets the
 2025 league id so the live 2026 league (the only uncached chain link) is never
 walked.
 
+Scope (pinned by tests/test_offline_scope.py):
+  IN   seasons 2020-2025: Sleeper league/users/rosters/picks/drafts/matchups/
+       transactions from `.cache/sleeper`, /players/nfl from the snapshot, nflverse
+       from the committed `.cache` (age horizon pinned open), 2020 from the ESPN backfill.
+  OUT  the live season (its league is never cached), KTC values (N/A offline), and
+       anything else only the network serves. So this is a SMOKE TEST of the code on
+       committed inputs: it never reproduces what CI shipped (for that, see
+       scripts/reproduce_exports.py --run / --commit) and is never an audit source.
+
 Usage: PYTHONPATH=src:lib python3 scripts/offline_build.py
 """
 from __future__ import annotations
