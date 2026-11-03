@@ -29,7 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install requests
-        run: pip install requests
+        run: pip install -c requirements.lock requests
 
       - name: Scrape active players (current KTC pages)
         if: ${{ inputs.mode == 'active' || inputs.mode == 'both' }}

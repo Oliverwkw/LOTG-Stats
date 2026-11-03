@@ -38,7 +38,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install --no-cache-dir "pandas==3.0.6" numpy
+        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" numpy
 
       - name: Pull responses and write the report
         env:

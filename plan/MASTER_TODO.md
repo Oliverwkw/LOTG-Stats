@@ -1481,6 +1481,23 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the change.
 
 ## Sleeper projection columns (from the #480 projection-band work)
+- [ ] **Did-not-play starts are dead starts; the QB-cameo test skips weeks he was out**
+  [per user, 2026-11-03: "Lamar wasn't bold" / "lamar shouldn't have projection 0"]. The
+  2026 wk 9 digest led with Lamar Jackson 2026 wk 8 as the highest Boldness ever (17.32,
+  Sleeper 16.54). He was out wks 5-7, then took 1 snap in wk 8 (BAL's QB in wk 4). The
+  QB-cameo test read the team's previous game, his backup's, so it zeroed all three
+  projections, and Boldness then judged the start on that 0. Two fixes:
+  (1) `projections.did_not_play(..., out=)` skips the team's games the QB was known out
+  (if he was out for all of them, last season counts only for the same team: Quinn Ewers 2026
+  wk 3 stays a cameo); (2) `boldness.build_inputs(did_not_play=)`: a did-not-play starter
+  is a dead start (no Boldness, counted in `Empty slots`). Without that, a zeroed
+  projection read as the boldest start possible: Donovan Peoples-Jones 2021 wk 7 (12.05),
+  the previous record. Expected from the committed data: did-not-play rows 4065 → 4064 (only
+  Lamar's flips). 3 newly dead starts: Peoples-Jones 2021 wk 7 (12.05 → N/A), Ronnie Rivers
+  2022 wk 9 (6.67 → N/A), Mac Jones 2026 wk 7 (0 → N/A). Each adds 1 to its team-week's
+  `Empty slots` and moves Lineup Boldness for those team-weeks and their year / all-time
+  averages. Lamar's projections, Points above, over/underachiever, Start/sit miss and
+  Comeback size rows move with his restored projection.
 - [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,

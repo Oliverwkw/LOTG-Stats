@@ -63,7 +63,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
+        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
 
       - name: Fetch the build workbook (asset-history comments)
         # The player and pick history notes exist only as hover comments in the build's
@@ -84,6 +84,8 @@ jobs:
             run_id=$(gh run list -R "$REPO" --workflow build.yml --branch main --status success -L 1 --json databaseId --jq '.[0].databaseId')
           fi
           echo "workbook from build run $run_id"
+          echo "LOTG_BUILD_RUN=$run_id" >> "$GITHUB_ENV"
+          echo "LOTG_BUILD_TIME=$(gh run view "$run_id" -R "$REPO" --json updatedAt --jq .updatedAt)" >> "$GITHUB_ENV"
           gh run download "$run_id" -R "$REPO" -n LOTG_outputs -D "$RUNNER_TEMP/build_out"
           wb=$(find "$RUNNER_TEMP/build_out" -name LOTG_Stats.xlsx | head -n 1)
           test -n "$wb" && echo "WORKBOOK=$wb" >> "$GITHUB_ENV"

@@ -47,8 +47,10 @@ A player's xFP is blank, not 0, on a week nflverse shows he did not play
 not-yet-played live week. A week he played with no expected-points row (snaps
 only) has xFP 0.
 
-Caching: the ffopportunity files are stored gzipped (~0.8 MB a season instead
-of ~5 MB) and the 20 MB play-by-play files are NEVER kept — only the derived
+Caching: the ffopportunity files are stored as the plain CSV upstream serves
+(git zlib-compresses each to ~0.8 MB and deltas the in-progress season week to
+week; a .gz could do neither and tripped tests/test_no_binary_blobs_committed
+once the Tuesday run committed .cache) and the 20 MB play-by-play files are NEVER kept — only the derived
 red-zone table (a few KB). A completed season is re-fetched after
 `HISTORICAL_MAX_AGE_DAYS` (upstream rarely touches them), the in-progress one
 on the build's normal horizon.
@@ -203,7 +205,7 @@ def _refresh(cfg: "X.ExternalConfig", path: Path, make, season: int,
 
 
 def ffo_path(cache_dir: Path, season: int) -> Path:
-    return Path(cache_dir) / f"ffopportunity_ep_weekly_{int(season)}.csv.gz"
+    return Path(cache_dir) / f"ffopportunity_ep_weekly_{int(season)}.csv"
 
 
 def red_zone_path(cache_dir: Path, season: int) -> Path:
@@ -212,18 +214,18 @@ def red_zone_path(cache_dir: Path, season: int) -> Path:
 
 def load_ff_opportunity(cfg: "X.ExternalConfig", season: int, current_season: Optional[int] = None,
                         force_refresh: bool = False) -> pd.DataFrame:
-    """ffopportunity's weekly expected-points file for `season`, cached gzipped
-    (the body byte for byte, compressed)."""
+    """ffopportunity's weekly expected-points file for `season`, cached as the
+    plain CSV body (decompressed first if upstream ever serves it gzipped)."""
     path = ffo_path(cfg.cache_dir, season)
 
     def make() -> bytes:
         body = _fetch_bytes([u.format(season=season) for u in _FFO_URLS], cfg.timeout_seconds)
-        if body[:2] != b"\x1f\x8b":
-            body = gzip.compress(body, mtime=0)
+        if body[:2] == b"\x1f\x8b":
+            body = gzip.decompress(body)
         return body
 
     _refresh(cfg, path, make, season, current_season, force_refresh)
-    return pd.read_csv(path, compression="gzip", low_memory=False)
+    return pd.read_csv(path, low_memory=False)
 
 
 def red_zone_from_pbp(pbp: pd.DataFrame) -> pd.DataFrame:
@@ -699,8 +701,8 @@ def _tool_read(cfg: "X.ExternalConfig", name: str, current: bool, fetch) -> pd.D
     path = Path(cfg.cache_dir) / name
     if path.exists() and path.stat().st_size > 0 and not (
             current and X.cache_is_stale(path, TOOL_CURRENT_MAX_AGE_DAYS)):
-        if name.endswith(".gz"):
-            return pd.read_csv(path, compression="gzip", low_memory=False)
+        if name.startswith("ffopportunity_"):
+            return pd.read_csv(path, low_memory=False)
         return X.read_cached_csv(path, low_memory=False,
                                  **({"dtype": {"gsis_id": str}} if "red_zone" in name else {}))
     try:

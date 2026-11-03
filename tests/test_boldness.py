@@ -163,6 +163,48 @@ def test_a_dead_start_is_judged_like_an_empty_slot():
     assert scored["Boldness"].notna().all() or scored.empty
 
 
+def test_a_did_not_play_start_is_a_dead_start():
+    # [per user, 2026-11-03] a starter the build found did not play (its
+    # projections zeroed) is a dead start whatever the flags say — a QB cameo
+    # under 1 point too; a flagged starter who scored is not, nor is a live week
+    wr = Q.WeekRow(roster_id=1, matchup_id=1, points=0.0, starters=("A", "B", "C", Q.EMPTY_SLOT),
+                   players=("A", "B", "C", "D"), players_points={"A": 0.0, "B": 0.4, "C": 3.0, "D": 0.0})
+    assert B.dead_starts(wr, set(), False) == set()
+    assert B.dead_starts(wr, {"A", "C"}, False) == {"A"}
+    assert B.dead_starts(wr, set(), False, {"A", "B"}) == {"A", "B"}
+    assert B.dead_starts(wr, {"A"}, True, {"B"}) == set()
+
+
+def test_exports_did_not_play_starts_carry_no_boldness():
+    # Donovan Peoples-Jones 2021 wk 7 (no snap) read as a 12.05 Boldness on
+    # his zeroed projection before the rule; Lamar Jackson 2026 wk 8 (back from
+    # injury, 1 snap) as 17.32 — his projection was wrongly zeroed as a cameo.
+    pw = _pw()
+    if pw is None or "Enhanced Projection" not in pw.columns:
+        return _skip("no exports with projections")
+    log = Q.repo_root() / "exports" / "raw" / "build_debug.log"
+    if not log.exists() or "dnp dead starts" not in log.read_text(errors="ignore"):
+        return _skip("exports predate the did-not-play dead starts")
+    yr, wk = Q.numeric(pw, "Year"), Q.numeric(pw, "Week")
+    row = (pw["Player"] == "Donovan Peoples-Jones") & (yr == 2021) & (wk == 7)
+    assert row.sum() == 1 and Q.numeric(pw, "Boldness")[row].isna().all()   # text sheet: "N/A"
+    lamar = (pw["Player"] == "Lamar Jackson") & (yr == 2026) & (wk == 8)
+    if lamar.any():
+        assert (Q.numeric(pw, "Enhanced Projection")[lamar] > 5).all()
+        assert (Q.numeric(pw, "Boldness")[lamar] < 5).all()
+    # no live start is judged on a 0 projection with 0 points
+    st = pw["Starter/Bench"].astype(str).eq("Starter") & yr.lt(Q.numeric(pw, "Year").max())
+    z = st & (Q.numeric(pw, "Enhanced Projection") == 0) & (Q.numeric(pw, "Points") == 0)
+    assert (Q.numeric(pw, "Boldness")[z].fillna(0) == 0).all()
+
+
+def _pw():
+    try:
+        return Q.load_sheet("player_week")
+    except Exception:
+        return None
+
+
 def test_the_rookie_slot_prior_fades_out():
     # after rookie_prior_weeks the slot has no say: a rookie's E is his own
     # games shrunk toward the ordinary positional prior, as for anyone
