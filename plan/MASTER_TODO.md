@@ -1481,7 +1481,7 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     the change.
 
 ## Sleeper projection columns (from the #480 projection-band work)
-- [ ] **Did-not-play starts are dead starts; the QB-cameo test skips weeks he was out**
+- [x] **Did-not-play starts are dead starts; the QB-cameo test skips weeks he was out**
   [per user, 2026-11-03: "Lamar wasn't bold" / "lamar shouldn't have projection 0"]. The
   2026 wk 9 digest led with Lamar Jackson 2026 wk 8 as the highest Boldness ever (17.32,
   Sleeper 16.54). He was out wks 5-7, then took 1 snap in wk 8 (BAL's QB in wk 4). The
@@ -1498,6 +1498,35 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
   `Empty slots` and moves Lineup Boldness for those team-weeks and their year / all-time
   averages. Lamar's projections, Points above, over/underachiever, Start/sit miss and
   Comeback size rows move with his restored projection.
+  Merged #552 / `9928ec1` after branch run 41721056328 (success). The one new export test
+  failed there on a test bug: it read the text "N/A" as a value. Fixed in the PR before
+  merge. **3-part audit — PASS (2026-11-03): post-merge main run 41724219832 vs pre-merge
+  main run 41718877245 (`7928fdd`; #553 in between is site-only).**
+  - Part 1, code: no ERROR lines; every pinned sheet has its columns in order. Only test
+    failure: `test_no_compressed_or_binary_file_is_committed`, which also fails on the
+    baseline (committed `.cache/ffopportunity_ep_weekly_*.csv.gz`). Pre-existing, unrelated.
+  - Part 2, results: 15/15 cases pass.
+    - Lamar 2026 wk 8 projects 19.78 / 16.96 / 20.98 (Sleeper / Claude / Enhanced), Boldness 0.
+    - Still zeroed: Browning 2024 wks 1-8, Ewers 2026 wk 3, Ridder 2022 wks 1-13. Kyler
+      Murray 2022 wk 14 is still > 0.
+    - Only Lamar's row is un-zeroed; nothing newly zeroed.
+    - Peoples-Jones, Rivers and Mac Jones are N/A, each with Empty slots +1. N/A starters
+      went 26 → 29.
+    - No completed-season starter with a 0 projection and 0 points has Boldness > 0.
+    - team_year Empty slots = the team_week sum. The log reports 4064 did-not-play rows.
+    - "A flagged starter who scored keeps Boldness" is vacuous: Injury? is never set on a
+      scoring week.
+  - Part 3, diff: 9 sheets moved (player_/team_/league_ week/year/all_time). `audit_weekly`
+    explains every moved row. The cascade:
+    - shmuel256 wk 8 Start/sit miss (13 rows) and Underachiever (Lamar now; Zay Flowers lost
+      it).
+    - shmuel256 v plehv79 wk 8 pre-week Win % (69 → 79%) and projection differences.
+    - Lineup riskiness for all 8 teams in 2026 wk 8 (it is relative to the league's
+      projection that week).
+    - The year / all-time projection averages.
+    - The post-merge build is identical to the branch build cell for cell. No UNEXPECTED
+      diffs.
+  - Exports are NOT committed by this plain dispatch; they land with the next Tuesday run.
 - [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
