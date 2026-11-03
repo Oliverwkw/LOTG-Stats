@@ -1259,16 +1259,16 @@
         "round": 4,
         "season": "2026",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 7,
+        "roster_id": 1,
         "previous_owner_id": 1
       },
       {
         "round": 4,
         "season": "2026",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 7,
+        "roster_id": 8,
         "previous_owner_id": 1
       }
     ],
@@ -1308,16 +1308,16 @@
         "round": 4,
         "season": "2024",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 1,
+        "roster_id": 5,
         "previous_owner_id": 5
       },
       {
         "round": 1,
         "season": "2026",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 1,
+        "roster_id": 5,
         "previous_owner_id": 5
       }
     ],
@@ -1355,40 +1355,40 @@
         "round": 1,
         "season": "2024",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 1,
+        "roster_id": 1,
         "previous_owner_id": 8
       },
       {
         "round": 1,
         "season": "2026",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 8,
+        "roster_id": 1,
         "previous_owner_id": 1
       },
       {
         "round": 2,
         "season": "2026",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 8,
+        "roster_id": 1,
         "previous_owner_id": 1
       },
       {
         "round": 1,
         "season": "2024",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 8,
+        "roster_id": 5,
         "previous_owner_id": 1
       },
       {
         "round": 4,
         "season": "2026",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 1,
+        "roster_id": 8,
         "previous_owner_id": 8
       }
     ],
@@ -1426,16 +1426,16 @@
         "round": 1,
         "season": "2025",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 2,
+        "roster_id": 5,
         "previous_owner_id": 5
       },
       {
         "round": 1,
         "season": "2024",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 2,
+        "roster_id": 8,
         "previous_owner_id": 5
       }
     ],
@@ -1473,16 +1473,16 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 2,
         "owner_id": 2,
+        "roster_id": 2,
         "previous_owner_id": 6
       },
       {
         "round": 2,
         "season": "2025",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 2,
+        "roster_id": 6,
         "previous_owner_id": 6
       }
     ],
@@ -1581,16 +1581,16 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 3,
+        "roster_id": 3,
         "previous_owner_id": 8
       },
       {
         "round": 4,
         "season": "2026",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 3,
+        "roster_id": 6,
         "previous_owner_id": 8
       }
     ],
@@ -1629,8 +1629,8 @@
         "round": 3,
         "season": "2026",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 3,
+        "roster_id": 1,
         "previous_owner_id": 1
       }
     ],
@@ -1668,24 +1668,24 @@
         "round": 4,
         "season": "2024",
         "league_id": null,
-        "roster_id": 4,
         "owner_id": 3,
+        "roster_id": 4,
         "previous_owner_id": 4
       },
       {
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 4,
         "owner_id": 3,
+        "roster_id": 4,
         "previous_owner_id": 4
       },
       {
         "round": 3,
         "season": "2026",
         "league_id": null,
-        "roster_id": 4,
         "owner_id": 3,
+        "roster_id": 4,
         "previous_owner_id": 4
       }
     ],
@@ -1752,8 +1752,8 @@
         "round": 1,
         "season": "2026",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 4,
+        "roster_id": 6,
         "previous_owner_id": 6
       }
     ],
@@ -1823,8 +1823,8 @@
         "round": 3,
         "season": "2026",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 8,
+        "roster_id": 6,
         "previous_owner_id": 6
       }
     ],
@@ -1977,16 +1977,16 @@
         "round": 4,
         "season": "2025",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 8,
+        "roster_id": 6,
         "previous_owner_id": 6
       },
       {
         "round": 4,
         "season": "2026",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 8,
+        "roster_id": 6,
         "previous_owner_id": 6
       }
     ],
@@ -2047,24 +2047,24 @@
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 8,
+        "roster_id": 5,
         "previous_owner_id": 5
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 5,
+        "roster_id": 8,
         "previous_owner_id": 8
       },
       {
         "round": 4,
         "season": "2025",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 5,
+        "roster_id": 8,
         "previous_owner_id": 8
       }
     ],
@@ -2098,32 +2098,32 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
+        "owner_id": 5,
         "roster_id": 1,
-        "owner_id": 5,
         "previous_owner_id": 1
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
+        "owner_id": 5,
         "roster_id": 4,
-        "owner_id": 5,
         "previous_owner_id": 1
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 5,
+        "roster_id": 5,
         "previous_owner_id": 1
       },
       {
         "round": 2,
         "season": "2023",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 1,
+        "roster_id": 6,
         "previous_owner_id": 5
       }
     ],
@@ -2159,48 +2159,48 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 1,
+        "roster_id": 1,
         "previous_owner_id": 5
       },
       {
         "round": 1,
         "season": "2023",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 1,
+        "roster_id": 3,
         "previous_owner_id": 3
       },
       {
         "round": 1,
         "season": "2023",
         "league_id": null,
-        "roster_id": 4,
         "owner_id": 3,
+        "roster_id": 4,
         "previous_owner_id": 5
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 4,
         "owner_id": 1,
+        "roster_id": 4,
         "previous_owner_id": 5
       },
       {
         "round": 2,
         "season": "2023",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 3,
+        "roster_id": 5,
         "previous_owner_id": 5
       },
       {
         "round": 1,
         "season": "2024",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 1,
+        "roster_id": 5,
         "previous_owner_id": 5
       }
     ],
@@ -2430,16 +2430,16 @@
         "round": 4,
         "season": "2023",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 6,
+        "roster_id": 6,
         "previous_owner_id": 4
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 7,
         "owner_id": 6,
+        "roster_id": 7,
         "previous_owner_id": 4
       }
     ],
@@ -2503,48 +2503,48 @@
         "round": 1,
         "season": "2025",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 7,
+        "roster_id": 1,
         "previous_owner_id": 1
       },
       {
         "round": 2,
         "season": "2023",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 7,
+        "roster_id": 3,
         "previous_owner_id": 1
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 7,
+        "roster_id": 3,
         "previous_owner_id": 8
       },
       {
         "round": 2,
         "season": "2023",
         "league_id": null,
-        "roster_id": 7,
         "owner_id": 1,
+        "roster_id": 7,
         "previous_owner_id": 7
       },
       {
         "round": 4,
         "season": "2025",
         "league_id": null,
-        "roster_id": 7,
         "owner_id": 7,
+        "roster_id": 7,
         "previous_owner_id": 8
       },
       {
         "round": 1,
         "season": "2023",
         "league_id": null,
-        "roster_id": 8,
         "owner_id": 1,
+        "roster_id": 8,
         "previous_owner_id": 8
       }
     ],
@@ -2591,16 +2591,16 @@
         "round": 2,
         "season": "2023",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 4,
+        "roster_id": 1,
         "previous_owner_id": 5
       },
       {
         "round": 3,
         "season": "2023",
         "league_id": null,
-        "roster_id": 7,
         "owner_id": 4,
+        "roster_id": 7,
         "previous_owner_id": 5
       }
     ],
@@ -2676,8 +2676,8 @@
         "round": 4,
         "season": "2025",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 5,
+        "roster_id": 3,
         "previous_owner_id": 1
       }
     ],
@@ -2814,8 +2814,8 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 2,
         "owner_id": 6,
+        "roster_id": 2,
         "previous_owner_id": 5
       }
     ],
@@ -2907,16 +2907,16 @@
         "round": 4,
         "season": "2023",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 7,
+        "roster_id": 5,
         "previous_owner_id": 1
       },
       {
         "round": 4,
         "season": "2024",
         "league_id": null,
-        "roster_id": 6,
         "owner_id": 7,
+        "roster_id": 6,
         "previous_owner_id": 1
       }
     ],
@@ -2980,16 +2980,16 @@
         "round": 2,
         "season": "2025",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 8,
+        "roster_id": 1,
         "previous_owner_id": 1
       },
       {
         "round": 4,
         "season": "2025",
         "league_id": null,
-        "roster_id": 3,
         "owner_id": 1,
+        "roster_id": 3,
         "previous_owner_id": 8
       }
     ],
@@ -3147,32 +3147,32 @@
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 1,
         "owner_id": 5,
+        "roster_id": 1,
         "previous_owner_id": 2
       },
       {
         "round": 1,
         "season": "2023",
         "league_id": null,
-        "roster_id": 2,
         "owner_id": 5,
+        "roster_id": 2,
         "previous_owner_id": 2
       },
       {
         "round": 3,
         "season": "2025",
         "league_id": null,
-        "roster_id": 2,
         "owner_id": 5,
+        "roster_id": 2,
         "previous_owner_id": 2
       },
       {
         "round": 1,
         "season": "2023",
         "league_id": null,
-        "roster_id": 5,
         "owner_id": 2,
+        "roster_id": 5,
         "previous_owner_id": 5
       }
     ],
