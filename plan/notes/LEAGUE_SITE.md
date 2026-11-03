@@ -24,6 +24,17 @@ A static site for league-mates, published on GitHub Pages at
 
 **Asset histories.** Each player's and each pick's full history (draft, every add, drop and trade with the whole deal) exists only as a hover comment in the build's `LOTG_Stats.xlsx`. The site workflow downloads that workbook from the triggering build's `LOTG_outputs` artifact, or from the latest successful main build. `lotg_support.workbook_comments` reads the comments without openpyxl, in under a second. A comment is used only where its row's column A still matches the committed CSV. Trade lines link to the trade. Without the workbook, as in a local build without `--workbook`, those sections say they are pending.
 
+## Live rosters (on page open)
+
+Stats come from the last main build: the site redeploys after every successful one, and the footer names the build run. Rosters and pick ownership are read **straight from Sleeper by the browser** whenever a team, player or FAAB page opens. That takes three small requests, `rosters`, `users` and `traded_picks` (about 40 KB together, 0.04–0.2 s), so a trade made since the last build already shows. The page draws at once from the build's data, then redraws with Sleeper's.
+
+- **Team page:** the current roster as it is on Sleeper, with each player's lineup role now. Players new since the build are tagged "new since the build", and the players who left are listed.
+- **Player page:** which team he is on now.
+- **FAAB page:** roster value by team, using live owners.
+- **Picks held:** every pick Sleeper shows moved *since the build* is applied on top of the build's ownership. `picks.json` carries `sleeper_at_build`, so the commissioner overlay's off-platform moves aren't undone.
+
+If Sleeper fails, or takes longer than 4 s, the page keeps the build's rosters and says "Sleeper unreachable". `data/nfl_players.json` maps Sleeper ids to name, position, NFL team and this season's age. Tested on 2026-11-03 with the Mahomes ↔ Lamar Jackson trade, which wasn't in the exports yet.
+
 ## How it is built
 
 - `lib/lotg_support/league_site.py` reads the committed `exports/*.csv`, `data/digest/last_digest.html`
