@@ -65,24 +65,28 @@ def _run(tmp: Path):
             if p.is_file() and p.name != S.SNAPSHOT_META_NAME}
 
 
+def _dump(x):
+    return json.dumps(x, indent=2, sort_keys=True)     # every snapshot JSON is key-sorted
+
+
 def _expected():
     out = {"sleeper_players_nfl.json": json.dumps(S.canonical_players({"1": {"b": 1, "a": 2}}), indent=2)
            if hasattr(S, "canonical_players") else json.dumps({"1": {"b": 1, "a": 2}}, indent=2),
            "dynastyprocess_playerids.csv": "sleeper_id\n1\n"}
     chain = [{"league_id": lid, "season": s, "previous_league_id": p} for lid, (s, p) in _LEAGUES.items()]
-    out["league_chain.json"] = json.dumps(chain, indent=2)
+    out["league_chain.json"] = _dump(chain)
     for lg in chain:
         lid, season = lg["league_id"], lg["season"]
         d = f"season_{season}"
-        out[f"{d}/league.json"] = json.dumps(lg, indent=2)
+        out[f"{d}/league.json"] = _dump(lg)
         out[f"{d}/nflverse_injuries.csv"] = f"season\n{season}\n"
-        out[f"{d}/users.json"] = json.dumps([{"user_id": f"u-{lid}"}], indent=2)
-        out[f"{d}/rosters.json"] = json.dumps([{"roster_id": 1, "owner_id": f"u-{lid}"}], indent=2)
+        out[f"{d}/users.json"] = _dump([{"user_id": f"u-{lid}"}])
+        out[f"{d}/rosters.json"] = _dump([{"roster_id": 1, "owner_id": f"u-{lid}"}])
         for w in range(1, _WEEKS[lid] + 1):
             wd = f"{d}/weeks/week_{w:02d}"
-            out[f"{wd}/matchups.json"] = json.dumps([{"week": w, "lid": lid}], indent=2)
-            out[f"{wd}/transactions.json"] = json.dumps([{"tx": f"{lid}-{w}"}], indent=2)
-            out[f"{wd}/stats_nfl.json"] = json.dumps([{"season": int(season), "week": w}], indent=2)
+            out[f"{wd}/matchups.json"] = _dump([{"week": w, "lid": lid}])
+            out[f"{wd}/transactions.json"] = _dump([{"tx": f"{lid}-{w}"}])
+            out[f"{wd}/stats_nfl.json"] = _dump([{"season": int(season), "week": w}])
     return out
 
 
