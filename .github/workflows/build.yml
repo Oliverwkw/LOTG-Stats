@@ -245,6 +245,14 @@ jobs:
           # The suite's own outcome record — every test, every skip's reason.
           # scripts/audit_weekly.py (Part 3) reads it; see tests/conftest.py.
           LOTG_TEST_RESULTS: exports/raw/pytest_results.json
+          # One BLAS thread per xdist worker. Each of the 4 workers' numpy would
+          # otherwise start a thread per core, 16 threads on a 4-core runner, and
+          # the suite's least-squares fits (acquisition._poisson, the forecast,
+          # boldness) thrash: test_expectation_recheck's replay took 99 s in CI
+          # and 14 s on a laptop. Test step only; the build's numbers never see it.
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: |
           set -o pipefail
           # Pinned for the same reason pandas is: the health email reads what

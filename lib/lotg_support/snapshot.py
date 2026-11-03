@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -218,13 +219,28 @@ def snapshot_all(
 
     _safe_write_json(snapshot_dir / "league_chain.json", chain)
 
+    # Each season is ~55 sequential GETs (users, rosters, then matchups /
+    # transactions / stats per week), 33 s for the chain when run one after
+    # another. The seasons write disjoint folders, so they run side by side; the
+    # nflverse injuries stay on this thread because their loader shares one
+    # `.cache/_fetch_log.json` across seasons.
     for lg in chain:
+        season = int(lg.get("season") or 0)
+        season_dir = snapshot_dir / f"season_{season}"
+        season_dir.mkdir(parents=True, exist_ok=True)
+        _safe_write_json(season_dir / "league.json", lg)
+
+        # nflverse injuries for season (best-effort)
+        try:
+            inj = load_nflverse_injuries(ext, season)
+        except Exception:
+            inj = pd.DataFrame()
+        _safe_write_df(season_dir / "nflverse_injuries.csv", inj)
+
+    def _season(lg: Dict[str, Any]) -> None:
         season = int(lg.get("season") or 0)
         lid = str(lg.get("league_id") or "")
         season_dir = snapshot_dir / f"season_{season}"
-        season_dir.mkdir(parents=True, exist_ok=True)
-
-        _safe_write_json(season_dir / "league.json", lg)
 
         try:
             users = sc.users(lid)
@@ -237,13 +253,6 @@ def snapshot_all(
 
         _safe_write_json(season_dir / "users.json", users)
         _safe_write_json(season_dir / "rosters.json", rosters)
-
-        # nflverse injuries for season (best-effort)
-        try:
-            inj = load_nflverse_injuries(ext, season)
-        except Exception:
-            inj = pd.DataFrame()
-        _safe_write_df(season_dir / "nflverse_injuries.csv", inj)
 
         # Weekly data
         week = 1
@@ -268,6 +277,10 @@ def snapshot_all(
             _safe_write_json(wk_dir / "stats_nfl.json", stats)
 
             week += 1
+
+    if chain:
+        with ThreadPoolExecutor(max_workers=len(chain)) as pool:
+            list(pool.map(_season, chain))
 
     # Stamp the capture time last, so a partially-written snapshot isn't dated fresh.
     # `built_from_commit` is what lets the weekly audit tell a REGRESSION from a
