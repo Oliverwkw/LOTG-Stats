@@ -36,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  actions: read          # download the build's workbook artifact (asset-history comments)
   pages: write
   id-token: write
 
@@ -64,12 +65,36 @@ jobs:
       - name: Install minimal deps
         run: pip install --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
 
+      - name: Fetch the build workbook (asset-history comments)
+        # The player and pick history notes exist only as hover comments in the build's
+        # LOTG_Stats.xlsx (LOTG_outputs artifact, never committed). Take the triggering
+        # build's, else the latest successful main build's. Best-effort: without it the
+        # site builds and the history sections say they are pending.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TRIGGER_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          if [ "${TRIGGER_NAME:-}" = "Build LOTG Stats" ]; then run_id="$TRIGGER_ID"; fi
+          if [ -z "$run_id" ]; then
+            run_id=$(gh run list -R "$REPO" --workflow build.yml --branch main --status success -L 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          echo "workbook from build run $run_id"
+          gh run download "$run_id" -R "$REPO" -n LOTG_outputs -D "$RUNNER_TEMP/build_out"
+          wb=$(find "$RUNNER_TEMP/build_out" -name LOTG_Stats.xlsx | head -n 1)
+          test -n "$wb" && echo "WORKBOOK=$wb" >> "$GITHUB_ENV"
+
       - name: Build the site
         env:
           FORECAST: ${{ github.event_name != 'workflow_dispatch' || inputs.forecast }}
         run: |
           set -euo pipefail
           flags="--with-docs"
+          if [ -n "${WORKBOOK:-}" ]; then flags="$flags --workbook $WORKBOOK"; fi
           if [ "$FORECAST" != "true" ]; then flags="$flags --no-forecast"; fi
           python scripts/build_site.py --out _site $flags | tee site_report.json
           touch _site/.nojekyll

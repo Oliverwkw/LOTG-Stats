@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from . import number_format as NF
+from . import workbook_comments as WC
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPORTS = ROOT / "exports"
@@ -43,6 +44,7 @@ SHELL = ROOT / "site"
 INPUTS = (
     "exports/*.csv",                 # every sheet, served whole on the Data page (+ CSV downloads)
     "data/digest/last_digest.html",
+    "LOTG_Stats.xlsx from the build's LOTG_outputs artifact (asset-history comments, optional)",
     "exports/snapshot/season_<current>/{users,rosters,traded_picks}.json",   # future pick owners
     # docs/rate/board.json (FAAB values) is not read here: it ships with docs/ and the page
     # fetches it, so the FAAB page is always the board the rating page shows.
@@ -472,8 +474,13 @@ def _sleeper_pick_owners(season: int, canon: Dict[str, str]) -> Dict[tuple, str]
 
 # ---------------------------------------------------------------- builders
 
+_TRADE_LINE = re.compile(r"^(\d{4}-\d{2}-\d{2}): (?:pick )?traded to (.+?) \(")
+_PICK_HEAD = re.compile(r"^(\d{4}) (\d+\.\d+)")
+SLOT_ORDER = {"QB": 0, "RB": 1, "WR": 2, "TE": 3, "FLX": 4, "FLEX": 4, "WRT": 4, "SFLX": 5, "SUPER_FLEX": 5}
+
+
 class Site:
-    def __init__(self):
+    def __init__(self, workbook=None):
         self.tw = _read("team_week")
         self.ty = _read("team_year")
         self.ta = _read("team_all_time")
@@ -492,6 +499,10 @@ class Site:
         cur = self.tw[self.tw["Year"] == self.season]
         self.week = int(pd.to_numeric(cur["Week"], errors="coerce").max())
         self._player_slugs()
+        self.workbook = workbook
+        self._trades: List[dict] = []
+        self._trade_ids: Dict[tuple, int] = {}
+        self._histories = WC.histories(workbook) if workbook else None
 
     # -- identity
     def _player_slugs(self):
@@ -630,13 +641,110 @@ class Site:
                     else:
                         vals_end = vals
                     out[end] = [[_clean(val, places), [_clean(df.at[idx, lab]) for lab in labels],
-                                 bool(live.get(idx, False)), rank]
+                                 bool(live.get(idx, False)), rank, self.row_link(sheet, df, idx, deal)]
                                 for idx, val, rank in board(vals_end, asc)]
                 entry["scopes"][scope] = out
             cols.append(entry)
         return {"sheet": sheet, "labels": list(labels), "flag": flag_text, "live_season": self.season,
                 "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS},
                 "depth": RECORD_DEPTH, "columns": cols}
+
+    # -- where a row's details live
+    def row_link(self, sheet: str, df: pd.DataFrame, idx, deal: Optional[pd.Series] = None) -> Optional[str]:
+        """The site route that shows a row of `sheet` in full: the trade, the
+        matchup, the player, the pick, the team or the week."""
+        r = df.loc[idx]
+        get = lambda c: r[c] if c in df.columns and pd.notna(r[c]) else None
+        if sheet == "trades" and deal is not None:
+            tid = self._trade_ids.get(deal.loc[idx])
+            return f"trades/{tid}" if tid else None
+        if sheet == "team_week":
+            y, w, t = get("Year"), get("Week"), get("Team")
+            return f"game/{int(float(y))}/{int(float(w))}/{slug(t)}" if y is not None and w is not None and t else None
+        if sheet == "league_week":
+            y, w = get("Year"), get("Week")
+            return f"week/{int(float(y))}/{int(float(w))}" if y is not None and w is not None else None
+        if sheet in ("rookie_picks", "non_rookie_picks"):
+            return f"pick/{sheet}/{int(df.index.get_loc(idx))}"
+        name = get("Player") or get("Player Added") or get("Player Dropped") or get("Player Picked")
+        if name and str(name) in self.slugs:
+            return f"player/{self.slugs[str(name)]}"
+        team = get("Team")
+        if team and str(team) in self.teams:
+            return f"team/{slug(team)}"
+        return None
+
+    # -- one week: every matchup with both lineups
+    def weeks(self, put) -> int:
+        pw = self.pw.copy()
+        pw["Points"] = pd.to_numeric(pw.Points, errors="coerce")
+        pw["Wk"] = pd.to_numeric(pw.Week, errors="coerce")
+        tw = self.tw.copy()
+        tw["Wk"] = pd.to_numeric(tw.Week, errors="coerce")
+        n = 0
+        for (y, w), g in tw.groupby(["Year", "Wk"]):
+            players = pw[(pw.Year == y) & (pw.Wk == w)]
+            teams = {}
+            for _, r in g.iterrows():
+                mine = players[players.Team == r.Team].copy()
+                mine["st"] = mine["Starter/Bench"].astype(str) == "Starter"
+                raw = mine["Position started in (if starter)"].astype(str)
+                slot = raw.str.replace(r"\d+$", "", regex=True)
+                num = pd.to_numeric(raw.str.extract(r"(\d+)$")[0], errors="coerce").fillna(0)
+                mine["o"] = [SLOT_ORDER.get(x, 6) if st else 9 for x, st in zip(slot, mine.st)]
+                mine["n"] = num.values
+                mine = mine.sort_values(["o", "n", "Points"], ascending=[True, True, False])
+                teams[str(r.Team)] = {
+                    "opp": _clean(r.Opponent), "pf": _clean(pd.to_numeric(r.PF, errors="coerce"), 2),
+                    "pa": _clean(pd.to_numeric(r["Points against"], errors="coerce"), 2),
+                    "win": str(r["Win?"]).lower() == "true",
+                    "max": _clean(pd.to_numeric(r.get("Max PF"), errors="coerce"), 2),
+                    "players": [[p.Player, self.slugs.get(str(p.Player)), _clean(p.Position),
+                                 _clean(p["Position started in (if starter)"]) if p.st else None,
+                                 _clean(p.Points, 2), bool(p.st), _clean(p.get("NFL team"))]
+                                for _, p in mine.iterrows()]}
+            put(f"week/{int(y)}-{int(w)}.json", {"year": int(y), "week": int(w),
+                                                  "week_name": str(g["Week Name"].iloc[0]), "teams": teams})
+            n += 1
+        return n
+
+    # -- asset histories (the workbook's hover comments)
+    def _history_lines(self, text: str) -> List[list]:
+        """Each line of a history, with the trade it names linked when found."""
+        out = []
+        by_day: Dict[tuple, int] = {}
+        for (date, teams), tid in self._trade_ids.items():
+            for t in teams:
+                by_day.setdefault((date[:10], t), tid)
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            m = _TRADE_LINE.match(line)
+            out.append([line, f"trades/{by_day[(m.group(1), m.group(2))]}"
+                        if m and (m.group(1), m.group(2)) in by_day else None])
+        return out
+
+    def player_histories(self) -> Dict[str, List[list]]:
+        h = (self._histories or {}).get("player_all_time") or []
+        names = list(self.pa["Player"].astype(str)) if "Player" in self.pa else []
+        out = {}
+        for row, col_a, text in h:
+            # trust a comment only where column A still names the same player
+            if row < len(names) and names[row] == str(col_a):
+                out[str(col_a)] = self._history_lines(text)
+        return out
+
+    def pick_histories(self) -> Dict[str, Dict[int, List[list]]]:
+        out: Dict[str, Dict[int, List[list]]] = {}
+        for sheet, df in (("rookie_picks", self.rookie), ("non_rookie_picks", self.startup)):
+            rows = {}
+            for row, col_a, text in (self._histories or {}).get(sheet) or []:
+                if row >= len(df) or str(df.iloc[row]["Year"]) != str(col_a):
+                    continue
+                rows[row] = self._history_lines(text)
+            out[sheet] = rows
+        return out
 
     # -- head to head
     def games(self) -> pd.DataFrame:
@@ -656,6 +764,9 @@ class Site:
             cells[f"{a}|{b}"] = {
                 "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                 "pf": round(float(x.PF.sum()), 2), "pa": round(float(x["Points against"].sum()), 2),
+                "games": [[int(r.Year), int(float(r.Week)), str(r["Week Name"]), _clean(r.PF, 2),
+                           _clean(r["Points against"], 2), bool(r.W)]
+                          for _, r in x.sort_values(["Year", "Week"], ascending=False).iterrows()],
                 "last": f"{int(last.Year)} {last['Week Name']}: {'W' if last.W else 'L'} "
                         f"{last.PF:.2f}-{last['Points against']:.2f}"}
         return {"teams": self.teams, "cells": cells, "kinds": WEEK_KINDS,
@@ -682,8 +793,10 @@ class Site:
                                      NF.decimals(NF.col_number_format(c)))
             grp["sides"].append(side)
         out = sorted(groups.values(), key=lambda g: g["time"], reverse=True)
+        keys = {id(g): k for k, g in groups.items()}
         for n, g in enumerate(out):
             g["id"] = len(out) - n
+            self._trade_ids[keys[id(g)]] = g["id"]
             del g["time"]
             # the deal's grade: the winning side by trade impact, KTC trend for each side
             g["sides"].sort(key=lambda s: -(s.get("Trade impact score") or 0))
@@ -696,10 +809,12 @@ class Site:
 
     # -- draft
     def draft(self) -> Dict[str, object]:
-        r = self.rookie.copy()
-        out = {"rookie": _table(r, DRAFT_COLUMNS, "rookie_picks")}
+        """Both pick sheets; "_row" is each pick's row in its sheet (its page key)."""
+        r = self.rookie.assign(_row=range(len(self.rookie)))
+        out = {"rookie": _table(r, DRAFT_COLUMNS + ["_row"], "rookie_picks")}
         if not self.startup.empty:
-            out["startup"] = _table(self.startup, DRAFT_COLUMNS, "non_rookie_picks")
+            out["startup"] = _table(self.startup.assign(_row=range(len(self.startup))),
+                                    DRAFT_COLUMNS + ["_row"], "non_rookie_picks")
         return out
 
     # -- future picks held
@@ -770,7 +885,7 @@ class Site:
         for opp, x in mine.groupby("Opponent"):
             h2h.append({"opp": opp, "w": int(x.W.sum()), "l": int((~x.W).sum()), **_kind_records(x),
                         "pf": round(float(x.PF.mean()), 2), "pa": round(float(x["Points against"].mean()), 2)})
-        week_cols = ["Year", "Week Name", "Opponent", "Win?", "PF", "Points against", "Margin",
+        week_cols = ["Year", "Week", "Week Name", "Opponent", "Win?", "PF", "Points against", "Margin",
                      "Max PF", "Efficiency", "Starters' xFP", "Starters' points minus xFP"]
         this = self.tw[(self.tw.Team == team) & (self.tw.Year == self.season)]
         roster = self.current_roster()
@@ -779,7 +894,8 @@ class Site:
         pos_order = {"QB": 0, "RB": 1, "WR": 2, "TE": 3}
         roster["_o"] = roster.Position.map(pos_order).fillna(9)
         roster = roster.sort_values(["Starter/Bench", "_o", "Points"], ascending=[False, True, False])
-        picks = self.rookie[self.rookie.Team == team]
+        picks = self.rookie.assign(_row=range(len(self.rookie)))
+        picks = picks[picks.Team == team]
         return {
             "team": team, "summary": summary,
             "summary_labels": {c: _display(c, "team_all_time") for c in summary},
@@ -793,7 +909,7 @@ class Site:
                                       "Points", "Acquired via"], "player_week"),
             "ages": ages.get(team, {}), "league_ages": ages,
             "trades": [x["id"] for x in trades if any(s["team"] == team for s in x["sides"])],
-            "draft": _table(picks.iloc[::-1], DRAFT_COLUMNS, "rookie_picks"),
+            "draft": _table(picks.iloc[::-1], DRAFT_COLUMNS + ["_row"], "rookie_picks"),
         }
 
     @staticmethod
@@ -834,6 +950,7 @@ class Site:
                 for a in s["got"] + s["sent"]:
                     trade_hits.setdefault(a, []).append(t["id"])
         drafted = {str(r["Player Picked"]): r for _, r in self.rookie.iterrows()}
+        hist = self.player_histories()
         out = {}
         for name, key in self.slugs.items():
             summary = {}
@@ -861,6 +978,7 @@ class Site:
                                  if name in adds.groups else self.adds.iloc[0:0],
                                  STINT_COLUMNS, "player_additions"),
                 "trades": sorted(set(trade_hits.get(name, [])), reverse=True),
+                "history": hist.get(name),
                 "draft": None if d is None else {
                     "year": _clean(d.Year), "pick": _clean(d.Number), "team": d.Team,
                     "ktc": _clean(pd.to_numeric(d["KTC on draft day"], errors="coerce"), 2)},
@@ -913,15 +1031,19 @@ class Site:
         odds = forecast_odds(self.season, sims=sims) if forecast else None
         timings["forecast"] = round(time.time() - t, 1)
         put("home.json", self.home(odds))
+        self._trades = self.trade_list()
         t = time.time()
         for sheet in RECORD_SHEETS:
             put(f"records/{sheet}.json", self.records(sheet))
         timings["records"] = round(time.time() - t, 1)
         put("h2h.json", self.h2h())
-        self._trades = self.trade_list()
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
         put("draft.json", self.draft())
         put("picks.json", self.held_picks())
+        put("pick_history.json", {"has_workbook": self._histories is not None, **self.pick_histories()})
+        t = time.time()
+        self.weeks(put)
+        timings["weeks"] = round(time.time() - t, 1)
         ages = self.roster_ages()
         for team in self.teams:
             put(f"team/{slug(team)}.json", self.team(team, self._trades, ages))
@@ -945,12 +1067,14 @@ def copy_shell(out: Path, shell: Path = SHELL) -> None:
             shutil.copy2(f, out / f.name)
 
 
-def build(out_dir, forecast: bool = True, sims: int = 20000) -> Dict[str, object]:
+def build(out_dir, forecast: bool = True, sims: int = 20000, workbook=None) -> Dict[str, object]:
+    """`workbook`: the build's LOTG_Stats.xlsx (its asset-history comments go on
+    the player and pick pages); without it those sections are left out."""
     out = Path(out_dir)
     if (out / "data").exists():
         shutil.rmtree(out / "data")
     out.mkdir(parents=True, exist_ok=True)
-    report = Site().build(out, forecast=forecast, sims=sims)
+    report = Site(workbook=workbook).build(out, forecast=forecast, sims=sims)
     copy_shell(out)
     dl = out / "downloads"
     dl.mkdir(exist_ok=True)

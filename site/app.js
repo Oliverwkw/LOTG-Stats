@@ -91,7 +91,7 @@ const idx = (t, c) => t.cols.indexOf(c);
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick,
 };
 
 // ---------- FAAB board (docs/rate/board.json, published with the rating page)
@@ -155,7 +155,7 @@ async function home() {
     { k: (r) => odds[r.team]?.champion, label: "Title", html: (r) => `<b>${pct1(odds[r.team]?.champion)}</b>` },
     { k: (r) => odds[r.team]?.wins, label: "Proj. wins", html: (r) => fmt({ d: 2 }, odds[r.team]?.wins) },
   );
-  const games = h.results.map((g) => `<div class="game">
+  const games = h.results.map((g) => `<div class="game" onclick="location.hash='#/game/${meta.season}/${meta.week}/${tslug(g.a)}'" style="cursor:pointer" title="Open the matchup">
       <div><span class="${g.win ? "w" : ""}">${teamLink(g.a)}</span><span>${fmt({ d: 2 }, g.pa)}</span></div>
       <div><span class="${g.win ? "" : "w"}">${teamLink(g.b)}</span><span>${fmt({ d: 2 }, g.pb)}</span></div></div>`).join("");
   const d = h.digest || { sections: [] };
@@ -263,7 +263,7 @@ async function team(slug) {
     <div class="card"><h2>Future picks held (${mine.length})</h2>
       ${PK.years.map((y) => `<p><b>${y}</b> ${mine.filter((p) => p.y === y).map((p) => `<span class="chip">${ORD[p.r] || p.r}${p.o === t.team ? "" : " (" + esc(p.o) + ")"}${p.v != null ? " · " + money(p.v) : ""}</span>`).join("") || '<span class="muted">none</span>'}</p>`).join("")}
       ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
-    <div class="card"><h2>This season</h2>${dataTable(t.weeks)}</div>
+    <div class="card"><h2>This season</h2>${dataTable(t.weeks, { hide: ["Week"], links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } })}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(t.seasons)}</div>
     ${t.swing && t.swing.rows && t.swing.rows.length && t.swing.cols.length > 1 ? `<div class="card"><h2>Scoring style</h2>${dataTable(t.swing)}
       <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p></div>
@@ -272,7 +272,7 @@ async function team(slug) {
     <div class="card"><h2>Current roster</h2>${roster}<p class="muted small">Bench includes taxi and IR. Age is the player's age for this season.</p></div>
     <div class="card"><h2>Trades (${t.trades.length})</h2>${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
       ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}</div>
-    <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team"], links: { "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
+    <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team", "_row"], links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
 }
 
 async function player(key) {
@@ -297,6 +297,7 @@ async function player(key) {
     <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { links: { Team: (v) => teamLink(v) } })}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
     ${p.usage && p.usage.rows.length ? `<div class="card"><h2>Usage</h2><p class="muted small">Snaps, targets, carries and red-zone looks while rostered. xFP = the points his targets and carries usually produce in this league's scoring; points minus xFP above 0 = scoring beyond the opportunity (rarely sticky), rising xFP = a bigger role.</p>${dataTable(p.usage)}</div>` : ""}
+    ${p.history ? `<div class="card"><h2>History</h2>${historyList(p.history)}<p class="muted small">Every draft, add, drop and trade, as the workbook's history note has it. Tap a trade to open it.</p></div>` : ""}
     ${p.trades.length ? `<div class="card"><h2>Trades</h2>${p.trades.map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}</div>` : ""}`;
 }
 
@@ -343,7 +344,7 @@ async function records(sheet, query) {
     const useEnd = c.mirror ? "hi" : end;
     const rows = b[useEnd] || [];
     const body = rows.length
-      ? `<table class="rk"><tbody>${rows.map((x, i) => `<tr><td class="muted">${place(rows, i)}</td><td class="v">${fmt(c.fmt, x[0])}</td><td class="l">${lab(x[1])}${x[2] ? ` <span class="chip live">${esc(r.flag || "")}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
+      ? `<table class="rk"><tbody>${rows.map((x, i) => `<tr${x[4] ? ` class="go" data-go="${esc(x[4])}"` : ""}><td class="muted">${place(rows, i)}</td><td class="v">${x[4] ? `<a href="#/${esc(x[4])}">${fmt(c.fmt, x[0])}</a>` : fmt(c.fmt, x[0])}</td><td class="l">${lab(x[1])}${x[2] ? ` <span class="chip live">${esc(r.flag || "")}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
       : `<p class="muted small">No board: ${b.hi || b.lo ? "a tie for the last places doesn't fit in the top " + r.depth : "no values"}.</p>`;
     return `<div class="card rec"><b>${esc(c.label)}</b> <span class="muted small">${useEnd === "hi" ? "highest" : "lowest"}${c.mirror ? " · each trade once" : ""}</span>
       ${body}${c.mirror && end === "lo" ? `<p class="muted small">Lowest is the same trades from the losing side, so only the highest is shown.</p>` : ""}</div>`;
@@ -369,6 +370,8 @@ async function records(sheet, query) {
   $app.querySelectorAll("[data-e]").forEach((b) => b.onclick = () => { end = b.dataset.e; $app.querySelectorAll("[data-e]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   $app.querySelectorAll("[data-w]").forEach((b) => b.onclick = () => { scope = b.dataset.w; $app.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("rq").oninput = (e) => { q = e.target.value; draw(); };
+  // tap anywhere on a board row (not on a link inside it) to open its details
+  document.getElementById("recs").onclick = (e) => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-go]"); if (tr) location.hash = "#/" + tr.dataset.go; };
   draw();
 }
 
@@ -405,7 +408,8 @@ async function h2h() {
     const c = m.cells[`${td.dataset.a}|${td.dataset.b}`];
     document.getElementById("cell").innerHTML = `<h2>${teamLink(td.dataset.a)} vs ${teamLink(td.dataset.b)}</h2>
       <p>All games <b>${c.w}-${c.l}</b> · ${Object.entries(m.kinds).map(([k, n]) => `${esc(n.toLowerCase())} ${c[k + "w"]}-${c[k + "l"]}`).join(" · ")}</p>
-      <p>Points ${fmt({ d: 2 }, c.pf)} – ${fmt({ d: 2 }, c.pa)} · last meeting: ${esc(c.last)}</p>`;
+      <p>Points ${fmt({ d: 2 }, c.pf)} – ${fmt({ d: 2 }, c.pa)}</p>
+      <table class="rk"><tbody>${(c.games || []).map(([y, w, n, pf, pa, won]) => `<tr class="go" data-go="game/${y}/${w}/${tslug(td.dataset.a)}"><td class="l"><a href="#/game/${y}/${w}/${tslug(td.dataset.a)}">${y} ${esc(n)}</a></td><td class="${won ? "w" : "lo"}">${won ? "W" : "L"}</td><td>${fmt({ d: 2 }, pf)}–${fmt({ d: 2 }, pa)}</td></tr>`).join("")}</tbody></table>`;
   };
   draw();
 }
@@ -461,7 +465,8 @@ async function draft() {
       year = "";
     }
     const rows = year ? t.rows.filter((r) => String(r[yi]) === year) : t.rows;
-    document.getElementById("dt").innerHTML = dataTable({ ...t, rows }, { links: { "Player Picked": (v) => playerLink(v), Team: (v) => teamLink(v), "Original Team": (v) => teamLink(v) } });
+    const sheetName = which === "rookie" ? "rookie_picks" : "non_rookie_picks";
+    document.getElementById("dt").innerHTML = dataTable({ ...t, rows }, { hide: ["_row"], links: { Number: (v, r, cols) => `<a href="#/pick/${sheetName}/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), Team: (v) => teamLink(v), "Original Team": (v) => teamLink(v) } });
   }
   $app.innerHTML = `<h1>Draft history</h1>
     <div class="controls"><span class="seg" style="margin:0"><button data-w="rookie" aria-pressed="true">Rookie drafts</button>${d.startup ? `<button data-w="startup" aria-pressed="false">Startup &amp; vet picks</button>` : ""}</span>
@@ -588,7 +593,10 @@ async function data(sheet, query) {
     document.getElementById("dcount").textContent = "Loading…";
     const got = await Promise.all(parts.map((c) => load(`sheets/${sheet}/${c}.json`)));
     rows = [].concat(...got.map((g) => g.rows));
+    rows.forEach((r, i) => { r._i = i; });    // the row's place in its sheet (a pick's page key)
+    if (sheet === "trades" && !tradeIds) tradeIds = tradeIndex(await load("trades.json"));
   }
+  let tradeIds = null;
   const fi = () => m.cols.indexOf(fc);
   function filtered() {
     const ql = q.trim().toLowerCase();
@@ -630,7 +638,8 @@ async function data(sheet, query) {
       }
       return `<td>${fmt(m.fmt[c], v)}</td>`;
     };
-    document.getElementById("dt").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${slice.map((r) => `<tr>${shown.map((i) => cell(i, r[i])).join("")}</tr>`).join("")}</tbody></table>`;
+    const go = (r) => { const l = rowLink(sheet, m.cols, r, tradeIds); return l ? `<td><a href="#/${l}" title="Details">›</a></td>` : "<td></td>"; };
+    document.getElementById("dt").innerHTML = `<table><thead><tr><th></th>${head}</tr></thead><tbody>${slice.map((r) => `<tr>${go(r)}${shown.map((i) => cell(i, r[i])).join("")}</tr>`).join("")}</tbody></table>`;
     document.getElementById("dcount").textContent = `${rs.length.toLocaleString()} of ${rows.length.toLocaleString()} rows · ${shown.length} of ${m.cols.length} columns`;
     document.getElementById("dpg").innerHTML = pages > 1 ? `<button data-p="-1" ${page === 0 ? "disabled" : ""}>‹ Prev</button> <span class="muted small">page ${page + 1} of ${pages}</span> <button data-p="1" ${page >= pages - 1 ? "disabled" : ""}>Next ›</button>` : "";
   }
@@ -663,7 +672,7 @@ async function data(sheet, query) {
   document.getElementById("call").onclick = () => setShown(all);
   document.getElementById("cnone").onclick = () => setShown([0]);
   document.getElementById("cdef").onclick = () => setShown(m.cols.length <= 30 ? all : all.slice(0, 18));
-  document.getElementById("dt").onclick = (e) => { const th = e.target.closest("th"); if (!th) return; const i = +th.dataset.i; if (sortBy === i) asc = !asc; else { sortBy = i; asc = false; } draw(); };
+  document.getElementById("dt").onclick = (e) => { const th = e.target.closest("th"); if (!th || th.dataset.i === undefined) return; const i = +th.dataset.i; if (sortBy === i) asc = !asc; else { sortBy = i; asc = false; } draw(); };
   document.getElementById("dpg").onclick = (e) => { const b = e.target.closest("button[data-p]"); if (!b) return; page += +b.dataset.p; draw(); document.getElementById("dcount").scrollIntoView(); };
   let deb;
   document.getElementById("dq").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { q = e.target.value; page = 0; draw(); }, 200); };
@@ -675,6 +684,84 @@ async function data(sheet, query) {
   if (fi() >= 0 && !shown.includes(fi())) shown = [fi(), ...shown];
   await fetchRows();
   draw();
+}
+
+// ---------- details: where a row lives, matchups, weeks, picks
+const weekNo = (name) => { const m = /^Week (\d+)$/.exec(String(name)); return m ? m[1] : name; };
+function tradeIndex(tr) {
+  const out = {};
+  for (const t of tr.trades) for (const s of t.sides) out[`${t.date}|${s.team}`] = t.id;
+  return out;
+}
+// the route that shows a Data-page row in full (mirrors Site.row_link)
+function rowLink(sheet, cols, r, tradeIds) {
+  const v = (c) => { const i = cols.indexOf(c); return i < 0 ? null : r[i]; };
+  if (sheet === "trades" && tradeIds) { const id = tradeIds[`${String(v("Date") || "").slice(0, 10)}|${v("Team")}`]; return id ? `trades/${id}` : null; }
+  if (sheet === "team_week" && v("Year") != null && v("Week") != null) return `game/${v("Year")}/${v("Week")}/${tslug(v("Team"))}`;
+  if (sheet === "league_week" && v("Year") != null && v("Week") != null) return `week/${v("Year")}/${v("Week")}`;
+  if (sheet === "rookie_picks" || sheet === "non_rookie_picks") return `pick/${sheet}/${r._i}`;
+  if (sheet === "team_week" || sheet === "player_week") { /* fall through to the player / team */ }
+  const name = v("Player") || v("Player Added") || v("Player Dropped") || v("Player Picked");
+  if (name && NAMES[name]) return `player/${NAMES[name]}`;
+  if (v("Team")) return `team/${tslug(v("Team"))}`;
+  return null;
+}
+function historyList(lines) {
+  return `<ol class="hist">${lines.map(([t, link]) => `<li>${link ? `<a href="#/${esc(link)}">${esc(t)}</a>` : esc(t)}</li>`).join("")}</ol>`;
+}
+
+function lineup(team, side) {
+  const rows = (s) => side.players.filter((p) => p[5] === s);
+  const line = (p) => `<tr><td class="l muted small">${esc(p[3] || p[2] || "")}</td><td class="l">${p[1] ? `<a href="#/player/${esc(p[1])}">${esc(p[0])}</a>` : esc(p[0])} <span class="muted small">${esc(p[2] || "")} ${esc(p[6] || "")}</span></td><td>${fmt({ d: 2 }, p[4])}</td></tr>`;
+  return `<div class="card"><h2>${teamLink(team)} <span class="${side.win ? "w" : "lo"}">${fmt({ d: 2 }, side.pf)}</span></h2>
+    <p class="muted small">${side.win ? "Won" : "Lost"} vs ${teamLink(side.opp)} · max possible ${fmt({ d: 2 }, side.max)}</p>
+    <table class="rk"><tbody>${rows(true).map(line).join("")}</tbody></table>
+    <details><summary class="small muted">Bench (${rows(false).length})</summary><table class="rk"><tbody>${rows(false).map(line).join("")}</tbody></table></details></div>`;
+}
+
+async function game(rest) {
+  const [y, w, team] = String(rest || "").split("/");
+  const wk = await load(`week/${y}-${w}.json`);
+  const name = Object.keys(wk.teams).find((t) => tslug(t) === team) || Object.keys(wk.teams)[0];
+  const me = wk.teams[name], opp = wk.teams[me.opp];
+  $app.innerHTML = `<p class="small"><a href="#/week/${y}/${w}">← All ${esc(wk.week_name)} ${y} matchups</a></p>
+    <h1>${esc(name)} vs ${esc(me.opp)}</h1><p class="muted">${y} ${esc(wk.week_name)} · team PF includes the semifinal +5; player points do not</p>
+    <div class="grid">${lineup(name, me)}${opp ? lineup(me.opp, opp) : ""}</div>
+    <p class="small">More: <a href="#/data/team_week?c=Team&v=${encodeURIComponent(name)}">${esc(name)}'s every week</a> · <a href="#/data/player_week?c=Year&v=${y}&y=${y}">${y} player weeks</a></p>`;
+}
+
+async function week(rest) {
+  const [y, w] = String(rest || "").split("/");
+  const wk = await load(`week/${y}-${w}.json`);
+  const seen = new Set(), games = [];
+  for (const [t, s] of Object.entries(wk.teams)) {
+    if (seen.has(t)) continue;
+    seen.add(t); seen.add(s.opp);
+    games.push([t, s, s.opp, wk.teams[s.opp]]);
+  }
+  $app.innerHTML = `<h1>${y} ${esc(wk.week_name)}</h1>
+    <div class="games">${games.map(([a, sa, b, sb]) => `<div class="game" onclick="location.hash='#/game/${y}/${w}/${tslug(a)}'" style="cursor:pointer">
+      <div><span class="${sa.win ? "w" : ""}">${esc(a)}</span><span>${fmt({ d: 2 }, sa.pf)}</span></div>
+      <div><span class="${sb && sb.win ? "w" : ""}">${esc(b)}</span><span>${fmt({ d: 2 }, sb && sb.pf)}</span></div></div>`).join("")}</div>
+    <p class="small muted">Tap a matchup for both lineups.</p>`;
+}
+
+async function pick(rest) {
+  const [sheet, row] = String(rest || "").split("/");
+  const [d, hist] = await Promise.all([load("draft.json"), load("pick_history.json")]);
+  const t = d[sheet === "rookie_picks" ? "rookie" : "startup"];
+  const ri = t.cols.indexOf("_row");
+  const r = t.rows.find((x) => String(x[ri]) === String(row));
+  if (!r) throw new Error("No such pick");
+  const v = (c) => r[t.cols.indexOf(c)];
+  const lines = (hist[sheet] || {})[row];
+  const tiles = t.cols.map((c, i) => [c, t.labels[i], i]).filter(([c, , i]) => !["_row", "Year", "Number", "Player Picked", "Team", "Original Team"].includes(c) && r[i] !== null)
+    .map(([c, l, i]) => `<div class="tile"><b>${fmt(t.fmt[c], r[i])}</b><span>${esc(l)}</span></div>`).join("");
+  $app.innerHTML = `<p class="small"><a href="#/draft">← Draft history</a></p>
+    <h1>${esc(v("Year"))} pick ${esc(v("Number"))}</h1>
+    <p class="muted">${v("Player Picked") ? playerLink(v("Player Picked")) + " · " : ""}made by ${teamLink(v("Team"))}${v("Original Team") && v("Original Team") !== v("Team") ? ` · originally ${teamLink(v("Original Team"))}'s pick` : ""}</p>
+    <div class="tiles">${tiles}</div>
+    <div class="card"><h2>History</h2>${lines ? historyList(lines) : `<p class="muted">${hist.has_workbook ? "No history note for this pick." : "The history notes come from the weekly build's workbook and appear after the next deploy."}</p>`}</div>`;
 }
 
 // ---------- router

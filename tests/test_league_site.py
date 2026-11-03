@@ -10,6 +10,8 @@
 - the Data page holds every sheet of exports/ whole (rows, columns, cells) and
   its downloads are the committed CSVs;
 - future picks held reproduce team_year's "Future draft capital";
+- every record row links to a page that exists (player, team, trade, matchup,
+  pick), and every team-week has its matchup file;
 - privacy: nothing in the output carries a private marker (DM/chat exports,
   negotiation notes, manager profiles, credentials), and the shell never
   shadows docs/rate/ (the rating page and its vote collection).
@@ -282,6 +284,47 @@ def _record_boards_follow_the_digest():
     assert ktc.get("mirror") and "lo" not in ktc["scopes"]["all"]
 
 
+def _every_detail_link_resolves():
+    """Each record-board row links to a page that exists: the player's file,
+    the week file holding both sides of the matchup, the trade, the pick."""
+    out = _built() / "data"
+    trade_ids = {t["id"] for t in _load("trades.json")["trades"]}
+    draft = _load("draft.json")
+    rows = {"rookie_picks": len(draft["rookie"]["rows"]), "non_rookie_picks": len(draft.get("startup", {"rows": []})["rows"])}
+    seen = 0
+    for sheet in S.RECORD_SHEETS:
+        for c in _load(f"records/{sheet}.json")["columns"]:
+            for b in c["scopes"].values():
+                for board_rows in b.values():
+                    for x in board_rows:
+                        link = x[4]
+                        if not link:
+                            continue
+                        seen += 1
+                        kind, *rest = link.split("/")
+                        if kind == "player":
+                            assert (out / "player" / f"{rest[0]}.json").exists(), link
+                        elif kind == "team":
+                            assert (out / "team" / f"{rest[0]}.json").exists(), link
+                        elif kind == "trades":
+                            assert int(rest[0]) in trade_ids, link
+                        elif kind in ("game", "week"):
+                            wk = json.loads((out / "week" / f"{rest[0]}-{rest[1]}.json").read_text())
+                            if kind == "game":
+                                team = next(t for t in wk["teams"] if S.slug(t) == rest[2])
+                                assert wk["teams"][team]["opp"] in wk["teams"], link
+                        elif kind == "pick":
+                            assert int(rest[1]) < rows[rest[0]], link
+                        else:
+                            raise AssertionError(link)
+    assert seen > 1000
+    # every team-week has its week file, with that team's lineup
+    tw = pd.read_csv(_ROOT / "exports" / "team_week.csv", low_memory=False)
+    for (y, w), g in tw.groupby(["Year", "Week"]):
+        wk = json.loads((out / "week" / f"{int(y)}-{int(w)}.json").read_text())
+        assert set(g.Team.astype(str)) <= set(wk["teams"]), (y, w)
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -306,6 +349,7 @@ def test_built_site_reconciles():
                   _players_have_unique_pages, _usage_reaches_player_and_team_pages,
                   _every_export_cell_is_on_the_site,
                   _held_picks_match_future_draft_capital, _record_boards_follow_the_digest,
+                  _every_detail_link_resolves,
                   _output_has_nothing_private):
         check()
 
