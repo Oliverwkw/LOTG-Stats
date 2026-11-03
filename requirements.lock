@@ -1,0 +1,48 @@
+# Exact versions for every package CI installs, transitive ones included. Used as a
+# pip CONSTRAINTS file (`pip install -c requirements.lock ...`) by every workflow, so
+# a run installs these and nothing newer; requirements.txt stays the short list of
+# what the build needs. Python 3.11, as every workflow's setup-python says.
+#
+# Why: unpinned, pandas floated to 3.0 in CI while local stayed on 2.3, and its
+# `str` text dtype broke the digest's running totals with every check green
+# (memory ci-runs-pandas3). tests/test_environment.py fails a CI run whose
+# installed versions differ from this file, so drift is a red test, not a surprise.
+#
+# Bump deliberately: change a line, dispatch a branch build, compare its exports
+# with the last main run, and read exports/raw/pip_freeze.txt in the artifact.
+# Local (python 3.11):  pip install -r requirements.txt -c requirements.lock
+#
+# Resolved on build run 41658606539 (2026-11-03) plus the test step's tools.
+pip==26.3
+setuptools==84.2.1
+wheel==0.48.0
+packaging==26.3
+# build (requirements.txt)
+absl-py==2.5.1
+certifi==2026.10.23
+charset_normalizer==3.5.2
+et-xmlfile==2.0.0
+idna==3.20
+immutabledict==4.3.1
+lxml==6.1.3
+numpy==2.4.6
+openpyxl==3.1.5
+ortools==9.15.6755
+pandas==3.0.6
+protobuf==6.33.6
+pyarrow==25.0.1
+python-dateutil==4.0.0
+pyyaml==6.0.3
+requests==2.34.2
+tqdm==4.70.1
+typing-extensions==4.16.0
+tzdata==2026.6
+urllib3==2.8.0
+# test step and the SQL layer
+pytest==9.1.1
+pytest-xdist==3.8.0
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+pygments==2.21.0
+duckdb==1.4.5

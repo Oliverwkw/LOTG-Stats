@@ -92,7 +92,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install --no-cache-dir pyyaml
+        run: pip install --no-cache-dir -c requirements.lock pyyaml
 
       - name: Decide whether this fire has work to do
         id: decide
@@ -192,9 +192,9 @@ jobs:
         run: |
           mkdir -p exports/raw
           set -o pipefail
-          python -m pip install --upgrade pip setuptools wheel 2>&1 | tee exports/raw/pip_install.log
+          python -m pip install -c requirements.lock --upgrade pip setuptools wheel 2>&1 | tee exports/raw/pip_install.log
           pip cache purge 2>&1 | tee -a exports/raw/pip_install.log || true
-          pip install --no-cache-dir -r requirements.txt 2>&1 | tee -a exports/raw/pip_install.log
+          pip install --no-cache-dir -r requirements.txt -c requirements.lock 2>&1 | tee -a exports/raw/pip_install.log
           pip install --no-cache-dir --no-build-isolation -e . 2>&1 | tee -a exports/raw/pip_install.log
 
       - name: Run LOTG build
@@ -256,10 +256,10 @@ jobs:
           # --dist worksteal: an idle worker takes queued tests from a busy one,
           # so one long test no longer holds a chunk hostage; --durations=30
           # prints where the suite's time goes.
-          pip install --no-cache-dir pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
+          pip install --no-cache-dir -c requirements.lock pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
           # tests/test_db.py — the SQL query layer (lotg_support.db). Inquiry-only:
           # the build never imports duckdb. Best-effort: without it those tests skip.
-          pip install --no-cache-dir duckdb==1.4.5 2>&1 | tail -n 1 \
+          pip install --no-cache-dir -c requirements.lock duckdb==1.4.5 2>&1 | tail -n 1 \
             || echo "::warning::duckdb unavailable — tests/test_db.py will skip"
           # test_contracts.py's data tests need Over The Cap's contract history,
           # which the build never fetches — without this they have skipped on
@@ -270,6 +270,9 @@ jobs:
           # A results file committed by an earlier run must never stand in for
           # this one: if pytest dies before writing, the audit sees nothing.
           rm -f exports/raw/pytest_results.json
+          # Every installed version, for the artifact: what this build ran on, and
+          # what tests/test_environment.py checks against requirements.lock.
+          pip freeze --all > exports/raw/pip_freeze.txt
           python -m pytest tests/ -v -n auto --dist worksteal --durations=30 2>&1 | tee exports/raw/pytest.log
 
       - name: Surface any failing guard
@@ -640,7 +643,7 @@ jobs:
           PYTHONPATH: src:lib
           LOTG_DB: ${{ runner.temp }}/query_db/lotg.duckdb
         run: |
-          python -c "import duckdb" 2>/dev/null || pip install --no-cache-dir duckdb==1.4.5 2>&1 | tail -n 1
+          python -c "import duckdb" 2>/dev/null || pip install --no-cache-dir -c requirements.lock duckdb==1.4.5 2>&1 | tail -n 1
           python scripts/sql.py --rebuild "SELECT \"table\", rows FROM _tables ORDER BY rows DESC LIMIT 5"
 
       - name: Upload outputs and logs

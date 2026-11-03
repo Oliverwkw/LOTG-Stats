@@ -116,7 +116,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install --no-cache-dir pyyaml requests
+        run: pip install -c requirements.lock --no-cache-dir pyyaml requests
 
       - name: Sweep
         env:
