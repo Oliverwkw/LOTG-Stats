@@ -1108,9 +1108,21 @@ class Site:
 
 
 def copy_shell(out: Path, shell: Path = SHELL) -> None:
+    """Copy the page shell; index.html asks for app.js / style.css with a hash of
+    their contents (`app.js?v=…`), so a deploy is never hidden behind the copy a
+    browser cached (GitHub Pages lets browsers keep files for 10 minutes)."""
+    import hashlib
     for f in shell.iterdir():
         if f.is_file():
             shutil.copy2(f, out / f.name)
+    index = out / "index.html"
+    if index.exists():
+        html_text = index.read_text(encoding="utf-8")
+        for name in ("app.js", "style.css"):
+            if (shell / name).exists():
+                v = hashlib.sha1((shell / name).read_bytes()).hexdigest()[:10]
+                html_text = re.sub(rf'(["\']){re.escape(name)}(["\'])', rf"\g<1>{name}?v={v}\g<2>", html_text)
+        index.write_text(html_text, encoding="utf-8")
 
 
 def build(out_dir, forecast: bool = True, sims: int = 20000, workbook=None) -> Dict[str, object]:
