@@ -126,7 +126,7 @@ ENTRIES = [
     (OPS, "st(p,t,w)", "Started.", "[p ∈ S(t,w)].", _fn("st") + _bare("st")),
     (OPS, "ro(p,t,w)", "Rostered.", "[p ∈ R(t,w)]; bench = ro ∧ ¬st.", _fn("ro") + _bare("ro")),
     (OPS, "pos(p,y,w)", "Position that week.", "posN(p,y,w) if the stat line exists, else posS(p) (Travis Hunter pinned WR).", _fn("pos") + _bare("pos")),
-    (OPS, "nfl(p,y,w)", "NFL team that week.", "teamN(p,y,w) → p's season teamN → wr(p,y,w).team → 'NFL' (no NFL team).", _fn("nfl")),
+    (OPS, "nfl(p,y,w)", "NFL team that week.", "teamN(p,y,w) → the team on snap(p,y,w) → wr(p,y,w).team if wr's status is on-team (ACT/INA/RES/DEV/PUP) → p's season teamN → wr(p,y,w).team (any status) → wr(p,y,·).team → 'NFL' (no NFL team): every source for week w before a season-level one.", _fn("nfl")),
     (OPS, "APP(p,y,w)", "Appeared in the NFL game.", "[p has a stat line in s(·,y,w)] ∨ [snap(p,y,w) > 0].", _fn("APP") + _bare("APP")),
     (OPS, "xFP(p,w)", "Expected fantasy points.", "Σ_k rules(y,k)·xs(p,y,w,k) + rules(y,bonus_rec_te)·xs(p,y,w,rec)·[posS(p) = TE]; blank unless APP(p,y,w).", _fn("xFP")),
     (OPS, "BYE(p,w)", "Bye?", "[pts(p,w) = 0 ∧ (nfl(p,y,w) = 'NFL' ∨ no gd(nfl(p,y,w), y, w))].", _fn("BYE") + _bare("BYE")),
