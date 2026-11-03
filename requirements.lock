@@ -41,4 +41,8 @@ urllib3==2.8.0
 # test step and the SQL layer
 pytest==9.1.1
 pytest-xdist==3.8.0
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+pygments==2.21.0
 duckdb==1.4.5
