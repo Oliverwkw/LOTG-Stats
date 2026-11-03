@@ -15,7 +15,14 @@ A static site for league-mates, published on GitHub Pages at
 | Draft history (rookie; startup & vet picks) | `#/draft` | `data/draft.json` |
 | FAAB values: the current board (filter by position / owner / free agents), roster value by team = players + **every rookie pick held for the next 5 drafts** (by position, by pick year), rookie-pick values, each value as rookie-pick equivalents; links to the rating page and embeds it | `#/faab` | `rate/board.json` (fetched live from docs/rate/) |
 | Data: **every sheet in exports/, every row and column** (filter any cell or one column, sort, choose columns, definitions from formulas.csv, CSV download) | `#/data/<sheet>?c=<col>&v=<value>` | `data/sheets/<sheet>/<chunk>.json`, `downloads/<sheet>.csv` |
+| Matchup: both lineups by slot, bench, max PF | `#/game/<year>/<week>/<team>` | `data/week/<year>-<week>.json` |
+| Week: every matchup that week | `#/week/<year>/<week>` | same |
+| Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
+
+**Every row opens its details.** Record-board rows, Data rows (the › column), draft tables, home results, team weeks and head-to-head meetings link to the trade, matchup, week, player, pick or team they describe. The record boards' links come from `Site.row_link`, and the Data page's from `rowLink` in app.js, which mirrors it. A test checks that every board link resolves.
+
+**Asset histories.** Each player's and each pick's full history (draft, every add, drop and trade with the whole deal) exists only as a hover comment in the build's `LOTG_Stats.xlsx`. The site workflow downloads that workbook from the triggering build's `LOTG_outputs` artifact, or from the latest successful main build. `lotg_support.workbook_comments` reads the comments without openpyxl, in under a second. A comment is used only where its row's column A still matches the committed CSV. Trade lines link to the trade. Without the workbook, as in a local build without `--workbook`, those sections say they are pending.
 
 ## How it is built
 

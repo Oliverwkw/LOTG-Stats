@@ -87,3 +87,7 @@ details>summary{cursor:pointer;font-weight:600;margin:8px 0}
 .rk td{border:0;padding:3px 6px 3px 0;white-space:normal;position:static;background:none}
 .rk td:first-child{width:28px;position:static}
 .rk td.v{font-weight:700;white-space:nowrap;text-align:right;width:1%}
+tr.go{cursor:pointer}
+tr.go:hover td{background:var(--accent-soft)}
+.hist{padding-left:22px;margin:0}
+.hist li{margin:0 0 6px;font-size:14px}

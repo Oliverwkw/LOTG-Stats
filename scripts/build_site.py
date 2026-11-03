@@ -3,6 +3,7 @@
     python scripts/build_site.py --out _site                 # what .github/workflows/site.yml runs
     python scripts/build_site.py --out _site --no-forecast   # skip the ~20 s odds simulation
     python scripts/build_site.py --out _site --with-docs     # also copy docs/ (the rating page) in
+    python scripts/build_site.py --out _site --workbook LOTG_Stats.xlsx   # + asset histories
 
 Read-only over the repo: it writes only under --out. See lotg_support.league_site.
 """
@@ -26,12 +27,14 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="_site")
     ap.add_argument("--no-forecast", action="store_true")
     ap.add_argument("--sims", type=int, default=20000)
+    ap.add_argument("--workbook", help="the build's LOTG_Stats.xlsx (LOTG_outputs artifact): adds the "
+                                       "asset-history comments to the player and pick pages")
     ap.add_argument("--with-docs", action="store_true",
                     help="copy docs/ (rate/) into the output, as the Pages deploy does")
     a = ap.parse_args(argv)
     t = time.time()
     out = Path(a.out)
-    report = league_site.build(out, forecast=not a.no_forecast, sims=a.sims)
+    report = league_site.build(out, forecast=not a.no_forecast, sims=a.sims, workbook=a.workbook)
     if a.with_docs:
         for item in (ROOT / "docs").iterdir():
             dest = out / item.name
