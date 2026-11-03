@@ -1005,6 +1005,20 @@ def _resolve_quietly(name: str) -> str:
         return ""
 
 
+def _pid_or_resolve(exported_id: object, name: str) -> str:
+    """The sheet's own id for the player when it carries one (exports from
+    2026-11 on), else the dictionary lookup — which returns "" for a name two
+    players share (David Johnson, Tony Jones) and can pick the wrong one."""
+    return player_ids.clean_id(exported_id) or _resolve_quietly(name)
+
+
+def _row_ids(row: pd.Series, id_col: str, n: int) -> List[Optional[str]]:
+    """A trades cell's id list, aligned to its `n` player names (None-padded
+    when the sheet predates the id columns)."""
+    ids = player_ids.split_ids(row[id_col]) if id_col in row.index else []
+    return ids if len(ids) == n else [None] * n
+
+
 def _season_of_label(label: object) -> Optional[int]:
     """Season out of a `picks.Year` label — "2021 (vet)" -> 2021, "startup" -> inception.
 
@@ -1028,9 +1042,10 @@ def _season_of_label(label: object) -> Optional[int]:
 def _sheet_trade_events(seasons: Sequence[int]) -> List[dict]:
     """Acquisitions from the exported `trades` sheet, for seasons given.
 
-    Only used where no snapshot exists (2020, the ESPN backfill), because the
-    sheet has lost the pids and a multi-team trade's sender has to be recovered
-    by matching the player's name on the other rows of the same trade.
+    Only used where no snapshot exists (2020, the ESPN backfill). The pid is
+    the sheet's `Player IDs received` entry; a multi-team trade's sender is the
+    other row of the same trade that sent that player (by id, else by name on
+    exports that predate the id columns).
     """
     wanted = {int(s) for s in seasons}
     if not wanted:
@@ -1043,15 +1058,17 @@ def _sheet_trade_events(seasons: Sequence[int]) -> List[dict]:
         if year is None or int(year) not in wanted:
             continue
         year, date, team = int(year), str(r["Date"]), str(r["Team"])
-        for name in split_assets(r["Assets sent"])[0]:
-            senders.setdefault((year, date, name), []).append(team)
-        rows.append((year, date, team, split_assets(r["Assets received"])[0]))
+        sent = split_assets(r["Assets sent"])[0]
+        for name, pid in zip(sent, _row_ids(r, player_ids.SENT_IDS, len(sent))):
+            senders.setdefault((year, date, pid or name), []).append(team)
+        got = split_assets(r["Assets received"])[0]
+        rows.append((year, date, team, list(zip(got, _row_ids(r, player_ids.RECEIVED_IDS, len(got))))))
     events: List[dict] = []
     for year, date, team, received in rows:
-        for name in received:
-            gave = [t for t in senders.get((year, date, name), []) if t != team]
+        for name, pid in received:
+            gave = [t for t in senders.get((year, date, pid or name), []) if t != team]
             events.append({
-                "player": name, "player_id": _resolve_quietly(name), "season": year,
+                "player": name, "player_id": _pid_or_resolve(pid, name), "season": year,
                 "date": date, "event": "trade", "team": team,
                 "from_team": gave[0] if len(gave) == 1 else "",
                 "source": "sheet", "_order": _sheet_epoch_ms(date),
@@ -1179,7 +1196,8 @@ def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
             year = _season_of_label(r["Year"])
             if season is not None and year != season:
                 continue
-            rows.append({"player": name, "player_id": _resolve_quietly(name),
+            rows.append({"player": name,
+                         "player_id": _pid_or_resolve(r.get(player_ids.PICKED_ID), name),
                          "season": year, "date": "", "event": "draft",
                          "team": str(r["Team"]), "from_team": "", "source": "sheet",
                          "_order": None})
@@ -1193,7 +1211,8 @@ def ownership_ledger(player: Optional[str] = None, season: Optional[int] = None,
             year = int(year) if year is not None else None
             if season is not None and year != season:
                 continue
-            rows.append({"player": name, "player_id": _resolve_quietly(name),
+            rows.append({"player": name,
+                         "player_id": _pid_or_resolve(r.get(player_ids.ADDED_ID), name),
                          "season": year, "date": str(r["Date"]), "event": "add",
                          "team": str(r["Team"]), "from_team": "", "source": "sheet",
                          "_order": _sheet_epoch_ms(r["Date"])})
@@ -1715,15 +1734,37 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
     """
     ledger = ownership_ledger(events=("trade",), include_duplicates=include_duplicates,
                               through_built_weeks=True)
-    counted = ledger["player"].value_counts() if not ledger.empty else {}
+    pat = Q.load_sheet("player_all_time")
+    # Keyed by Sleeper id when player_all_time carries it (a namesake or a
+    # re-spelled name cannot then borrow another player's count), else by name.
+    by_id = player_ids.PLAYER_ID in pat.columns
+    if by_id and not ledger.empty:
+        # An id counts only when the row's name is that id's name (the ledger
+        # spells id'd rows from the dictionary): a row whose name and id
+        # disagree — cash mistaken for a player — stays a name, so the phantom
+        # check below still sees it.
+        names = Q.players()
+        ids = [player_ids.clean_id(p) for p in ledger["player_id"]]
+        keys = pd.Series([f"id:{p}" if p and names.name(p) == n else f"name:{n}"
+                          for p, n in zip(ids, ledger["player"].astype(str))], index=ledger.index)
+        label = dict(zip(keys, ledger["player"].astype(str)))
+    elif not ledger.empty:
+        keys = "name:" + ledger["player"].astype(str)
+        label = dict(zip(keys, ledger["player"].astype(str)))
+    counted = keys.value_counts() if not ledger.empty else {}
+
+    def _key(r: pd.Series) -> str:
+        pid = player_ids.clean_id(r.get(player_ids.PLAYER_ID)) if by_id else None
+        return f"id:{pid}" if pid else f"name:{str(r['Player']).strip()}"
+
     problems: List[str] = []
-    known = {str(p).strip() for p in Q.load_sheet("player_all_time")["Player"]}
-    for _, r in Q.load_sheet("player_all_time").iterrows():
+    known = {_key(r) for _, r in pat.iterrows()}
+    for _, r in pat.iterrows():
         name = str(r["Player"]).strip()
         built = Q.to_number(r["Number of trades"])
         if built is None:
             continue
-        got = int(counted.get(name, 0))
+        got = int(counted.get(_key(r), 0))
         if got != int(built):
             problems.append(f"{name}: ledger counts {got} trade(s), "
                             f"player_all_time says {built:g} "
@@ -1732,8 +1773,8 @@ def check_trade_counts_match_build(include_duplicates: bool = False) -> List[str
     # a *phantom* — an asset the ledger mistook for a player, which has no
     # `player_all_time` row to be compared against and so passes silently. That
     # is exactly how FAAB ("$15 FAAB") would enter as a traded player.
-    for name in sorted(set(counted.index if hasattr(counted, "index") else ()) - known):
-        problems.append(f"{name!r}: {int(counted[name])} ledger trade(s) but no "
+    for key in sorted(set(counted.index if hasattr(counted, "index") else ()) - known):
+        problems.append(f"{label[key]!r}: {int(counted[key])} ledger trade(s) but no "
                         f"player_all_time row — not a player?")
     return problems
 

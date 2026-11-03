@@ -185,6 +185,9 @@ _KEY_COLS = {
     # Sleeper / nflverse ids (lotg_support.player_ids): numeric-looking labels.
     "Player ID", "Reference player ID", "Player Added ID", "Player Dropped ID",
     "Player Picked ID", "Player IDs received", "Player IDs sent", "GSIS ID",
+    "Player IDs retained now", "Player IDs traded away", "Player IDs dropped to FA",
+    "Player IDs in return from trades", "Player IDs in additional assets traded away",
+    "Player IDs in full return chain",
 }
 
 # A yearly stat is treated as a *rate/level* (projected as-is, not scaled by

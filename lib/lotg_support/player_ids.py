@@ -17,6 +17,10 @@ from a name here. Columns, all TEXT (an id is a label, never a number):
   * `Player IDs received` / `Player IDs sent` — trades: the player ids on each
     side, "; "-joined in the order the players are listed in `Assets received`
     / `Assets sent` (picks and FAAB carry no id, so they are not in the list).
+  * `Player IDs retained now` / `… traded away` / `… dropped to FA` /
+    `… in return from trades` / `… in additional assets traded away` /
+    `… in full return chain` — trades: the same for each chain-of-custody
+    cell, in the order (and with the de-duplication) that cell uses.
   * `GSIS ID` — player_all_time: the nflverse gsis_id the build matched the
     player to (Sleeper -> DynastyProcess -> nflverse, with the last-name
     correction), blank when there is none.
@@ -39,14 +43,42 @@ RECEIVED_IDS = "Player IDs received"
 SENT_IDS = "Player IDs sent"
 GSIS_ID = "GSIS ID"
 
+# trades' chain-of-custody cells -> (the build's internal key, the id column).
+CHAIN_IDS = {
+    "Assets retained now": ("retained", "Player IDs retained now"),
+    "Assets traded away": ("traded", "Player IDs traded away"),
+    "Assets dropped to FA": ("fa", "Player IDs dropped to FA"),
+    "Return from trades": ("return", "Player IDs in return from trades"),
+    "Additional assets traded away in those deals":
+        ("additional", "Player IDs in additional assets traded away"),
+    "Return from trades of trades...of trades. Keep going until present day":
+        ("full", "Player IDs in full return chain"),
+}
+CHAIN_ID_COLUMNS = tuple(c for _k, c in CHAIN_IDS.values())
+
 ID_COLUMNS = (PLAYER_ID, REFERENCE_ID, ADDED_ID, DROPPED_ID, PICKED_ID,
-              RECEIVED_IDS, SENT_IDS, GSIS_ID)
+              RECEIVED_IDS, SENT_IDS, GSIS_ID) + CHAIN_ID_COLUMNS
 
 # Sleeper's id for an empty lineup slot.
 EMPTY_SLOT_ID = "0"
 
 _PLAYER_SHEETS = {"Player-Week", "Player-year", "Player-all-time", "player_additions"}
 _PICK_SHEETS = {"non_rookie_picks", "rookie_picks"}
+
+
+def chain_player_ids(pairs: Iterable[Any], dedup: bool) -> List[str]:
+    """(display, asset key) pairs of one chain cell -> its players' ids, in
+    cell order. A key is ("player", pid) or ("pick", meta). `dedup` mirrors a
+    cell written with dict.fromkeys(displays): a repeated display is skipped."""
+    seen, out = set(), []
+    for disp, key in pairs:
+        if dedup:
+            if disp in seen:
+                continue
+            seen.add(disp)
+        if key and key[0] == "player" and clean_id(key[1]):
+            out.append(clean_id(key[1]))
+    return out
 
 
 def clean_id(v: Any) -> Optional[str]:
@@ -118,6 +150,8 @@ def add_export_ids(plan_key: str, frame: pd.DataFrame,
     if plan_key == "trades":
         out[RECEIVED_IDS] = _obj(out, map(join_ids, _col(out, "_recv_player_ids")))
         out[SENT_IDS] = _obj(out, map(join_ids, _col(out, "_drop_player_ids")))
+        for _cell, (key, id_col) in CHAIN_IDS.items():
+            out[id_col] = _obj(out, map(join_ids, _col(out, f"_chain_ids_{key}")))
     return out
 
 
@@ -134,6 +168,7 @@ PAIRS = (
     ("rookie_picks", "Player Picked", PICKED_ID, False),
     ("trades", "Assets received", RECEIVED_IDS, True),
     ("trades", "Assets sent", SENT_IDS, True),
+    *(("trades", cell, id_col, True) for cell, (_k, id_col) in CHAIN_IDS.items()),
 )
 
 
@@ -155,7 +190,8 @@ def unmapped_rows(sheets: Dict[str, pd.DataFrame],
     rows: List[Dict[str, Any]] = []
     for stem, name_col, id_col, joined in PAIRS:
         df = sheets.get(stem)
-        if df is None or name_col not in df.columns:
+        # A sheet written before that id column existed has nothing to check.
+        if df is None or name_col not in df.columns or id_col not in df.columns:
             continue
         ids = _col(df, id_col)
         for i, (nm, pid) in enumerate(zip(df[name_col], ids)):

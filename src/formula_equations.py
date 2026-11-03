@@ -1468,6 +1468,8 @@ EQUATIONS = {
         'picks[pk].player_id',
     ('Player IDs received / Player IDs sent', 'trades'):
         "'; '.join(player_id of each player in ⟨Assets received⟩ / ⟨Assets sent⟩(x,t))",
+    ('Player IDs retained now / Player IDs traded away / Player IDs dropped to FA / Player IDs in return from trades / Player IDs in additional assets traded away / Player IDs in full return chain', 'trades'):
+        "'; '.join(player_id of each player in the matching chain cell, e.g. ⟨Assets retained now⟩(x,t))",
     ('GSIS ID', 'player_all_time'):
         'gsis(p) = sleeper.gsis_id(p) ∨ dp.gsis_id(p) ∨ nflverse.gsis_id(p), last-name checked',
     ('KTC on draft day', 'non_rookie_picks / rookie_picks'):
