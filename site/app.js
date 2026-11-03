@@ -292,6 +292,7 @@ async function player(key) {
       { k: "best", label: "Best week", spec: { d: 2 } }], p.teams)}</div>
     <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { links: { Team: (v) => teamLink(v) } })}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
+    ${p.usage && p.usage.rows.length ? `<div class="card"><h2>Usage</h2><p class="muted small">Snaps, targets, carries and red-zone looks while rostered. xFP = the points his targets and carries usually produce in this league's scoring; points minus xFP above 0 = scoring beyond the opportunity (rarely sticky), rising xFP = a bigger role.</p>${dataTable(p.usage)}</div>` : ""}
     ${p.trades.length ? `<div class="card"><h2>Trades</h2>${p.trades.map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}</div>` : ""}`;
 }
 
@@ -304,10 +305,10 @@ const SHEETS = [
 ];
 const FEATURED = {
   team_week: ["PF", "Margin", "Max PF", "Efficiency", "Points left on bench", "Bench points"],
-  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness"],
+  team_year: ["Points", "Win %", "All-play win %", "Efficiency", "Differential", "Lineup Boldness", "Starters' xFP", "Starters' points minus xFP"],
   team_all_time: ["Championships", "All time win %", "Avg points", "Trading skill", "Drafting skill", "Add/Drop skill"],
-  player_week: ["Points"],
-  player_year: ["Points", "PPG starter", "Starter PAR", "Times as Player of the week?"],
+  player_week: ["Points", "xFP", "Points minus xFP"],
+  player_year: ["Points", "PPG starter", "Starter PAR", "Times as Player of the week?", "xFP", "Points minus xFP"],
   player_all_time: ["Points", "Total points as starter", "Starter PAR", "Number of teams", "Number of trades"],
 };
 

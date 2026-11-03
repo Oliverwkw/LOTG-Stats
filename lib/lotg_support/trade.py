@@ -140,6 +140,37 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def usage(tr: Trade, recent: int = 3) -> Tuple[pd.DataFrame, List[str]]:
+    """Usage and xFP (lotg_support.usage) for every moving player: this season
+    through the last finished week (with the last `recent` NFL weeks) and the
+    whole of last season — so a hot streak (points above xFP on flat volume)
+    reads apart from a new role (xFP and snaps up). Returns the table and the
+    data flags for the caveats."""
+    from . import advise as A
+    from . import external as X
+    from . import usage as U
+    players = Q.players()
+    moving = [("gives", pid, n) for pid, n in tr.give.items()] + [("gets", pid, n) for pid, n in tr.get.items()]
+    pids = [pid for _s, pid, _n in moving]
+    try:
+        dp = X.load_dynastyprocess_playerids(X.ExternalConfig(cache_dir=Q.repo_root() / ".cache"))
+    except Exception:
+        dp = None
+    bridge = U.sleeper_to_gsis(A.players_dict(), dp)
+    pos = {pid: players.position(pid) for pid in pids}
+    done = Q.finalized_week(tr.year) or 0
+    now = U.usage_table(pids, tr.year, done, bridge, A.scoring(tr.year), recent, positions=pos)
+    prev = U.usage_table(pids, tr.year - 1, 18, bridge, A.scoring(tr.year - 1), recent, positions=pos)
+    keep = ["G", "Snap%", "Tgt/G", "Car/G", "RZ/G", "xFP/G", "Pts-xFP/G"]
+    rows = []
+    for side, pid, name in moving:
+        row = {"side": f"{tr.team} {side}", "Player": name, "Pos": pos[pid]}
+        row.update({f"{tr.year} {k}": now.at[pid, k] for k in now.columns})
+        row.update({f"{tr.year - 1} {k}": prev.at[pid, k] for k in keep})
+        rows.append(row)
+    return pd.DataFrame(rows), U.usage_flags(now, {pid: n for _s, pid, n in moving}, recent)
+
+
 def _injury_curve() -> bool:
     """True once the forecast models flagged players with an injury return
     curve instead of a flat availability cap."""
