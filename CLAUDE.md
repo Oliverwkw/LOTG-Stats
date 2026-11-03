@@ -259,7 +259,10 @@ minutes otherwise. The note in `plan/notes/`, the new
 helper in `lib/`, the tests and the PR are a *second phase* that starts only
 when the asker says they want it. Do not open a PR for a question. (`pip install
 pandas` is the one setup step — plus `pip install duckdb==1.4.5` for the SQL
-path; skip `requirements.txt`, it pulls ortools.)
+path; skip `requirements.txt`, it pulls ortools.) To run on exactly what CI
+runs (python 3.11, every version from `requirements.lock`): `python3.11 -m venv
+.venv && .venv/bin/pip install -r requirements.txt -c requirements.lock`; then
+`LOTG_CHECK_LOCK=1` makes `tests/test_environment.py` compare the venv to the lock.
 
 **The 3 minutes is a target; accuracy is the constraint.** They rarely conflict
 — the playbook's accuracy floor (read the trap list, reconcile against a build

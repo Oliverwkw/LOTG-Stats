@@ -152,9 +152,9 @@ jobs:
         run: |
           mkdir -p exports/raw
           set -o pipefail
-          python -m pip install --upgrade pip setuptools wheel 2>&1 | tee exports/raw/pip_install.log
+          python -m pip install -c requirements.lock --upgrade pip setuptools wheel 2>&1 | tee exports/raw/pip_install.log
           pip cache purge 2>&1 | tee -a exports/raw/pip_install.log || true
-          pip install --no-cache-dir -r requirements.txt 2>&1 | tee -a exports/raw/pip_install.log
+          pip install --no-cache-dir -r requirements.txt -c requirements.lock 2>&1 | tee -a exports/raw/pip_install.log
           pip install --no-cache-dir --no-build-isolation -e . 2>&1 | tee -a exports/raw/pip_install.log
 
       - name: Run LOTG build (cold cache — full regeneration)
@@ -200,7 +200,7 @@ jobs:
           # --dist worksteal: an idle worker takes queued tests from a busy one,
           # so one long test no longer holds a chunk hostage; --durations=30
           # prints where the suite's time goes.
-          pip install --no-cache-dir pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
+          pip install --no-cache-dir -c requirements.lock pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
           # test_contracts.py's data tests need Over The Cap's contract history,
           # which the build never fetches — without this they have skipped on
           # every CI run. Best-effort: a failed download leaves them skipping,
