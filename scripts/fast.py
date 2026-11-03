@@ -30,7 +30,7 @@ command whose output already carries its caveats.
     #   pw   = typed player_week + team result (fast.player_weeks)
     #   lpw  = pw with the live week appended (fetches Sleeper)
     #   live = the LiveWeek;  tw, ty, py, pa, ... = any export sheet (text)
-    #   num(df, col) = numeric column;  twt, tyt, pyt, ... / T("sheet") = typed sheet
+    #   num(df, col) = numeric column;  twt, tyt, tat, pyt, lyt, lat ... / T("sheet") = typed sheet
     #   statements are allowed; the last expression is printed
     #   pw/lpw carry Acquired via / Acquired / Acquired season / Season source / In-season pickup
     #   share(mask) = per team-season share of starter points (regular season);  ts = team_seasons()
@@ -219,9 +219,10 @@ class _Lazy(dict):
             v = fast.starter_share
         elif key == "ts":
             v = fast.team_seasons()
-        elif key in ("twt", "tyt", "pyt", "lwt", "lyt"):
-            v = fast.typed_sheet({"twt": "team_week", "tyt": "team_year", "pyt": "player_year",
-                                  "lwt": "league_week", "lyt": "league_year"}[key])
+        elif key in ("twt", "tyt", "tat", "pyt", "lwt", "lyt", "lat"):
+            v = fast.typed_sheet({"twt": "team_week", "tyt": "team_year", "tat": "team_all_time",
+                                  "pyt": "player_year", "lwt": "league_week", "lyt": "league_year",
+                                  "lat": "league_all_time"}[key])
         elif key in ("pd", "fast", "Q"):
             v = {"pd": pd, "fast": fast, "Q": Q}[key]
         else:
