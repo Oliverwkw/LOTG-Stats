@@ -70,3 +70,6 @@ exports/raw/pae_additions.json.gz
 
 # scripts/grade_tools.py replay caches (Sleeper stats/projections slim copies, trade forecasts, track record)
 .cache/grade/
+
+# A local venv built from requirements.lock (see CLAUDE.md).
+.venv/

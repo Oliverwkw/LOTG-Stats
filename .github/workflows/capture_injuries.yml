@@ -84,7 +84,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install --no-cache-dir pyyaml requests
+        run: pip install -c requirements.lock --no-cache-dir pyyaml requests
 
       - name: Capture injury snapshot
         # The dispatch inputs go through the environment, not through string
