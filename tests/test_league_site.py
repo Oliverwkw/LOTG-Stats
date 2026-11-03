@@ -373,6 +373,18 @@ def test_built_site_reconciles():
         check()
 
 
+def test_shell_assets_are_versioned():
+    """A deploy must not hide behind a browser's cached app.js: index.html asks
+    for each asset with a hash of its contents."""
+    import hashlib
+    out = Path(tempfile.mkdtemp(prefix="lotg_shell_"))
+    S.copy_shell(out)
+    html_text = (out / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        v = hashlib.sha1((S.SHELL / name).read_bytes()).hexdigest()[:10]
+        assert f'"{name}?v={v}"' in html_text, name
+
+
 def test_privacy_scan_catches_a_leak():
     d = Path(tempfile.mkdtemp(prefix="lotg_leak_"))
     (d / "data").mkdir()
@@ -388,6 +400,7 @@ TESTS = [
     test_week_kinds,
     test_shell_does_not_shadow_the_rating_page,
     test_built_site_reconciles,
+    test_shell_assets_are_versioned,
     test_privacy_scan_catches_a_leak,
 ]
 
