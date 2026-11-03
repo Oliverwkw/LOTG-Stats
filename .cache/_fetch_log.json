@@ -1,6 +1,5 @@
 {
- "dynastyprocess_playerids.csv": "2026-11-03T16:15:43.441313+00:00",
- "ffopportunity_ep_weekly_2026.csv.gz": "2026-11-03T16:15:46.573219+00:00",
+ "dynastyprocess_playerids.csv": "2026-10-27T19:00:33.845168+00:00",
  "nfldata_games.csv": "2026-10-27T19:01:36.760331+00:00",
  "nflverse_injuries_2020.csv": "2026-10-27T19:01:42.400585+00:00",
  "nflverse_injuries_2021.csv": "2026-10-27T19:00:35.799540+00:00",
@@ -10,7 +9,6 @@
  "nflverse_injuries_2025.csv": "2026-10-27T19:01:21.902587+00:00",
  "nflverse_injuries_2026.csv": "2026-10-27T19:02:03.276751+00:00",
  "nflverse_player_ids.csv": "2026-10-27T19:01:36.496974+00:00",
- "nflverse_red_zone_2026.csv": "2026-11-03T16:15:47.777281+00:00",
  "nflverse_snap_counts_2018.csv": "2026-10-27T19:03:06.159874+00:00",
  "nflverse_snap_counts_2019.csv": "2026-10-27T19:03:07.228926+00:00",
  "nflverse_snap_counts_2020.csv": "2026-10-27T19:01:42.019895+00:00",
@@ -19,7 +17,7 @@
  "nflverse_snap_counts_2023.csv": "2026-10-27T19:01:53.040616+00:00",
  "nflverse_snap_counts_2024.csv": "2026-10-27T19:01:56.579775+00:00",
  "nflverse_snap_counts_2025.csv": "2026-10-27T19:02:00.071051+00:00",
- "nflverse_snap_counts_2026.csv": "2026-11-03T16:15:44.686718+00:00",
+ "nflverse_snap_counts_2026.csv": "2026-10-27T19:02:03.060629+00:00",
  "nflverse_stats_player_week_2010.csv": "2026-10-27T19:08:30.995648+00:00",
  "nflverse_stats_player_week_2011.csv": "2026-10-27T19:08:14.815851+00:00",
  "nflverse_stats_player_week_2012.csv": "2026-10-27T19:08:15.391477+00:00",
@@ -36,7 +34,7 @@
  "nflverse_stats_player_week_2023.csv": "2026-10-27T19:01:51.188189+00:00",
  "nflverse_stats_player_week_2024.csv": "2026-10-27T19:01:54.713389+00:00",
  "nflverse_stats_player_week_2025.csv": "2026-10-27T19:01:58.194908+00:00",
- "nflverse_stats_player_week_2026.csv": "2026-11-03T16:15:44.144169+00:00",
+ "nflverse_stats_player_week_2026.csv": "2026-10-27T19:02:01.686544+00:00",
  "nflverse_weekly_rosters_2018.csv": "2026-10-27T19:03:06.578206+00:00",
  "nflverse_weekly_rosters_2019.csv": "2026-10-27T19:03:07.722177+00:00",
  "nflverse_weekly_rosters_2020.csv": "2026-10-27T19:01:41.132993+00:00",
@@ -45,5 +43,5 @@
  "nflverse_weekly_rosters_2023.csv": "2026-10-27T19:01:52.130388+00:00",
  "nflverse_weekly_rosters_2024.csv": "2026-10-27T19:01:55.724511+00:00",
  "nflverse_weekly_rosters_2025.csv": "2026-10-27T19:01:59.208889+00:00",
- "nflverse_weekly_rosters_2026.csv": "2026-11-03T16:15:45.391378+00:00"
+ "nflverse_weekly_rosters_2026.csv": "2026-10-27T19:02:02.402904+00:00"
 }
