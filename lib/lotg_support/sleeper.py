@@ -9,6 +9,37 @@ from typing import Any, Dict, List, Optional, Set
 from .utils import HttpConfig, BuildLogger, fetch_json
 
 
+def strip_phantom_drops(txs: Any) -> int:
+    """Blank the `drops` of every transaction that did not happen, in place;
+    returns how many it blanked.
+
+    A failed waiver claim (or any status other than `complete`) moved no player,
+    so the player it would have cut was never dropped. Sleeper's API returned
+    that would-be drop until some point before 2026-11 and now returns
+    `drops: null` on all of them (382 failed claims 2021-26). The cached fetches
+    in `.cache/sleeper` kept 190 of the old drops (51 past weeks, 2021-25), so
+    cache and snapshot disagreed on data about drops that never happened — the
+    build never used it (`_prune_duplicate_tx` / `_standing_waiver_bids` read
+    the same inputs with or without them; tests/test_sleeper_phantom_drops.py).
+    Normalising every read and write to Sleeper's current form keeps the two
+    identical, and keeps an older Actions cache from bringing them back.
+    """
+    n = 0
+    if not isinstance(txs, list):
+        return 0
+    for t in txs:
+        if not isinstance(t, dict) or (t.get("status") or "complete") == "complete":
+            continue
+        if t.get("drops") is not None:
+            t["drops"] = None
+            n += 1
+    return n
+
+
+def _is_transactions_url(url: str) -> bool:
+    return "/transactions/" in url
+
+
 @dataclass
 class SleeperClient:
     league_id: str
@@ -72,10 +103,21 @@ class SleeperClient:
             cp = self._cache_path(url)
             if cp.exists() and cp.stat().st_size > 0:
                 try:
-                    return json.loads(cp.read_text())
+                    cached = json.loads(cp.read_text())
                 except Exception:
-                    pass  # corrupt cache file — fall through to refetch
+                    cached = None  # corrupt cache file — fall through to refetch
+                if cached is not None:
+                    if _is_transactions_url(url) and strip_phantom_drops(cached):
+                        # Heal the file too, so a restored older cache cannot
+                        # carry the phantom drops back into a commit.
+                        try:
+                            cp.write_text(json.dumps(cached))
+                        except Exception:
+                            pass
+                    return cached
             data = fetch_json(url, self.cfg, self.logger)
+            if data is not None and _is_transactions_url(url):
+                strip_phantom_drops(data)
             if data is not None:
                 try:
                     cp.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +125,10 @@ class SleeperClient:
                 except Exception:
                     pass  # cache write failure should never break the build
             return data
-        return fetch_json(url, self.cfg, self.logger)
+        data = fetch_json(url, self.cfg, self.logger)
+        if _is_transactions_url(url):
+            strip_phantom_drops(data)
+        return data
 
     # Core league endpoints
     def league(self, league_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
