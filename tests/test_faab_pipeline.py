@@ -5,7 +5,8 @@
 - votes map to the grid date of the board they were shown on (never a later one), and a vote on an unknown
   player or a date before the grid is skipped, not misplaced;
 - trades.csv parses into two-team sides, players resolved to their player_additions row;
-- a pick's price falls with each further draft out and a late slot never prices above an early one.
+- a pick's price falls with each further draft out and a late slot never prices above an early one;
+- the summer flags: only a player off the Week-1 roster is 'unsigned'; the offseason window is everyone's.
 
 None of these need scikit-learn (the models import it lazily), so they run in the build's CI. No network. Run: python tests/test_faab_pipeline.py
 """
@@ -22,6 +23,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 
 from lotg_support import faab_inputs as I  # noqa: E402
 from lotg_support import faab_pipeline as P  # noqa: E402
+from lotg_support import faab_features as X  # noqa: E402
 
 
 def test_replacement_line_by_season():
@@ -70,8 +72,24 @@ def test_pick_prices_fall_with_distance_and_slot():
     assert pk.value("2026 5", d) == 20.0
 
 
+def test_unsigned_only_off_the_week1_roster_offseason_for_everyone():
+    # one summer date and one in-season date for: a Week-1 player, a Week-4 signing, a never-signed player, a retired one
+    d = pd.to_datetime(["2025-08-05"] * 4 + ["2025-10-01"] * 4).values
+    fw = np.array([1, 4, np.nan, np.nan] * 2, dtype=float)
+    ko = np.array([X.KO[2025]] * 8, dtype="datetime64[ns]"); jun1 = pd.to_datetime(["2025-06-01"] * 8).values
+    over = np.array([0, 0, 0, 1] * 2)
+    un, off = X.offseason_flags(d, fw, ko, jun1, over)
+    assert list(un) == [0, 1, 1, 0, 0, 0, 1, 0], un      # Lamar-style Week-1 starter is signed all summer
+    assert list(off) == [1, 1, 1, 1, 0, 0, 0, 0], off    # the summer window is everyone's, the season no one's
+    # the Week-4 signing is unsigned until 3 days before his first week, then signed
+    un2, _ = X.offseason_flags(pd.to_datetime(["2025-09-21", "2025-09-22"]).values, np.array([4.0, 4.0]),
+                               np.array([X.KO[2025]] * 2, dtype="datetime64[ns]"), pd.to_datetime(["2025-06-01"] * 2).values, np.zeros(2))
+    assert list(un2) == [1, 0], un2
+
+
 TESTS = [test_replacement_line_by_season, test_excused_fallback_lifts_to_preseason_only, test_votes_map_to_their_own_board_date,
-         test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot]
+         test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot,
+         test_unsigned_only_off_the_week1_roster_offseason_for_everyone]
 
 if __name__ == "__main__":
     for fn in TESTS:

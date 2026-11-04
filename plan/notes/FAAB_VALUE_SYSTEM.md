@@ -14,6 +14,11 @@ use only what was known that day, the way the league values players. A 1.05 rook
    - usage (expected points), team share, availability, a sustained elite record, QB passing quality;
    - early-career draft and college pedigree, efficiency, volatility and TD dependence, age cliffs;
    - injury status, off-field events, the replacement line (vets ranked below the line are worth about 0).
+   - the summer (2026-11-04): one level shift for every player against picks and FAAB from June 1 to 3 days
+     before kickoff (`e_x_offseason`, either sign, 0 on every in-season board). Before this, the "unsigned from
+     June 1" flag fired for every player on a Week-1 roster too (the weekly rosters start at Week 1), so the
+     off-field rule (x0.435) did this job by accident, on 77 of 214 fitted trades. `e_x_unsigned` now marks only
+     players off the Week-1 roster (signed in-season or never).
    - QBs (#531): draft capital fading over four seasons; an established starter (usage over the line, 2+ top-12
      seasons, fading 30-34); an opening (a QB who has played well, ahead only of an aging backup holding the
      snaps). On IR, a player's usage and availability read his seasons before the injury, since the IR rule already
