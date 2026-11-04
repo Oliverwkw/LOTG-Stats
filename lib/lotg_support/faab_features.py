@@ -393,6 +393,23 @@ def _rates(s):
     out["big"] = s.big; out["good"] = s.good; out["big_rate"] = s.big / pl; out["good_rate"] = s.good / pl
     return pd.DataFrame(out, index=s.index)
 
+def offseason_flags(date_v, fw, ko_up, jun1, career_over):
+    """(unsigned, offseason) for each row. `fw` = the player's first regular-season roster week of the upcoming season
+    (NaN = never on one), `ko_up` its kickoff, `jun1` its June 1.
+    unsigned: from June 1 until he first appears on a roster, for a player NOT on a Week-1 roster (signed in-season or
+    never). The weekly rosters start at Week 1, so a player on the Week-1 roster is taken as signed all summer (the same
+    small hindsight as before); before 2026-11-04 every Week-1 player was flagged from June 1 to kickoff - 3 days.
+    offseason: the same June 1 -> kickoff - 3 days window for every player (the summer, when the league's players-vs-picks
+    prices differ), so the fit can weigh it as its own rule instead of through the unsigned flag."""
+    date_v = np.asarray(date_v, dtype="datetime64[ns]"); fw = np.asarray(fw, dtype=float)
+    ko_up = np.asarray(ko_up, dtype="datetime64[ns]"); jun1 = np.asarray(jun1, dtype="datetime64[ns]")
+    late = np.where(np.isnan(fw), np.datetime64("2100-01-01"), ko_up + ((np.nan_to_num(fw) - 1) * 7 - 3).astype("timedelta64[D]"))
+    signed_at = np.where(np.nan_to_num(fw, nan=99) <= 1, jun1, late)
+    unsigned = ((date_v >= jun1) & (date_v < signed_at) & (np.asarray(career_over) == 0)).astype(float)
+    offseason = ((date_v >= jun1) & (date_v < ko_up - np.timedelta64(3, "D"))).astype(float)
+    return unsigned, offseason
+
+
 def add_x(df):
     """df: gsis, date (any index). Returns df with e_x_* columns."""
     d = df[["gsis", "date"]].copy(); d["gsis"] = d.gsis.astype(str); d["date"] = pd.to_datetime(d.date); d["_i"] = np.arange(len(d))
@@ -469,9 +486,8 @@ def add_x(df):
     up_s = np.where(d.date.dt.month.values >= 3, d.date.dt.year.values, d.date.dt.year.values - 1)       # the season whose rosters count from June 1
     fw = RF.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values
     ko_up = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in up_s], dtype="datetime64[ns]")
-    signed_at = np.where(np.isnan(fw), np.datetime64("2100-01-01"), ko_up + ((np.nan_to_num(fw) - 1) * 7 - 3).astype("timedelta64[D]"))
     jun1 = pd.to_datetime([f"{int(y)}-06-01" for y in up_s]).values
-    out["e_x_unsigned"] = ((date_v >= jun1) & (date_v < signed_at) & (out.e_x_career_over.values == 0)).astype(float)
+    out["e_x_unsigned"], out["e_x_offseason"] = offseason_flags(date_v, fw, ko_up, jun1, out.e_x_career_over.values)
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
         ko = KO.get(int(r.season)); a = np.datetime64(ko - pd.Timedelta(days=30)); b = np.datetime64(ko + pd.Timedelta(days=7 * int(r.week_end)))

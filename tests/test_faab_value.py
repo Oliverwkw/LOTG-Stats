@@ -59,6 +59,9 @@ def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
     assert F.trade_err(fitted, ev.trades)[0] < F.trade_err(off, ev.trades)[0]
     assert F.cut_err(fitted, ev.cuts) < F.cut_err(off, ev.cuts)
     assert len(ev.trades) >= 200 and len(ev.cuts) >= 1000
+    # the summer unsigned flag marks only players off the Week-1 roster, not everyone between June 1 and kickoff
+    summer = R[R.e_x_offseason > 0]
+    assert len(summer) >= 100 and (summer.e_x_unsigned > 0).mean() < 0.15, (summer.e_x_unsigned > 0).mean()
 
 
 def test_calls_regression_floor():
