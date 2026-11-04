@@ -1527,6 +1527,41 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     - The post-merge build is identical to the branch build cell for cell. No UNEXPECTED
       diffs.
   - Exports are NOT committed by this plain dispatch; they land with the next Tuesday run.
+- [x] **Phantom drops: cache and snapshot agree on every past transaction week** [per user,
+  2026-11-03: "cache is truth but the 51 week difference is unnecessary data about drops that
+  didn't happen"]. The 51 weeks differed in one way only: 190 failed waiver claims (2021-25)
+  kept their would-be `drops` in `.cache/sleeper`, while live Sleeper (and so the snapshot)
+  returns null on every failed claim. `strip_phantom_drops` now blanks drops on every
+  non-complete transaction on fetch, cache write and cache read, and rewrites a cached file it
+  reads with them, so an older Actions cache can't bring them back. The 51 cache files are
+  healed. Merged #557 / `86e2e586` after branch run 41744157602; #556 (test-only: the
+  roster-age pool guard runs on 2023's frozen rosters) merged just before it as `a190563a`.
+  **3-part audit — PASS (2026-11-04): post-merge main run 41754983820 vs pre-merge main run
+  41742203077 (`38a40aa1`).**
+  - Part 1, code: build success, no new ERROR lines; pytest 907 passed, 1 skipped, 0 failed
+    (the roster-age test #556 fixed now passes).
+  - Part 2, results: 6/6 cases pass.
+    - The build's `.cache/sleeper/` input digest is `fa40582e…` = the healed committed files.
+      The baseline's `91ea6a6d…` = the pre-fix files.
+    - `test_sleeper_phantom_drops` passed in CI: cache == snapshot in all 85 past weeks, with
+      no non-complete row carrying drops.
+    - add_drops: Faab, Total FAAB bid, FAAB difference / premium %, Number of bids, Player
+      Added / Dropped ID, Date and Team are identical to baseline on all 1658 rows.
+    - The 4 add_drops rows that pair a failed claim's add with its would-be drop are the same 4
+      before and after; they are real later moves.
+    - AceMatthew's Spencer Rattler win (2025-09-01, $8, 1 bid; the #prune Rattler case) is
+      intact.
+    - Simulation over all 51 weeks: `_prune_duplicate_tx` → `_standing_waiver_bids` →
+      complete filter give identical inputs with and without the drops.
+  - Part 3, diff: 10/15 CSVs byte-identical. add_drops, non_rookie_picks, player_additions,
+    rookie_picks and team_year moved only in calendar columns, because the builds straddle
+    midnight UTC (clock noise):
+    - Length of tenure / Tenure (days) +1.
+    - O-Score follows tenure.
+    - The "1 year later" KTC filled in for 4 + 2 moves dated 2025-11-04.
+    - 2025 team_year Add/Drop skill moved 42.4 → 42.3 from that.
+    - Post-merge is byte-identical to the branch build on every CSV. No UNEXPECTED diffs.
+  - Exports are NOT committed by this plain dispatch.
 - [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
