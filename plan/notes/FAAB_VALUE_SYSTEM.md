@@ -21,7 +21,9 @@ use only what was known that day, the way the league values players. A 1.05 rook
      players off the Week-1 roster (signed in-season or never).
    - QBs (#531): draft capital fading over four seasons; an established starter (usage over the line, 2+ top-12
      seasons, fading 30-34); an opening (a QB who has played well, ahead only of an aging backup holding the
-     snaps). On IR, a player's usage and availability read his seasons before the injury, since the IR rule already
+     snaps; an early-career bet since 2026-11-07: full in a QB's first two seasons, fading to 0 by his fifth). Its
+     strength (0.6) is the one the rating-page votes pick: trades, cuts and calls don't move with it (it reaches one
+     trade row), so the plain fit's small pull toward 0 had zeroed it in #558. On IR, a player's usage and availability read his seasons before the injury, since the IR rule already
      charges for this one.
 
    Each characteristic's strength is one number, used the same way on every date and for every player. There
