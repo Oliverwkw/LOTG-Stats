@@ -30,6 +30,11 @@ use only what was known that day, the way the league values players. A 1.05 rook
      (`rec_age`, fitted 1.0) and value (`old_cliff`, fitted -1.5): Kelce May 2024 $3,343 -> $435. Requiring the
      points drop spares an old receiver whose role was trimmed while he still scores (Adams, Evans on a new team);
      the first version (usage only, RB wall 29, QBs too) took Adams to $9 and fought the Stafford/Henry/Kittle calls.
+     Third round (Ekeler 2024, Adams 2025, the healthy-player misses): availability's clean-record boost has its own
+     strength (`avail_up`); the fit keeps it equal to the missed-games one (without it trades improve 1.115 -> 1.105
+     but 8 calls fail). `share_age` (team-share talent fades past the age wall) and `anchor_old` (older players pulled
+     toward their current-usage value) both fit 0: each one that fixes Ekeler / Adams also takes Henry, Kittle and
+     Jacobs below Oliver's calls. `rookie_day3` (day-3 / undrafted rookies held near their slot) fitted -0.25.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
