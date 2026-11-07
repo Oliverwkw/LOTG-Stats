@@ -20,11 +20,22 @@ A static site for league-mates, published on GitHub Pages at
 | Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
 
-**"Still counting"** on the record boards is decided per cell (`Counting` in league_site.py). It needs both:
-- **an open row:** the season is in progress (season sheets); the stint has no "Date dropped/traded" yet (pickups, add/drops); the drafted player is still with the drafting team, or the pick isn't used yet (picks); the team still holds a received asset (trades); or the player is still rostered (player careers);
-- **a column that can still move.**
+**"Still counting"** on the record boards is decided per cell (`Counting`, `column_clock` in league_site.py). Each column of a move sheet runs on its own clock, read from its definition in formulas.csv:
 
-A column is fixed if it's in the digest's `LOCKED_AT_MOVE` list, or it's a used pick's trade count or cuff flag. A KTC checkpoint ("at end of season", "N years later/after") counts until its date passes, whatever the row. The dropped player's next-17-games columns count for a year after the drop. Week rows are final. Team and league all-time totals move every week, so the board says so rather than tagging every row. Pick boards lead with the pick: "2025 3.08 · AceMatthew → Jalen Milroe".
+| Clock | Counts while | Examples |
+|---|---|---|
+| fixed | never | the digest's `LOCKED_AT_MOVE`, a used pick's trade count, cuff flags |
+| held | the player or the received assets are still on that team | points added, on-team PPG, tenure, starts |
+| first_start | held and he hasn't started yet | weeks between pickup and first start |
+| team_now | he's on that team now | "(all stints)" totals |
+| sent | the received side is held (4 years if no player came back) | a trade's sent side "over the same time" |
+| draft | a received pick's draft hasn't happened yet | change in pick value at draft time |
+| career | he's active in the NFL | a pick's career PPG |
+| next17 | about a year after the drop | the dropped player's next 17 games |
+| checkpoint | until its date | KTC at season end, N years later/after |
+| always | always | wins added, impact score, O-Score, pick-adjusted figures, % of all-time team points, points above expectation |
+
+Season rows count while the season is in progress, and career rows while the player is rostered. Week rows are final. Team and league all-time totals move every week, so the board says so instead of tagging each row. Pick boards lead with the pick: "2025 3.08 · AceMatthew → Jalen Milroe".
 
 **Every row opens its details.** Record-board rows, Data rows (the › column), draft tables, home results, team weeks and head-to-head meetings link to the trade, matchup, week, player, pick or team they describe. The record boards' links come from `Site.row_link`, and the Data page's from `rowLink` in app.js, which mirrors it. A test checks that every board link resolves.
 

@@ -98,15 +98,28 @@ def week_kind(name) -> str:
     return "playoffs"
 
 
-# "Still counting" is decided per CELL (`Counting`): a row that is still open —
-# the season in progress, a stint not yet ended, a drafted player still on the
-# drafting team, a trade whose received assets are still held, a rostered
-# player's career — and a column that can still move. Columns a move fixes when
-# it is made are the digest's own list (`digest.LOCKED_AT_MOVE`), plus a pick's
-# trade count once it is used; a KTC checkpoint ("at end of season", "1 year
-# later") counts until its date passes, whatever the row. Week rows are final.
-# Team and league all-time rows move every week of a season, so they carry no
-# per-row tag (the board's note says so).
+# "Still counting" is decided per CELL (`Counting`). Each column of a move sheet
+# runs on its own clock, read from its definition in formulas.csv:
+#   fixed       set when the move is made (the digest's LOCKED_AT_MOVE, a used
+#               pick's trade count, cuff flags)
+#   held        while the player / received assets are still on that team
+#               (stint, tenure, "Assets retained now")
+#   first_start weeks before his first start: while held and not started yet
+#   team_now    "(all stints)" totals: while he is on that team now
+#   sent        a trade's sent side "over the same time": while the received
+#               side is held (4 years when no player came back)
+#   draft       a trade's "Change in pick value at draft time": until every
+#               received pick has been drafted
+#   career      a pick's career PPG (every team): while he is active in the NFL
+#   next17      the dropped player's next 17 played games: a year from the drop
+#   checkpoint  "at end of season / N years later": until that date
+#   always      keeps moving: wins added ("from the move to today"), impact
+#               score, O-Score and pick-adjusted differences (re-ranked against
+#               other rows / slot averages), % of all-time team points (the
+#               denominator grows), points above expectation (a refit model)
+# Season rows count while the season is in progress; a career row while he is
+# rostered. Week rows are final. Team and league all-time totals move every week,
+# so the board's note says so instead of tagging every row.
 STILL_COUNTING = {"team_year": "season in progress", "player_year": "season in progress",
                   "league_year": "season in progress", "trades": "still counting",
                   "add_drops": "still counting", "player_additions": "still counting",
@@ -114,10 +127,32 @@ STILL_COUNTING = {"team_year": "season in progress", "player_year": "season in p
                   "player_all_time": "still counting"}
 _LOCKED_EXTRA = {"rookie_picks": {"Number of trades", "Commissioner moved?", "Cuff when drafted?"},
                  "non_rookie_picks": {"Number of trades", "Commissioner moved?", "Cuff when drafted?"},
-                 "player_additions": {"Cuff at pickup?"}, "add_drops": set(), "trades": set()}
+                 "player_additions": {"Cuff at pickup?", "Number of times added by this team"},
+                 "add_drops": {"Cuff at time of pickup?"},
+                 "trades": {"Asset difference in average age"}}
 _CHECKPOINT_YEARS = re.compile(r"(\d) years? (?:later|after)")
 _CHECKPOINT_SEASON_END = re.compile(r"end of (?:rookie year|season)")
-_DROPPED_SIDE = re.compile(r"^Dropped ")
+# (sheet, regex on the column) -> clock; first match wins, anything else is "held"
+_CLOCKS = [
+    ("*", r"^(Wins added|Wins added per season|Trade impact score|O-Score)$", "always"),
+    ("*", r"^Pick-adjusted ", "always"),
+    ("*", r"^% of all time team points", "always"),
+    ("*", r"^Points above expectation", "always"),
+    ("add_drops", r"^Number of times (picked up|dropped) by this team$", "always"),
+    ("player_additions", r"^Number of times dropped by this team$", "always"),
+    ("*", r"\(all stints\)$", "team_now"),
+    ("*", r"^Weeks (between pickup and start|before first start)$", "first_start"),
+    ("trades", r"^Avg PPG of sent players over same time", "sent"),
+    ("trades", r"^Change in pick value at draft time$", "draft"),
+    ("add_drops", r"^Dropped ", "next17"),
+    ("rookie_picks", r"^Avg career PPG", "career"),
+    ("non_rookie_picks", r"^Avg career PPG", "career"),
+]
+_START_COLS = ("Number of starts before next drop", "Number of starts before next transaction")
+_PLAYER_ID_COL = {"player_additions": "Player ID", "add_drops": "Player Added ID",
+                  "rookie_picks": "Player Picked ID", "non_rookie_picks": "Player Picked ID",
+                  "player_all_time": "Player ID"}
+_FUTURE_PICK = re.compile(r"^(\d{4}) \d")
 _DRAFT_DAY = (8, 28)          # the rookie draft, ≈ Aug 28 (formulas.csv)
 _SEASON_END = (2, 15)         # KTC "end of season" checkpoints, the February after
 
@@ -131,14 +166,35 @@ def _locked_columns(sheet: str) -> set:
     return locked | _LOCKED_EXTRA.get(sheet, set())
 
 
+def column_clock(sheet: str, col: str) -> str:
+    """The clock a column of `sheet` runs on (see the table above)."""
+    if col in _locked_columns(sheet):
+        return "fixed"
+    if _CHECKPOINT_YEARS.search(col) or _CHECKPOINT_SEASON_END.search(col):
+        return "checkpoint"
+    for where, rx, clock in _CLOCKS:
+        if where in ("*", sheet) and re.search(rx, col):
+            return clock
+    return "held"
+
+
+def _rookie_day(year: int) -> pd.Timestamp:
+    """When a pick "becomes a rookie" for KTC: the day after Labor Day (the
+    first Monday of September) of its draft year."""
+    d = pd.Timestamp(year, 9, 1)
+    return d + pd.Timedelta(days=(7 - d.weekday()) % 7 + 1)
+
+
 class Counting:
     """Which cells of a sheet can still change: `counting(idx, col)`."""
 
     def __init__(self, sheet: str, df: pd.DataFrame, season: int, rostered: set,
-                 today: Optional[pd.Timestamp] = None):
+                 today: Optional[pd.Timestamp] = None, team_of: Optional[Dict[str, str]] = None,
+                 active: Optional[set] = None):
         self.sheet, self.df, self.season = sheet, df, season
         self.today = today or pd.Timestamp.now().normalize()
-        self.locked = _locked_columns(sheet)
+        self.team_of = team_of or {}          # Sleeper id -> team he is on now
+        self.active = active or set()         # Sleeper ids active in the NFL
         self.open = self._open_rows(rostered)
         self.when = self._move_dates()
 
@@ -161,23 +217,26 @@ class Counting:
             return pd.to_datetime(self.df["Date"].astype(str).str[:10], errors="coerce")
         return pd.Series(pd.NaT, index=self.df.index)
 
+    def _empty(self, c: str) -> pd.Series:
+        df = self.df
+        if c not in df:
+            return pd.Series(True, index=df.index)
+        return df[c].isna() | df[c].astype(str).str.strip().isin(["", "nan", "N/A"])
+
     def _open_rows(self, rostered: set) -> pd.Series:
         df, idx = self.df, self.df.index
-        empty = lambda c: (df[c].isna() | df[c].astype(str).str.strip().isin(["", "nan", "N/A"])) \
-            if c in df else pd.Series(True, index=idx)
         if self.sheet in ("team_year", "player_year", "league_year"):
             return self._year() == self.season
         if self.sheet == "player_all_time":
             key = df["Player ID"].astype(str).str.split(".").str[0] if "Player ID" in df else df["Player"].astype(str)
             return key.isin(rostered)
         if self.sheet in ("player_additions", "add_drops"):
-            return empty("Date dropped/traded")
+            return self._empty("Date dropped/traded")
         if self.sheet in ("rookie_picks", "non_rookie_picks"):
-            drafted = ~empty("Player Picked") & ~df.get("Player Picked", pd.Series("", index=idx)).astype(str).str.lower().isin(["unknown"])
-            # still with the drafting team (no first move after the draft yet), or not drafted yet
-            return (drafted & empty("Link to next transaction")) | ~drafted
+            # the drafted player is still with the drafting team (no first move after the draft yet)
+            return self._empty("Link to next transaction")
         if self.sheet == "trades":
-            return ~empty("Assets retained now")
+            return ~self._empty("Assets retained now")
         return pd.Series(False, index=idx)
 
     def _checkpoint_date(self, idx, col: str) -> Optional[pd.Timestamp]:
@@ -191,21 +250,51 @@ class Counting:
                 return pd.Timestamp(int(y) + 1, *_SEASON_END)
         return None
 
+    def _pid(self, idx) -> Optional[str]:
+        col = _PLAYER_ID_COL.get(self.sheet)
+        if col and col in self.df.columns and pd.notna(self.df.at[idx, col]):
+            return str(self.df.at[idx, col]).split(".")[0]
+        return None
+
     def counting(self, idx, col: str) -> bool:
         if self.sheet in ("rookie_picks", "non_rookie_picks"):
             undrafted = str(self.df.at[idx, "Player Picked"]).strip().lower() in ("", "nan", "unknown")
             if undrafted:                       # a pick not used yet can still be traded, nothing else
                 return col == "Number of trades"
-        if col in self.locked:
+        if self.sheet in ("team_year", "player_year", "league_year", "player_all_time"):
+            return bool(self.open.get(idx, False))
+        clock = column_clock(self.sheet, col)
+        held = bool(self.open.get(idx, False))
+        if clock == "fixed":
             return False
-        due = self._checkpoint_date(idx, col)
-        if due is not None:
-            return bool(self.today < due)
-        if self.sheet == "add_drops" and _DROPPED_SIDE.match(col):
-            # the dropped player's next 17 played games: about a year of football
+        if clock == "always":
+            return True
+        if clock == "checkpoint":
+            due = self._checkpoint_date(idx, col)
+            return bool(due is not None and self.today < due)
+        if clock == "first_start":
+            starts = next((self.df.at[idx, c] for c in _START_COLS if c in self.df.columns), None)
+            return held and not (pd.notna(starts) and float(starts) > 0)
+        if clock == "team_now":
+            pid = self._pid(idx)
+            return bool(pid and self.team_of.get(pid) == str(self.df.at[idx, "Team"]))
+        if clock == "sent":
+            if held:
+                return True
+            no_players = self._empty("Player IDs received").get(idx, True)
+            when = self.when.get(idx)
+            return bool(no_players and pd.notna(when) and self.today < when + pd.DateOffset(years=4))
+        if clock == "draft":
+            years = [int(m.group(1)) for a in _split_assets(self.df.at[idx, "Assets received"])
+                     if (m := _FUTURE_PICK.match(a))]
+            return any(self.today < _rookie_day(y) for y in years)
+        if clock == "career":
+            pid = self._pid(idx)
+            return bool(pid and pid in self.active)
+        if clock == "next17":
             when = self.when.get(idx)
             return bool(pd.notna(when) and self.today < when + pd.DateOffset(years=1))
-        return bool(self.open.get(idx, False))
+        return held
 
 
 def board(values: pd.Series, ascending: bool, depth: int = RECORD_DEPTH) -> List[tuple]:
@@ -735,7 +824,8 @@ class Site:
             return {"sheet": sheet, "columns": []}
         labels = tuple(c for c in RECORD_SHEETS.get(sheet, ()) if c in df.columns) or tuple(df.columns[:3])
         flag_text = STILL_COUNTING.get(sheet)
-        counting = Counting(sheet, df, self.season, self.rostered_now()) if flag_text else None
+        counting = Counting(sheet, df, self.season, self.rostered_now(), team_of=self.roster_team(),
+                            active=self.active_ids()) if flag_text else None
         scopes = {"all": df.index}
         if "Week Name" in df.columns:
             kinds = df["Week Name"].map(week_kind)
@@ -781,6 +871,21 @@ class Site:
         return {"sheet": sheet, "labels": list(labels), "flag": flag_text, "live_season": self.season,
                 "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS},
                 "depth": RECORD_DEPTH, "columns": cols}
+
+    def roster_team(self) -> Dict[str, str]:
+        """Sleeper id -> the team he is on in the latest built week."""
+        cur = self.current_roster()
+        if "Player ID" not in cur:
+            return {}
+        return {str(p).split(".")[0]: str(t) for p, t in zip(cur["Player ID"], cur["Team"]) if pd.notna(p)}
+
+    def active_ids(self) -> set:
+        """Sleeper ids the player dictionary marks active (any position)."""
+        if not hasattr(self, "_active"):
+            path = EXPORTS / "snapshot" / "sleeper_players_nfl.json"
+            self._active = ({pid for pid, v in json.loads(path.read_text()).items() if v.get("active")}
+                            if path.exists() else set())
+        return self._active
 
     def rostered_now(self) -> set:
         """Sleeper ids (and names) on a roster in the latest built week."""
