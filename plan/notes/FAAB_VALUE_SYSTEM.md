@@ -67,6 +67,7 @@ use only what was known that day, the way the league values players. A 1.05 rook
      the schedules' coach columns: the new team's coach in its first game = the old team's in its last), with 3+
      games at 15+ PPR in the last three seasons (`e_x_g15_3y`, 5+ = full); it also lifts the TE line and the
      replacement line for him. It reaches only Likely 2026-06-09 in today's inputs.
+     Then limited to a player who would otherwise be worth under $200 (`FRESH_MAX`, Oliver): Likely was $13 without it.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
