@@ -20,6 +20,23 @@ A static site for league-mates, published on GitHub Pages at
 | Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
 
+**"Still counting"** on the record boards is decided per cell (`Counting`, `column_clock` in league_site.py). Each column of a move sheet runs on its own clock, read from its definition in formulas.csv:
+
+| Clock | Counts while | Examples |
+|---|---|---|
+| fixed | never | the digest's `LOCKED_AT_MOVE`, a used pick's trade count, cuff flags |
+| held | the player or the received assets are still on that team | points added, on-team PPG, tenure, starts |
+| first_start | held and he hasn't started yet | weeks between pickup and first start |
+| team_now | he's on that team now | "(all stints)" totals |
+| sent | the received side is held (4 years if no player came back) | a trade's sent side "over the same time" |
+| draft | a received pick's draft hasn't happened yet | change in pick value at draft time |
+| career | he's active in the NFL | a pick's career PPG |
+| next17 | about a year after the drop | the dropped player's next 17 games |
+| checkpoint | until its date | KTC at season end, N years later/after |
+| always | always | wins added, impact score, O-Score, pick-adjusted figures, % of all-time team points, points above expectation |
+
+Season rows count while the season is in progress, and career rows while the player is rostered. Week rows are final. Team and league all-time totals move every week, so the board says so instead of tagging each row. Pick boards lead with the pick: "2025 3.08 · AceMatthew → Jalen Milroe".
+
 **Every row opens its details.** Record-board rows, Data rows (the › column), draft tables, home results, team weeks and head-to-head meetings link to the trade, matchup, week, player, pick or team they describe. The record boards' links come from `Site.row_link`, and the Data page's from `rowLink` in app.js, which mirrors it. A test checks that every board link resolves.
 
 **Asset histories.** Each player's and each pick's full history (draft, every add, drop and trade with the whole deal) exists only as a hover comment in the build's `LOTG_Stats.xlsx`. The site workflow downloads that workbook from the triggering build's `LOTG_outputs` artifact, or from the latest successful main build. `lotg_support.workbook_comments` reads the comments without openpyxl, in under a second. A comment is used only where its row's column A still matches the committed CSV. Trade lines link to the trade. Without the workbook, as in a local build without `--workbook`, those sections say they are pending.

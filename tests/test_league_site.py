@@ -121,6 +121,55 @@ def test_board_keeps_ties_only_when_they_fit():
     assert S.board(pd.Series([3, 3, 3, 3, 3, 3]), ascending=False) == []
 
 
+def test_still_counting_is_per_cell():
+    today = pd.Timestamp("2026-11-07")
+    picks = pd.DataFrame({
+        "Year": [2025, 2026, 2027], "Number": ["3.08", "4.08", "1.??"],
+        "Player Picked": ["Jalen Milroe", "Michael Trigg", "Unknown"], "Team": ["A", "A", "B"],
+        "Link to next transaction": ["", "#170", ""],
+        "Number of trades": [11, 10, 2], "Length of tenure on team": [414, 56, None],
+        "KTC on draft day": [1, 2, None], "KTC 1 year after draft day": [5, None, None],
+        "KTC 2 years after draft day": [6, None, None]})
+    c = S.Counting("rookie_picks", picks, 2026, set(), today=today)
+    assert not c.counting(0, "Number of trades") and not c.counting(1, "Number of trades")   # used picks
+    assert c.counting(2, "Number of trades")                                                # not used yet
+    assert c.counting(0, "Length of tenure on team") and not c.counting(1, "Length of tenure on team")
+    assert not c.counting(0, "KTC on draft day")                                            # locked at the move
+    assert not c.counting(0, "KTC 1 year after draft day")      # 2026-08-28 has passed
+    assert c.counting(0, "KTC 2 years after draft day")         # 2027-08-28 has not
+    adds = pd.DataFrame({"Date": ["2026-10-01", "2024-01-05"], "Date dropped/traded": ["", "2024-02-01"],
+                         "Season": [2026, 2023], "Tenure (days)": [37, 27], "Price paid (FAAB)": [5, 1]})
+    a = S.Counting("player_additions", adds, 2026, set(), today=today)
+    assert a.counting(0, "Tenure (days)") and not a.counting(1, "Tenure (days)")
+    assert not a.counting(0, "Price paid (FAAB)")
+
+
+def test_trade_columns_run_on_their_own_clocks():
+    clock = lambda c: S.column_clock("trades", c)
+    assert clock("KTC value difference at deal time") == clock("Pick value received") == "fixed"
+    assert clock("Avg PPG of received players in 5 games before trade") == "fixed"
+    assert clock("Points added") == clock("Avg PPG of received players on team") == "held"
+    assert clock("Avg PPG of sent players over same time") == "sent"
+    assert clock("Change in pick value at draft time") == "draft"
+    assert clock("Wins added") == clock("Trade impact score") == clock("O-Score") == "always"
+    assert clock("KTC value difference 1 year later") == "checkpoint"
+    assert S.column_clock("player_additions", "Total weeks as team starter (all stints)") == "team_now"
+    assert S.column_clock("rookie_picks", "Avg career PPG") == "career"
+    assert S.column_clock("add_drops", "Weeks between pickup and start") == "first_start"
+    today = pd.Timestamp("2026-11-07")
+    t = pd.DataFrame({"Team": ["A", "B", "C"], "Date": ["2026-03-01", "2025-07-01", "2020-07-01"],
+                      "Season": [2026, 2025, 2020],
+                      "Assets received": ["2027 1(B); X", "Y", "$5 FAAB"], "Assets retained now": ["X", "", ""],
+                      "Player IDs received": ["1", "2", ""]})
+    c = S.Counting("trades", t, 2026, set(), today=today)
+    assert c.counting(0, "Change in pick value at draft time")      # a 2027 pick not drafted yet
+    assert not c.counting(1, "Change in pick value at draft time")
+    assert c.counting(0, "Points added") and not c.counting(1, "Points added")   # held vs gone
+    assert not c.counting(1, "Avg PPG of sent players over same time")          # players came back, gone
+    assert not c.counting(2, "Avg PPG of sent players over same time")          # no players, but > 4 years
+    assert c.counting(1, "Wins added") and not c.counting(1, "KTC value difference at deal time")
+
+
 def test_week_kinds():
     assert S.week_kind("Week 15") == "reg"
     assert S.week_kind("Semifinal") == S.week_kind("Final") == "playoffs"
@@ -398,6 +447,8 @@ TESTS = [
     test_digest_parser_reads_sections_and_flags_edits,
     test_board_keeps_ties_only_when_they_fit,
     test_week_kinds,
+    test_still_counting_is_per_cell,
+    test_trade_columns_run_on_their_own_clocks,
     test_shell_does_not_shadow_the_rating_page,
     test_built_site_reconciles,
     test_shell_assets_are_versioned,
