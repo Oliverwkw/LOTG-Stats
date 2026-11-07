@@ -154,6 +154,10 @@ def test_qb_rules_reach_only_their_players():
     assert not moved[X["ir"] == 0].any()
     o = X["qb_played"] * X["opening"]
     assert ((o > 0) <= ((X["qb_played"] > 0) & (X["opening"] > 0))).all()
+    # the QB opening fades out with experience: nothing from a QB's fifth season (exp 4) on
+    assert (X["qb_early"][T.exp.fillna(0).values >= 4] == 0).all() and (X["qb_early"][T.exp.fillna(0).values <= 1] == 1).all()
+    vq, vq0 = F.apply_rules(T, p), F.apply_rules(T, dict(p, qb_opening=0.0))
+    assert not (np.abs(vq / np.maximum(vq0, 1e-9) - 1) > 1e-9)[(X["qb_early"] == 0) | ~qb].any()
 
 
 def test_page_files_in_sync_with_inputs_and_params():
