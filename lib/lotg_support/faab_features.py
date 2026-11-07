@@ -177,6 +177,8 @@ def build_week(X, FC, OUT, years):
     K["comp_age"] = (K.known - K.comp_gsis.map(bd)).dt.days / 365.25
     C = C.merge(K[["gsis", "season", "week", "comp_share", "comp_age"]], on=["gsis", "season", "week"], how="left")
     C.to_parquet(f"{OUT}/xf_week.parquet"); bp.reset_index().to_parquet(f"{OUT}/xf_bodyparts.parquet")
+    gl_cols = [c for c in ["gsis", "season", "week", "known", "ppr", "off_pct"] if c in W]
+    W.loc[W.played.astype(bool), gl_cols].to_parquet(f"{OUT}/xf_gamelog.parquet")      # one row per game played (game_form)
     print("weekly", C.shape, "players", C.gsis.nunique())
 
     # ---------------------------------------------------------------- roster presence: first week on any NFL roster each season, last season on one
@@ -346,7 +348,7 @@ def build_finish(FC, OUT, last):
 # ------------------------------------------------------------------ as known on a date (xjoin)
 def load_store(XF=None):
     """read the feature store built by build_store() into this module (add_x reads it)"""
-    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, LS, SUSP, OFF, AW
+    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, LS, SUSP, OFF, AW, GL
     XF = str(XF or XF_DIR)
     C = pd.read_parquet(f"{XF}/xf_week.parquet"); C["known"] = pd.to_datetime(C.known); C["gsis"] = C.gsis.astype(str)
     FIN = C.sort_values("week").groupby(["gsis", "season"]).tail(1).set_index(["gsis", "season"])     # each season's final state
@@ -359,6 +361,8 @@ def load_store(XF=None):
     GT_SEAS = GT.groupby(["team", "season"]).agg(win_pct=("win", "mean"), depth=("depth", "max"), implied=("implied", "mean"))
     RF = pd.read_parquet(f"{XF}/xf_roster_first.parquet"); RF["gsis"] = RF.gsis.astype(str); RF = RF.set_index(["gsis", "season"]).first_week
     LS = pd.read_parquet(f"{XF}/xf_last_season.parquet"); LS["gsis"] = LS.gsis.astype(str); LS = LS.set_index("gsis").last_roster_season
+    GL = pd.read_parquet(f"{XF}/xf_gamelog.parquet") if Path(f"{XF}/xf_gamelog.parquet").exists() else None
+    if GL is not None: GL["gsis"] = GL.gsis.astype(str); GL["known"] = pd.to_datetime(GL.known)
     SUSP = pd.read_csv(ROOT / "data" / "suspensions.csv")
     OFF = pd.read_csv(DATA / "offfield_events.csv", parse_dates=["start", "end"])
     AW = (pd.read_parquet(f"{XF}/xf_awards.parquet") if Path(f"{XF}/xf_awards.parquet").exists() else pd.read_csv(DATA / "awards.csv")); AW["known"] = pd.to_datetime(AW.known); AW["gsis"] = AW.gsis.astype(str)
@@ -402,6 +406,38 @@ def rostered_recent(date_v, fw_l0, fw_cur, ko_cur, in_season):
     ko_cur = np.asarray(ko_cur, dtype="datetime64[ns]")
     on_cur = np.asarray(in_season, dtype=bool) & ~np.isnan(fw_cur) & (date_v >= ko_cur + ((np.nan_to_num(fw_cur) - 1) * 7 - 3).astype("timedelta64[D]"))
     return np.where(np.asarray(in_season, dtype=bool), on_cur, ~np.isnan(fw_l0)).astype(float)
+
+
+DUD_PTS, FULL_SNAPS = 5.0, 0.5
+
+
+def game_form(gl, gsis, date_v, l0_s, n=10):
+    """Game-by-game form as known on each date. `gl`: one row per game played (gsis, season, known, ppr, off_pct).
+    Returns a dict of arrays:
+      duds_2y / full_2y: in the last two complete seasons (l0_s and l0_s - 1), games with a full role (50%+ of the
+        offensive snaps, so not a game he left hurt or a backup's cameo) and, of those, games under 5 PPR (a dud);
+      form_last / form_prev: mean PPR of his last `n` games played by the date and of the `n` before (NaN when he has
+        fewer than n / 2n games); they cross seasons, so a rookie who faded late carries that into year two."""
+    gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); l0_s = np.asarray(l0_s, dtype=int)
+    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev")}
+    if gl is None or not len(gl): return out
+    g = gl.dropna(subset=["ppr"]).copy(); g["gsis"] = g.gsis.astype(str)
+    full = g.off_pct.fillna(0).values >= FULL_SNAPS
+    g["full"] = full.astype(float); g["dud"] = (full & (g.ppr.values < DUD_PTS)).astype(float)
+    by_s = g.groupby(["gsis", "season"])[["full", "dud"]].sum()
+    for k, c in (("full_2y", "full"), ("duds_2y", "dud")):
+        a = by_s[c].reindex(pd.MultiIndex.from_arrays([gsis, l0_s])).fillna(0).values
+        b = by_s[c].reindex(pd.MultiIndex.from_arrays([gsis, l0_s - 1])).fillna(0).values
+        out[k] = a + b
+    g = g.sort_values(["gsis", "known"]); groups = {k: (v.known.values.astype("datetime64[ns]"), v.ppr.values.astype(float)) for k, v in g.groupby("gsis")}
+    for i in range(N):
+        t = groups.get(gsis[i])
+        if t is None: continue
+        k = int(np.searchsorted(t[0], date_v[i], side="right"))          # games known by the date
+        cs = np.r_[0.0, np.cumsum(t[1][:k])]
+        if k >= n: out["form_last"][i] = (cs[k] - cs[k - n]) / n
+        if k >= 2 * n: out["form_prev"][i] = (cs[k - n] - cs[k - 2 * n]) / n
+    return out
 
 
 def offseason_flags(date_v, fw, ko_up, jun1, career_over):
@@ -502,6 +538,8 @@ def add_x(df):
     ko_c = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in d.cur_s.values], dtype="datetime64[ns]")
     out["e_x_rostered_recent"] = rostered_recent(date_v, RF.reindex(pd.MultiIndex.from_arrays([g_, d.l0_s.values])).values,
                                                  RF.reindex(pd.MultiIndex.from_arrays([g_, d.cur_s.values])).values, ko_c, d.in_season.values)
+    gf = game_form(GL, g_, date_v, d.l0_s.values)
+    for k_, v_ in gf.items(): out[f"e_x_{k_}"] = v_
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
         ko = KO.get(int(r.season)); a = np.datetime64(ko - pd.Timedelta(days=30)); b = np.datetime64(ko + pd.Timedelta(days=7 * int(r.week_end)))

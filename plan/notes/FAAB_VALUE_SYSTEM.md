@@ -19,6 +19,19 @@ use only what was known that day, the way the league values players. A 1.05 rook
      sparing only the first three seasons; an older player's drop in expected PPG fades his record boosts
      (`regress`, fitted to 0 so far); a player on any NFL roster (IR, suspended) is never "no NFL team"
      (`e_x_rostered_recent`).
+   - second round of Oliver's notes (2026-11-07): the TE line now keys on a usage level, not a rank (how many TEs
+     hold a real role changes year to year). A 4th-season-on TE whose expected PPG (this season once he has 4+
+     games, else the blend) sits below `te_thr` is docked, and `te_thr` is fitted with the strengths. The first
+     version (within 2.5 of TE replacement, on the blend) also docked TE3-TE7. Three new rules come from the game
+     log (`e_x_duds_2y`, `e_x_form_last` / `e_x_form_prev`, from `faab_features.game_form`):
+     - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
+       past 2.
+     - `slump` (lower only): a non-QB in his first four seasons whose last 10 games fell 10%+ below the 10 before,
+       across seasons.
+     - `peak_share` (raise only): a WR/TE under 25 (fading from 24) whose best season's share of team expected
+       points is 26.5%+. It is narrow on purpose: on the 2026-10-24 board it reaches 1 player (JSN at 26.2% and
+       Puka at 25 are outside it). Oliver allows stat rules that reach
+       one or two players today.
    - the summer (2026-11-04): one level shift for every player against picks and FAAB from June 1 to 3 days
      before kickoff (`e_x_offseason`, either sign, 0 on every in-season board). Before this, the "unsigned from
      June 1" flag fired for every player on a Week-1 roster too (the weekly rosters start at Week 1), so the

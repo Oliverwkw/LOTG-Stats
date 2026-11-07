@@ -165,13 +165,18 @@ def test_trade_note_rules_reach_only_their_players():
     'no NFL team' never charges a player on a roster"""
     R = F.load_inputs(); p = F.load_params(); T = R.reset_index(drop=True)
     X = F.characteristics(T, p["youth_age"]); age = T.age.values; exp_ = T.exp.fillna(0).values; pos = T.pos.values
-    assert (X["te_line"][(pos != "TE") | (exp_ < 3)] == 0).all()
+    assert np.isnan(X["te_x"][(pos != "TE") | (exp_ < 3)]).all()
     a0 = np.where(pos == "RB", 26.0, 28.0)
     assert (X["regress"][np.nan_to_num(age, nan=0) <= a0] == 0).all() and (X["regress"] >= 0).all() and (X["regress"] <= 1).all()
     assert "te_line" in F.LOWER_ONLY and F.BOUNDS["te_line"][1] <= 0 and 0 <= F.BOUNDS["regress"][0]
+    # dud games: receivers only; peak share: young receivers only; slump: non-QBs in their first four seasons
+    assert (X["duds"][~np.isin(pos, ["WR", "TE"])] == 0).all() and (X["peak_share"][~np.isin(pos, ["WR", "TE"]) | (np.nan_to_num(age, nan=99) >= 25)] == 0).all()
+    assert (X["slump"][(pos == "QB") | (exp_ > 3)] == 0).all()
+    assert "duds" in F.LOWER_ONLY and "slump" in F.LOWER_ONLY and "peak_share" in F.RAISE_ONLY
     _, terms, _ = F.apply_rules(T, p, explain=True)
     assert (terms["replacement line"][np.nan_to_num(age, nan=99) <= 25] == 0).all()
     assert (terms["no NFL team"][X["rostered"] > 0] == 0).all()
+    assert (terms["te_line"][np.isnan(X["te_x"])] == 0).all()
 
 
 def test_page_files_in_sync_with_inputs_and_params():

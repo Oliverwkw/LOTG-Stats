@@ -107,3 +107,17 @@ if __name__ == "__main__":
         fn()
         print("  ok")
     print("\nall faab pipeline checks passed")
+
+
+def test_game_form_counts_full_role_duds_and_crosses_seasons():
+    # 2024: 4 full-role games (2 under 5 PPR) and a cameo under 5 (not a dud); 2025: 16 full games, 10 PPR then 20
+    rows = [("a", 2024, w, p_, s_) for w, p_, s_ in [(1, 3, .8), (2, 4, .9), (3, 15, .9), (4, 20, .7), (5, 1, .2)]]
+    rows += [("a", 2025, w, 10.0 if w <= 10 else 20.0, .9) for w in range(1, 17)]
+    gl = pd.DataFrame(rows, columns=["gsis", "season", "week", "ppr", "off_pct"])
+    gl["known"] = pd.to_datetime(gl.season.map(X.KO)) + pd.to_timedelta(7 * (gl.week - 1) + 5, unit="D")
+    d = pd.to_datetime(["2026-03-01", "2026-03-01", "2025-09-20"]).values
+    o = X.game_form(gl, ["a", "b", "a"], d, [2025, 2025, 2024])
+    assert o["duds_2y"][0] == 2 and o["full_2y"][0] == 20 and o["duds_2y"][1] == 0 and np.isnan(o["form_last"][1])
+    assert abs(o["form_last"][0] - 16.0) < 1e-9          # 2025 weeks 7-16: four 10s, six 20s
+    assert abs(o["form_prev"][0] - 10.0) < 1e-9          # 2024 weeks 2-5 (4 + 15 + 20 + 1) + 2025 weeks 1-6 (six 10s): crosses seasons
+    assert np.isnan(o["form_last"][2]) and o["duds_2y"][2] == 2          # by 2025-09-20 only 7 games are known
