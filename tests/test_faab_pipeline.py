@@ -6,7 +6,8 @@
   player or a date before the grid is skipped, not misplaced;
 - trades.csv parses into two-team sides, players resolved to their player_additions row;
 - a pick's price falls with each further draft out and a late slot never prices above an early one;
-- the summer flags: only a player off the Week-1 roster is 'unsigned'; the offseason window is everyone's.
+- the summer flags: only a player off the Week-1 roster is 'unsigned'; the offseason window is everyone's;
+- a player on a roster (IR, suspended) is never 'no NFL team'.
 
 None of these need scikit-learn (the models import it lazily), so they run in the build's CI. No network. Run: python tests/test_faab_pipeline.py
 """
@@ -87,9 +88,18 @@ def test_unsigned_only_off_the_week1_roster_offseason_for_everyone():
     assert list(un2) == [1, 0], un2
 
 
+def test_rostered_players_have_a_team():
+    # offseason: on a roster last season (a year on IR or suspended) counts; in season only this season's roster does
+    d = pd.to_datetime(["2023-03-21", "2023-03-21", "2023-10-01", "2023-10-01", "2023-09-08"]).values
+    fw_l0 = np.array([9.0, np.nan, 1.0, 1.0, np.nan]); fw_cur = np.array([1.0, np.nan, np.nan, 3.0, 1.0])
+    ko = np.array([X.KO[2022], X.KO[2022], X.KO[2023], X.KO[2023], X.KO[2023]], dtype="datetime64[ns]")
+    ins = np.array([False, False, True, True, True])
+    assert list(X.rostered_recent(d, fw_l0, fw_cur, ko, ins)) == [1, 0, 0, 1, 1]
+
+
 TESTS = [test_replacement_line_by_season, test_excused_fallback_lifts_to_preseason_only, test_votes_map_to_their_own_board_date,
          test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot,
-         test_unsigned_only_off_the_week1_roster_offseason_for_everyone]
+         test_unsigned_only_off_the_week1_roster_offseason_for_everyone, test_rostered_players_have_a_team]
 
 if __name__ == "__main__":
     for fn in TESTS:
@@ -97,3 +107,24 @@ if __name__ == "__main__":
         fn()
         print("  ok")
     print("\nall faab pipeline checks passed")
+
+
+def test_game_form_counts_full_role_duds_and_crosses_seasons():
+    # 2024: 4 full-role games (2 under 5 PPR) and a cameo under 5 (not a dud); 2025: 16 full games, 10 PPR then 20
+    rows = [("a", 2024, w, p_, s_) for w, p_, s_ in [(1, 3, .8), (2, 4, .9), (3, 15, .9), (4, 20, .7), (5, 1, .2)]]
+    rows += [("a", 2025, w, 10.0 if w <= 10 else 20.0, .9) for w in range(1, 17)]
+    gl = pd.DataFrame(rows, columns=["gsis", "season", "week", "ppr", "off_pct"])
+    gl["known"] = pd.to_datetime(gl.season.map(X.KO)) + pd.to_timedelta(7 * (gl.week - 1) + 5, unit="D")
+    d = pd.to_datetime(["2026-03-01", "2026-03-01", "2025-09-20"]).values
+    o = X.game_form(gl, ["a", "b", "a"], d, [2025, 2025, 2024])
+    assert o["duds_2y"][0] == 2 and o["full_2y"][0] == 20 and o["duds_2y"][1] == 0 and np.isnan(o["form_last"][1])
+    assert abs(o["form_last"][0] - 16.0) < 1e-9          # 2025 weeks 7-16: four 10s, six 20s
+    assert abs(o["form_prev"][0] - 10.0) < 1e-9          # 2024 weeks 2-5 (4 + 15 + 20 + 1) + 2025 weeks 1-6 (six 10s): crosses seasons
+    assert np.isnan(o["form_last"][2]) and o["duds_2y"][2] == 2          # by 2025-09-20 only 7 games are known
+
+
+def test_offseason_move_from_free_agency_to_kickoff():
+    d = pd.to_datetime(["2025-03-01", "2025-04-08", "2025-04-08", "2025-09-20"]).values
+    o = X.offseason_move(d, [2025, 2025, 2025, 2025], ["LA", "LA", "TB", "LA"], ["NYJ", "NYJ", "TB", "NYJ"])
+    assert list(o) == [0.0, 1.0, 0.0, 0.0]            # before March 15; moved; same team; in season (e_x_new_team's job)
+

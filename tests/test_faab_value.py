@@ -160,6 +160,28 @@ def test_qb_rules_reach_only_their_players():
     assert not (np.abs(vq / np.maximum(vq0, 1e-9) - 1) > 1e-9)[(X["qb_early"] == 0) | ~qb].any()
 
 
+def test_trade_note_rules_reach_only_their_players():
+    """TE line: veteran TEs only; regression: only players past the age start; the replacement line spares 25-and-under;
+    'no NFL team' never charges a player on a roster"""
+    R = F.load_inputs(); p = F.load_params(); T = R.reset_index(drop=True)
+    X = F.characteristics(T, p["youth_age"]); age = T.age.values; exp_ = T.exp.fillna(0).values; pos = T.pos.values
+    assert np.isnan(X["te_x"][(pos != "TE") | (exp_ < 3)]).all()
+    a0 = np.where(pos == "RB", 26.0, 28.0)
+    assert (X["regress"][np.nan_to_num(age, nan=0) <= a0] == 0).all() and (X["regress"] >= 0).all() and (X["regress"] <= 1).all()
+    assert "te_line" in F.LOWER_ONLY and F.BOUNDS["te_line"][1] <= 0 and 0 <= F.BOUNDS["regress"][0]
+    # dud games: receivers only; peak share: young receivers only; slump: non-QBs in their first four seasons
+    assert (X["duds"][~np.isin(pos, ["WR", "TE"])] == 0).all() and (X["peak_share"][~np.isin(pos, ["WR", "TE"]) | (np.nan_to_num(age, nan=99) >= 25)] == 0).all()
+    assert (X["slump"][(pos == "QB") | (exp_ > 3)] == 0).all()
+    assert "duds" in F.LOWER_ONLY and "slump" in F.LOWER_ONLY and "peak_share" in F.RAISE_ONLY
+    _, terms, _ = F.apply_rules(T, p, explain=True)
+    assert (terms["replacement line"][np.nan_to_num(age, nan=99) <= 25] == 0).all()
+    assert (terms["no NFL team"][X["rostered"] > 0] == 0).all()
+    assert (terms["te_line"][np.isnan(X["te_x"])] == 0).all()
+    # the old-player decline (old_cliff, rec_age) never reaches a QB or a player whose usage did not drop
+    assert (X["old_cliff"][pos == "QB"] == 0).all() and (X["rec_age"][pos == "QB"] == 0).all()
+    assert "old_cliff" in F.LOWER_ONLY and F.BOUNDS["rec_age"][0] >= 0
+
+
 def test_page_files_in_sync_with_inputs_and_params():
     R = F.load_inputs(); p = F.load_params(); T = F.board(R, p)
     b = json.load(open(_ROOT / "docs" / "rate" / "board.json"))

@@ -14,6 +14,42 @@ use only what was known that day, the way the league values players. A 1.05 rook
    - usage (expected points), team share, availability, a sustained elite record, QB passing quality;
    - early-career draft and college pedigree, efficiency, volatility and TD dependence, age cliffs;
    - injury status, off-field events, the replacement line (vets ranked below the line are worth about 0).
+   - from Oliver's notes on the worst-fit trades (2026-11-07): a veteran TE whose role is within 2.5 expected PPG
+     of TE replacement is near waiver level (`te_line`); the replacement line fades in from age 25 to 28 instead of
+     sparing only the first three seasons; an older player's drop in expected PPG fades his record boosts
+     (`regress`, fitted to 0 so far); a player on any NFL roster (IR, suspended) is never "no NFL team"
+     (`e_x_rostered_recent`).
+   - second round of Oliver's notes (2026-11-07): the TE line keys on usage levels, not a rank (how many TEs hold a
+     real role changes year to year). It has two tiers on a 4th-season-on TE's expected PPG (this season once he
+     has 4+ games, else the blend): a capped light drop below `te_thr` (`te_soft`, fitted 11.25) and a harsher one
+     below `te_thr2` (`te_line`, 9.5; held at 10 or under on Oliver's call, since the free fit puts one harsh cut
+     at 11.1 for -0.03 total). A proven TE (2 of the last 4 seasons at 15+ / 16+ PPR a game, or last season,
+     `e_x_s15_4y` / `e_x_s16_4y` / `e_x_ppg_l0`) can get a softer line (`te_relief`, fitted 0).
+     The old-player decline: past an age wall (RB 30, WR 31, TE 32; never QBs) a player whose usage (15% = full)
+     AND fantasy points per game (game-log PPR; 5% is noise, 20% = full) both fell loses his record boosts
+     (`rec_age`, fitted 1.0) and value (`old_cliff`, fitted -1.5): Kelce May 2024 $3,343 -> $435. Requiring the
+     points drop spares an old receiver whose role was trimmed while he still scores (Adams, Evans on a new team);
+     the first version (usage only, RB wall 29, QBs too) took Adams to $9 and fought the Stafford/Henry/Kittle calls.
+     Third round (Ekeler 2024, Adams 2025, the healthy-player misses): availability's clean-record boost has its own
+     strength (`avail_up`); the fit keeps it equal to the missed-games one (without it trades improve 1.115 -> 1.105
+     but 8 calls fail). `share_age` (team-share talent fades past the age wall) and `anchor_old` (older players pulled
+     toward their current-usage value) both fit 0: each one that fixes Ekeler / Adams also takes Henry, Kittle and
+     Jacobs below Oliver's calls. `rookie_day3` (day-3 / undrafted rookies held near their slot) fitted -0.25.
+     Offseason signings and YPC (Oliver: "offseason signings def should be included"; Najee's YPC): `e_x_moved_off`
+     (`faab_features.offseason_move`) = from March 15 to kickoff, his Week-1 team differs from his last team the
+     season before (Week-1 roster as the signing, small hindsight); `vet_move` docks a 27+ non-QB who changed teams
+     (fitted -0.17); `ypc_bad` docks an RB from his 4th season with under 4.1 yards per carry over the last two
+     seasons (`e_x_ypc_2y`, 100+ carries; fitted -1.67). The refit set old_cliff / rec_age to 0 again, so they are
+     held at their earlier fitted -1.5 / 1.0 (Kelce May 2024 $435, Oliver's call).
+     From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
+     - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
+       past 2.
+     - `slump` (lower only): a non-QB in his first four seasons whose last 10 games fell 10%+ below the 10 before,
+       across seasons.
+     - `peak_share` (raise only): a WR/TE under 25 (fading from 24) whose best season's share of team expected
+       points is 26.5%+. It is narrow on purpose: on the 2026-10-24 board it reaches 1 player (JSN at 26.2% and
+       Puka at 25 are outside it). Oliver allows stat rules that reach
+       one or two players today.
    - the summer (2026-11-04): one level shift for every player against picks and FAAB from June 1 to 3 days
      before kickoff (`e_x_offseason`, either sign, 0 on every in-season board). Before this, the "unsigned from
      June 1" flag fired for every player on a Week-1 roster too (the weekly rosters start at Week 1), so the
