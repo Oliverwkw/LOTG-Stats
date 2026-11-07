@@ -182,6 +182,16 @@ def test_trade_note_rules_reach_only_their_players():
     assert "old_cliff" in F.LOWER_ONLY and F.BOUNDS["rec_age"][0] >= 0
 
 
+def test_current_usage_fades_in_over_four_games():
+    """a TE's usage for the TE line moves from last season's to this season's a quarter per game, not all at once at 4"""
+    base = dict(pos="TE", exp=5.0, age=28.0, e_x_l0_xfp_pg=8.0, e_x_l1_xfp_pg=8.0, e_x_cur_xfp_pg=14.0, injury="")
+    T = pd.DataFrame([dict(base, e_x_cur_games=g) for g in (0, 1, 2, 4, 6)])
+    T.loc[0, "e_x_cur_xfp_pg"] = np.nan
+    tx = F.characteristics(T)["te_x"]
+    assert tx[0] == 8.0 and tx[3] == 14.0 and tx[4] == 14.0
+    assert tx[0] < tx[1] < tx[2] < tx[3]
+
+
 def test_page_files_in_sync_with_inputs_and_params():
     R = F.load_inputs(); p = F.load_params(); T = F.board(R, p)
     b = json.load(open(_ROOT / "docs" / "rate" / "board.json"))

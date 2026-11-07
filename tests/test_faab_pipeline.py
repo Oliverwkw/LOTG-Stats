@@ -127,4 +127,8 @@ def test_offseason_move_from_free_agency_to_kickoff():
     d = pd.to_datetime(["2025-03-01", "2025-04-08", "2025-04-08", "2025-09-20"]).values
     o = X.offseason_move(d, [2025, 2025, 2025, 2025], ["LA", "LA", "TB", "LA"], ["NYJ", "NYJ", "TB", "NYJ"])
     assert list(o) == [0.0, 1.0, 0.0, 0.0]            # before March 15; moved; same team; in season (e_x_new_team's job)
+    # after kickoff, until his first game is in the stats (no e_x_new_team yet), up to 5 weeks
+    d2 = pd.to_datetime(["2025-09-07", "2025-09-07", "2025-10-20"]).values
+    o2 = X.offseason_move(d2, [2025] * 3, ["PIT", "PIT", "PIT"], ["MIA", "MIA", "MIA"], [True, False, True])
+    assert list(o2) == [1.0, 0.0, 0.0]
 

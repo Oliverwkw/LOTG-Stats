@@ -414,16 +414,19 @@ def rostered_recent(date_v, fw_l0, fw_cur, ko_cur, in_season):
 DUD_PTS, FULL_SNAPS = 5.0, 0.5
 
 
-def offseason_move(date_v, up_s, first_team_up, last_team_prev):
+def offseason_move(date_v, up_s, first_team_up, last_team_prev, no_cur_team=None):
     """1 from March 15 (free agency) until the upcoming season's kickoff when the player's Week-1 team differs from the
     last team he was on the season before (a signing or an offseason trade). The Week-1 roster stands in for the
-    signing, the same small hindsight as the 'unsigned' flag; in season, e_x_new_team covers it."""
+    signing, the same small hindsight as the 'unsigned' flag; in season, e_x_new_team covers it. `no_cur_team` (True
+    where e_x_new_team is not known yet: no game of his in the stats so far) keeps the flag on past kickoff, up to 5
+    weeks, so the days between kickoff and his first game are not a gap."""
     date_v = np.asarray(date_v, dtype="datetime64[ns]")
     mar15 = pd.to_datetime([f"{int(y)}-03-15" for y in up_s]).values
     ko = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in up_s], dtype="datetime64[ns]")
     a, b = pd.Series(first_team_up), pd.Series(last_team_prev)
     moved = (a.notna() & b.notna() & (a.astype(str) != b.astype(str))).values
-    return (moved & (date_v >= mar15) & (date_v < ko)).astype(float)
+    open_ = (date_v < ko) if no_cur_team is None else ((date_v < ko) | (np.asarray(no_cur_team, dtype=bool) & (date_v < ko + np.timedelta64(35, "D"))))
+    return (moved & (date_v >= mar15) & open_).astype(float)
 
 
 def game_form(gl, gsis, date_v, l0_s, n=10):
@@ -574,7 +577,8 @@ def add_x(df):
     gf = game_form(GL, g_, date_v, d.l0_s.values)
     if "first_team" in RT:
         out["e_x_moved_off"] = offseason_move(date_v, up_s, RT.first_team.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values,
-                                              RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values)
+                                              RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values,
+                                              np.isnan(out.e_x_new_team.values.astype(float)))
     for k_, v_ in gf.items(): out[f"e_x_{k_}"] = v_
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():

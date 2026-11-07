@@ -41,6 +41,12 @@ use only what was known that day, the way the league values players. A 1.05 rook
      (fitted -0.17); `ypc_bad` docks an RB from his 4th season with under 4.1 yards per carry over the last two
      seasons (`e_x_ypc_2y`, 100+ carries; fitted -1.67). The refit set old_cliff / rec_age to 0 again, so they are
      held at their earlier fitted -1.5 / 1.0 (Kelce May 2024 $435, Oliver's call).
+     Follow-up (2026-11-07, Jonnu / Everett / Osborn / Reed): the move flag stays on past kickoff, up to 5 weeks,
+     until his first game is in the stats (`no_cur_team`): between kickoff and that game neither e_x_moved_off nor
+     e_x_new_team fired, so Jonnu's MIA -> PIT move missed `vet_move` on 2025-09-07. This season's usage fades in
+     over a player's first 4 games (`w4`, a quarter a game) wherever a rule switched from last season's number to
+     this season's at 4 games (te_x, peak share, the decline's usage and PPG drops, a QB's PPG); Everett / Gesicki
+     2022 709% -> 88% off. No params changed (total 7.691 -> 7.672).
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.

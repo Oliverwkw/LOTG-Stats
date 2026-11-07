@@ -96,6 +96,9 @@ def characteristics(R, youth_age=26.0):
            + 0.3 * (col(R, "e_x_aw_biletnikoff") + col(R, "e_x_aw_doak_walker") + col(R, "e_x_aw_mackey") + col(R, "e_x_aw_obrien") + col(R, "e_x_aw_maxwell") + col(R, "e_x_aw_walter_camp")))
     awn = col(R, "e_x_aw_allpro1") + 0.5 * col(R, "e_x_aw_allpro2") + col(R, "e_x_aw_mvp") + 0.7 * col(R, "e_x_aw_opoy") + 0.3 * col(R, "e_x_aw_cpoy")
     inj = R.injury.fillna("").values
+    # this season's usage fades in over his first 4 games (w4: 1 game = 25%, 4+ = all of it) where a rule switches from
+    # last season's number to this season's, so week 3 is not priced on last season alone and week 4 is not a jump
+    w4 = np.where(np.isnan(col(R, "e_x_cur_xfp_pg")), 0.0, np.clip(cur_gp / 4.0, 0, 1))
     # usage: expected fantasy points per game (what the role is worth, not what bounced right), this season blended
     # with last season as 4 games of prior, relative to the position's superflex replacement level
     xc, xl = col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"); g = np.where(np.isnan(xc), 0, cur_gp); gl = np.where(np.isnan(xl), 0, 4.0)
@@ -121,10 +124,10 @@ def characteristics(R, youth_age=26.0):
     # youth x usage counts only usage above replacement (a young player without a real role gets nothing)
     xfp_z = np.where(g + gl > 0, xfp_b - rep, np.nan)                                    # usage above replacement (expected PPG)
     # a veteran TE (4th season on) whose role is below a usage level (expected PPG, fitted as te_thr in apply_rules): a
-    # waiver-level body. The usage is this season's once he has 4+ games, else the blend; a level, not a rank, because
+    # waiver-level body. The usage is this season's, fading in over his first 4 games from the blend; a level, not a rank, because
     # how many TEs hold a real role changes year to year (the shared replacement line ranks every position together,
     # so a TE14 sat well inside it)
-    te_x = np.where((R.pos.values == "TE") & (exp_ >= 3) & (g + gl > 0), np.where(cur_gp >= 4, np.nan_to_num(xc), xfp_b), np.nan)
+    te_x = np.where((R.pos.values == "TE") & (exp_ >= 3) & (g + gl > 0), w4 * np.nan_to_num(xc) + (1 - w4) * xfp_b, np.nan)
     # a proven TE (two of the last four complete seasons at 15+ PPR a game, or last season) gets a softer TE line;
     # te_proven16 is the same at 16+ (apply_rules blends the two by te_pv16, fitted)
     _l0 = np.nan_to_num(col(R, "e_x_ppg_l0"))
@@ -134,9 +137,10 @@ def characteristics(R, youth_age=26.0):
     # (a boom-or-bust receiver's floor); 2 or fewer is normal, each one past that counts a quarter, 8+ is the cap
     duds = np.isin(R.pos.values, ["WR", "TE"]) * np.clip((np.nan_to_num(col(R, "e_x_duds_2y")) - 2.0) / 4.0, 0, 1.5)
     # a young receiver who has already been a true alpha: his best season's share of the team's expected points
-    # (this season with 4+ games, the last two with 8+) at 26.5%+, full by 29.5%, fading out from age 24 to 25 (an
+    # (this season fading in over 4 games from last season's, the last two with 8+) at 26.5%+, full by 29.5%, fading out from age 24 to 25 (an
     # alpha share that early is rare; later, the share and usage rules already price it)
-    _pk = np.vstack([np.where(cur_gp >= 4, col(R, "e_x_cur_xfp_share"), np.nan),
+    _sc, _s0 = col(R, "e_x_cur_xfp_share"), col(R, "e_x_l0_xfp_share")
+    _pk = np.vstack([np.where(np.isnan(_sc), np.nan, w4 * np.nan_to_num(_sc) + (1 - w4) * np.where(np.isnan(_s0), np.nan_to_num(_sc), _s0)),
                      np.where(np.nan_to_num(col(R, "e_x_l0_games")) >= 8, col(R, "e_x_l0_xfp_share"), np.nan),
                      np.where(np.nan_to_num(col(R, "e_x_l1_games")) >= 8, col(R, "e_x_l1_xfp_share"), np.nan)])
     peak_sh = np.nanmax(np.where(np.isnan(_pk), -1, _pk), axis=0)
@@ -146,16 +150,22 @@ def characteristics(R, youth_age=26.0):
     f_l, f_p = col(R, "e_x_form_last"), col(R, "e_x_form_prev")
     slump = (R.pos.values != "QB") * (exp_ <= 3) * np.where(np.isnan(f_l) | np.isnan(f_p), 0.0,
                                                            np.clip(((np.nan_to_num(f_p) - np.nan_to_num(f_l)) / np.maximum(np.nan_to_num(f_p), 5.0) - 0.1) / 0.3, 0, 1.5))
-    # regression of an older player (RBs 26 -> 28, others 28 -> 30): the drop in his expected PPG, this season (4+ games)
-    # vs last, else last season vs the one before; a 30% drop is full. It fades the record-based boosts (see apply_rules)
-    x1 = col(R, "e_x_l1_xfp_pg"); now_ = np.where((cur_gp >= 4) & ~np.isnan(xc), xc, xl); prev_ = np.where((cur_gp >= 4) & ~np.isnan(xc), xl, x1)
+    # regression of an older player (RBs 26 -> 28, others 28 -> 30): the drop in his expected PPG, this season vs last
+    # (fading in over his first 4 games), else last season vs the one before; a 30% drop is full. It fades the record-based boosts (see apply_rules)
+    # this season fades in by w4: now = w4 x this season + (1 - w4) x last, prev = w4 x last + (1 - w4) x the one before
+    # (last season again when there is none before it, so the drop itself fades in)
+    x1 = col(R, "e_x_l1_xfp_pg")
+    now_ = np.where(w4 > 0, w4 * np.nan_to_num(xc) + (1 - w4) * np.where(np.isnan(xl), np.nan_to_num(xc), xl), xl)
+    prev_ = np.where(w4 > 0, w4 * xl + (1 - w4) * np.where(np.isnan(x1), xl, x1), x1)
     drop = np.where(np.isnan(now_) | np.isnan(prev_) | (np.nan_to_num(prev_) <= 0), 0.0, np.clip((prev_ - now_) / np.maximum(prev_, 1e-9) / 0.3, 0, 1))
     # past the age wall a smaller drop is the signal, but it must show in both his usage (15% = full) and his fantasy
     # points per game (5% is noise, 20% = full): a role trimmed while he still scores (or a new team where he scores
-    # more) is not a decline. Points (PPR from the game log): this season (4+ games) vs last, else last season vs the one before
+    # more) is not a decline. Points (PPR from the game log): this season vs last (fading in over 4 games), else last season vs the one before
     drop_u = np.where(np.isnan(now_) | np.isnan(prev_) | (np.nan_to_num(prev_) <= 0), 0.0, np.clip((prev_ - now_) / np.maximum(prev_, 1e-9) / 0.15, 0, 1))
-    pp_c, pp_0, pp_1 = col(R, "e_x_ppg_cur"), col(R, "e_x_ppg_l0"), col(R, "e_x_ppg_l1"); in_c = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 4) & ~np.isnan(pp_c)
-    pn_ = np.where(in_c, pp_c, pp_0); pv_ = np.where(in_c, pp_0, pp_1)
+    pp_c, pp_0, pp_1 = col(R, "e_x_ppg_cur"), col(R, "e_x_ppg_l0"), col(R, "e_x_ppg_l1")
+    wp4 = np.where(np.isnan(pp_c), 0.0, np.clip(np.nan_to_num(col(R, "e_x_gp_cur")) / 4.0, 0, 1))      # same fade-in, by games in the log
+    pn_ = np.where(wp4 > 0, wp4 * np.nan_to_num(pp_c) + (1 - wp4) * np.where(np.isnan(pp_0), np.nan_to_num(pp_c), pp_0), pp_0)
+    pv_ = np.where(wp4 > 0, wp4 * pp_0 + (1 - wp4) * np.where(np.isnan(pp_1), pp_0, pp_1), pp_1)
     drop_p = np.where(np.isnan(pn_) | np.isnan(pv_) | (np.nan_to_num(pv_) <= 0), 0.0, np.clip(((pv_ - pn_) / np.maximum(pv_, 1e-9) - 0.05) / 0.15, 0, 1))
     drop_old = np.minimum(drop_u, drop_p)
     a0 = np.where(R.pos.values == "RB", 26.0, 28.0)
@@ -178,7 +188,7 @@ def characteristics(R, youth_age=26.0):
     qb_starter = (R.pos.values == "QB") * np.clip(np.nan_to_num(xfp_b - rep) / 3.0, 0, 1) * np.clip((34.0 - np.nan_to_num(age, nan=30)) / 4.0, 0, 1) * np.clip(np.nan_to_num(col(R, "e_x_top12_6y")) / 2, 0, 1)
     # a QB who has played well when healthy: fantasy PPG over the QB line (15.7; +2 = full) in last season (6+ games) or this one (4+)
     ppg_l0 = np.nan_to_num(col(R, "e_x_l0_xfp_pg") + col(R, "e_x_l0_fpoe_pg"), nan=0) * (np.nan_to_num(col(R, "e_x_l0_games")) >= 6)
-    ppg_c = np.nan_to_num(col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"), nan=0) * (cur_gp >= 4)
+    ppg_c = np.nan_to_num(col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"), nan=0) * w4
     qb_played = (R.pos.values == "QB") * np.clip((np.fmax(ppg_l0, ppg_c) - 15.7) / 2.0, 0, 1)
     # the QB opening is an early-career bet: full in his first two seasons, fading to 0 by his fifth (like QB draft capital)
     qb_early = np.clip((4.0 - np.nan_to_num(exp_, nan=0.0)) / 3.0, 0, 1)
