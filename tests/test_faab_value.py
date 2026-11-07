@@ -185,6 +185,12 @@ def test_trade_note_rules_reach_only_their_players():
     assert (X["wr_no_role"][pos != "WR"] == 0).all()
     # a fresh start (followed his coach) is offseason-only, non-QB, under 28
     assert (X["fresh"][(pos == "QB") | (np.nan_to_num(age, nan=99) >= 28) | (T.e_x_moved_off.fillna(0).values == 0)] == 0).all() and "fresh_start" in F.RAISE_ONLY
+    # ... and only for a player who would otherwise be under FRESH_MAX
+    T2 = T[X["fresh"] > 0].reset_index(drop=True)
+    if len(T2):
+        v_no, t_no, _ = F.apply_rules(T2, dict(p, fresh_start=0.0), explain=True)
+        _, t2, _ = F.apply_rules(T2, p, explain=True)
+        assert ((t2["fresh_start"] > 0) <= (v_no < F.FRESH_MAX)).all()
     assert (terms["boom_week"][X["boom_week"] == 0] == 0).all()
 
 

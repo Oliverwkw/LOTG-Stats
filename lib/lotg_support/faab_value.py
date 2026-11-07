@@ -315,6 +315,9 @@ RULE_KEYS = {"qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_st
              "share_talent": "share_talent", "recurring": "recurring", "steady": "steady", "pedigree": "pedigree", "elite_streak": "elite", "track": "track",
              "qb_quality": "qbq", "severe": "severe", "usage": "usage", "youth_usage": "youth_usage", "youth_role": "youth_role", "two_way": "two_way",
              "aw_college": "aw_college", "aw_nfl": "aw_nfl", "prone": "prone", "inj_ir": "ir", "inj_out": "out"}
+FRESH_MAX = 200.0     # fresh_start reaches only a player whose value without it is under this
+
+
 def apply_rules(R, p, X=None, explain=False):
     """base value -> curve/level -> aging-vet discount -> sum of rule terms (log multipliers) -> usage anchor -> top compression.
     explain=True also returns each rule's log multiplier and the stage values (what the board breakdown prints)."""
@@ -363,10 +366,12 @@ def apply_rules(R, p, X=None, explain=False):
         n_ = col(R, "line_n"); vetr = (np.nan_to_num(col(R, "exp")) >= 3) * np.where(X["wr_no_role"] > 0, 1.0, np.clip((np.nan_to_num(col(R, "age"), nan=28) - 25.0) / 3.0, 0, 1))   # 4th season on, fading in from 25 to 28 (a WR who never had a starter's role: full)
         T_["replacement line"] = -p.get("bubble", 0.0) * np.nan_to_num(vetr * np.clip((col(R, "rank_raw") - p.get("line_frac", 0.8) * n_) / (0.25 * n_), 0, 1.5))
     # a fresh start (followed his coach to a new team): the role-based docks (TE line, replacement line) are lifted
-    # and the move is priced by its own strength (fresh_start, held on Oliver's call)
+    # and the move is priced by its own strength (fresh_start, held on Oliver's call). Only for a player who would
+    # otherwise be worth under $200 (Oliver): a valued player's price already carries his role
+    fr = X["fresh"] * (v * np.exp(sum(T_.values())) < FRESH_MAX)
     for k_ in ("te_line", "replacement line"):
-        if k_ in T_: T_[k_] = T_[k_] * (1 - X["fresh"])
-    T_["fresh_start"] = p.get("fresh_start", 0.0) * X["fresh"]
+        if k_ in T_: T_[k_] = T_[k_] * (1 - fr)
+    T_["fresh_start"] = p.get("fresh_start", 0.0) * fr
     v = v * np.exp(sum(T_.values()))
     # usage anchor: pull part of the way toward the value the current role implies (history-built values drift to what a player does now)
     w = p.get("anchor_w", 0.0) + p.get("anchor_old", 0.0) * X["near_wall"]       # older players: priced on what they do now
