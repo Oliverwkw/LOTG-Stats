@@ -74,7 +74,7 @@ LOWER_ONLY = ["te_line", "te_soft", "old_cliff", "duds", "slump", "inj_ir", "inj
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
-AGE_WALL = {"QB": 99, "RB": 29, "WR": 31, "TE": 32}     # past this, a declining player's value goes whatever his record (old_cliff, rec_age);
+AGE_WALL = {"QB": 99, "RB": 30, "WR": 31, "TE": 32}     # past this, a declining player's value goes whatever his record (old_cliff, rec_age);
                                                          # not QBs (the superflex QB rules carry their own age fade, and the calls hold old QBs up)
 UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
@@ -150,8 +150,14 @@ def characteristics(R, youth_age=26.0):
     # vs last, else last season vs the one before; a 30% drop is full. It fades the record-based boosts (see apply_rules)
     x1 = col(R, "e_x_l1_xfp_pg"); now_ = np.where((cur_gp >= 4) & ~np.isnan(xc), xc, xl); prev_ = np.where((cur_gp >= 4) & ~np.isnan(xc), xl, x1)
     drop = np.where(np.isnan(now_) | np.isnan(prev_) | (np.nan_to_num(prev_) <= 0), 0.0, np.clip((prev_ - now_) / np.maximum(prev_, 1e-9) / 0.3, 0, 1))
-    # past the age wall a smaller drop is the signal: 15% is full
-    drop_old = np.where(np.isnan(now_) | np.isnan(prev_) | (np.nan_to_num(prev_) <= 0), 0.0, np.clip((prev_ - now_) / np.maximum(prev_, 1e-9) / 0.15, 0, 1))
+    # past the age wall a smaller drop is the signal, but it must show in both his usage (15% = full) and his fantasy
+    # points per game (5% is noise, 20% = full): a role trimmed while he still scores (or a new team where he scores
+    # more) is not a decline. Points (PPR from the game log): this season (4+ games) vs last, else last season vs the one before
+    drop_u = np.where(np.isnan(now_) | np.isnan(prev_) | (np.nan_to_num(prev_) <= 0), 0.0, np.clip((prev_ - now_) / np.maximum(prev_, 1e-9) / 0.15, 0, 1))
+    pp_c, pp_0, pp_1 = col(R, "e_x_ppg_cur"), col(R, "e_x_ppg_l0"), col(R, "e_x_ppg_l1"); in_c = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 4) & ~np.isnan(pp_c)
+    pn_ = np.where(in_c, pp_c, pp_0); pv_ = np.where(in_c, pp_0, pp_1)
+    drop_p = np.where(np.isnan(pn_) | np.isnan(pv_) | (np.nan_to_num(pv_) <= 0), 0.0, np.clip(((pv_ - pn_) / np.maximum(pv_, 1e-9) - 0.05) / 0.15, 0, 1))
+    drop_old = np.minimum(drop_u, drop_p)
     a0 = np.where(R.pos.values == "RB", 26.0, 28.0)
     regress = drop * np.clip((np.nan_to_num(age, nan=25) - a0) / 2.0, 0, 1)
     # sustained elite record: consecutive top-2 seasons (Allen: 6-7 years), consecutive top-5, and top-12 seasons out of 6

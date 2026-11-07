@@ -25,10 +25,11 @@ use only what was known that day, the way the league values players. A 1.05 rook
      below `te_thr2` (`te_line`, 9.5; held at 10 or under on Oliver's call, since the free fit puts one harsh cut
      at 11.1 for -0.03 total). A proven TE (2 of the last 4 seasons at 15+ / 16+ PPR a game, or last season,
      `e_x_s15_4y` / `e_x_s16_4y` / `e_x_ppg_l0`) can get a softer line (`te_relief`, fitted 0).
-     The old-player decline: past an age wall (RB 29, WR 31, TE 32; never QBs) a player whose expected PPG fell
-     (15% = full) loses his record boosts (`rec_age`) and value (`old_cliff`). Both are held at 1.0 and -2.0 on
-     Oliver's call (Kelce May 2024 at a mid-high 2nd). The free fit sets them to 0 (calls: Stafford, Henry, Kittle)
-     although trades fit better with them (1.122 -> 1.101). The first version also reached QBs.
+     The old-player decline: past an age wall (RB 30, WR 31, TE 32; never QBs) a player whose usage (15% = full)
+     AND fantasy points per game (game-log PPR; 5% is noise, 20% = full) both fell loses his record boosts
+     (`rec_age`, fitted 1.0) and value (`old_cliff`, fitted -1.5): Kelce May 2024 $3,343 -> $435. Requiring the
+     points drop spares an old receiver whose role was trimmed while he still scores (Adams, Evans on a new team);
+     the first version (usage only, RB wall 29, QBs too) took Adams to $9 and fought the Stafford/Henry/Kittle calls.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
