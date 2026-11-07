@@ -35,6 +35,12 @@ use only what was known that day, the way the league values players. A 1.05 rook
      but 8 calls fail). `share_age` (team-share talent fades past the age wall) and `anchor_old` (older players pulled
      toward their current-usage value) both fit 0: each one that fixes Ekeler / Adams also takes Henry, Kittle and
      Jacobs below Oliver's calls. `rookie_day3` (day-3 / undrafted rookies held near their slot) fitted -0.25.
+     Offseason signings and YPC (Oliver: "offseason signings def should be included"; Najee's YPC): `e_x_moved_off`
+     (`faab_features.offseason_move`) = from March 15 to kickoff, his Week-1 team differs from his last team the
+     season before (Week-1 roster as the signing, small hindsight); `vet_move` docks a 27+ non-QB who changed teams
+     (fitted -0.17); `ypc_bad` docks an RB from his 4th season with under 4.1 yards per carry over the last two
+     seasons (`e_x_ypc_2y`, 100+ carries; fitted -1.67). The refit set old_cliff / rec_age to 0 again, so they are
+     held at their earlier fitted -1.5 / 1.0 (Kelce May 2024 $435, Oliver's call).
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.

@@ -121,3 +121,10 @@ def test_game_form_counts_full_role_duds_and_crosses_seasons():
     assert abs(o["form_last"][0] - 16.0) < 1e-9          # 2025 weeks 7-16: four 10s, six 20s
     assert abs(o["form_prev"][0] - 10.0) < 1e-9          # 2024 weeks 2-5 (4 + 15 + 20 + 1) + 2025 weeks 1-6 (six 10s): crosses seasons
     assert np.isnan(o["form_last"][2]) and o["duds_2y"][2] == 2          # by 2025-09-20 only 7 games are known
+
+
+def test_offseason_move_from_free_agency_to_kickoff():
+    d = pd.to_datetime(["2025-03-01", "2025-04-08", "2025-04-08", "2025-09-20"]).values
+    o = X.offseason_move(d, [2025, 2025, 2025, 2025], ["LA", "LA", "TB", "LA"], ["NYJ", "NYJ", "TB", "NYJ"])
+    assert list(o) == [0.0, 1.0, 0.0, 0.0]            # before March 15; moved; same team; in season (e_x_new_team's job)
+

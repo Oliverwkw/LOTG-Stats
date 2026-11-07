@@ -124,14 +124,15 @@ def build_week(X, FC, OUT, years):
     # big weeks (20+ PPR; 25+ for QBs) from the weekly stat files
     bw = []
     for y in YEARS:
-        try: w = pd.read_csv(f"{FC}/wk_{y}.csv", low_memory=False, usecols=["player_id", "position", "season", "week", "season_type", "fantasy_points_ppr", "attempts", "sacks_suffered", "passing_epa", "rushing_epa", "receiving_epa", "passing_tds", "rushing_tds", "receiving_tds"])
+        try: w = pd.read_csv(f"{FC}/wk_{y}.csv", low_memory=False, usecols=["player_id", "position", "season", "week", "season_type", "fantasy_points_ppr", "attempts", "sacks_suffered", "passing_epa", "rushing_epa", "receiving_epa", "passing_tds", "rushing_tds", "receiving_tds", "carries", "rushing_yards"])
         except FileNotFoundError: continue
         w = w[w.season_type == "REG"]
         thr = np.where(w.position == "QB", 25.0, 20.0)
         bw.append(w.assign(gsis=w.player_id, big=(w.fantasy_points_ppr >= thr).astype(float), good=(w.fantasy_points_ppr >= thr * 0.75).astype(float),
                            dropbacks=w.attempts.fillna(0) + w.sacks_suffered.fillna(0), pass_epa=w.passing_epa, skill_epa=w.rushing_epa.fillna(0) + w.receiving_epa.fillna(0),
-                           ppr=w.fantasy_points_ppr, ppr2=w.fantasy_points_ppr ** 2, td_pts=6 * (w.rushing_tds.fillna(0) + w.receiving_tds.fillna(0)) + 4 * w.passing_tds.fillna(0))
-                  [["gsis", "season", "week", "big", "good", "dropbacks", "pass_epa", "skill_epa", "ppr", "ppr2", "td_pts"]])
+                           ppr=w.fantasy_points_ppr, ppr2=w.fantasy_points_ppr ** 2, td_pts=6 * (w.rushing_tds.fillna(0) + w.receiving_tds.fillna(0)) + 4 * w.passing_tds.fillna(0),
+                           rush_car=w.carries, rush_yds=w.rushing_yards)
+                  [["gsis", "season", "week", "big", "good", "dropbacks", "pass_epa", "skill_epa", "ppr", "ppr2", "td_pts", "rush_car", "rush_yds"]])
     W = key(W).merge(key(pd.concat(bw)), on=["gsis", "season", "week"], how="left")
     W["played"] = (W.off.fillna(0) + W.dfn.fillna(0) > 0) | W.xfp.notna()
     W["inj_out"] = W.report_status.isin(["Out", "Doubtful"]) | W.status.isin(["RES", "PUP"])
@@ -177,7 +178,7 @@ def build_week(X, FC, OUT, years):
     K["comp_age"] = (K.known - K.comp_gsis.map(bd)).dt.days / 365.25
     C = C.merge(K[["gsis", "season", "week", "comp_share", "comp_age"]], on=["gsis", "season", "week"], how="left")
     C.to_parquet(f"{OUT}/xf_week.parquet"); bp.reset_index().to_parquet(f"{OUT}/xf_bodyparts.parquet")
-    gl_cols = [c for c in ["gsis", "season", "week", "known", "ppr", "off_pct"] if c in W]
+    gl_cols = [c for c in ["gsis", "season", "week", "known", "ppr", "off_pct", "rush_car", "rush_yds"] if c in W]
     W.loc[W.played.astype(bool), gl_cols].to_parquet(f"{OUT}/xf_gamelog.parquet")      # one row per game played (game_form)
     print("weekly", C.shape, "players", C.gsis.nunique())
 
@@ -187,7 +188,8 @@ def build_week(X, FC, OUT, years):
         r = rd(f"roster_weekly_{y}")
         if r is None: continue
         r = r[(r.game_type == "REG") if "game_type" in r else slice(None)]
-        RP.append(r.groupby("gsis_id").week.min().rename("first_week").reset_index().assign(season=y).rename(columns={"gsis_id": "gsis"}))
+        r = r.sort_values("week"); g_ = r.groupby("gsis_id")
+        RP.append(pd.DataFrame({"first_week": g_.week.min(), "first_team": g_.team.first(), "last_team": g_.team.last()}).reset_index().assign(season=y).rename(columns={"gsis_id": "gsis"}))
     RP = pd.concat(RP); RP.to_parquet(f"{OUT}/xf_roster_first.parquet")
     RP.groupby("gsis").season.max().rename("last_roster_season").reset_index().to_parquet(f"{OUT}/xf_last_season.parquet"); print("roster presence", RP.shape)
 
@@ -348,7 +350,7 @@ def build_finish(FC, OUT, last):
 # ------------------------------------------------------------------ as known on a date (xjoin)
 def load_store(XF=None):
     """read the feature store built by build_store() into this module (add_x reads it)"""
-    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, LS, SUSP, OFF, AW, GL
+    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, RT, LS, SUSP, OFF, AW, GL
     XF = str(XF or XF_DIR)
     C = pd.read_parquet(f"{XF}/xf_week.parquet"); C["known"] = pd.to_datetime(C.known); C["gsis"] = C.gsis.astype(str)
     FIN = C.sort_values("week").groupby(["gsis", "season"]).tail(1).set_index(["gsis", "season"])     # each season's final state
@@ -359,7 +361,8 @@ def load_store(XF=None):
     FN = pd.read_parquet(f"{XF}/xf_finish.parquet"); FN["gsis"] = FN.gsis.astype(str); FN = FN.set_index(["gsis", "season"])
     GT = pd.read_parquet(f"{XF}/xf_games.parquet"); GT["gameday"] = pd.to_datetime(GT.gameday)
     GT_SEAS = GT.groupby(["team", "season"]).agg(win_pct=("win", "mean"), depth=("depth", "max"), implied=("implied", "mean"))
-    RF = pd.read_parquet(f"{XF}/xf_roster_first.parquet"); RF["gsis"] = RF.gsis.astype(str); RF = RF.set_index(["gsis", "season"]).first_week
+    RF = pd.read_parquet(f"{XF}/xf_roster_first.parquet"); RF["gsis"] = RF.gsis.astype(str); RF = RF.set_index(["gsis", "season"])
+    RT = RF[[c for c in ("first_team", "last_team") if c in RF]]; RF = RF.first_week
     LS = pd.read_parquet(f"{XF}/xf_last_season.parquet"); LS["gsis"] = LS.gsis.astype(str); LS = LS.set_index("gsis").last_roster_season
     GL = pd.read_parquet(f"{XF}/xf_gamelog.parquet") if Path(f"{XF}/xf_gamelog.parquet").exists() else None
     if GL is not None: GL["gsis"] = GL.gsis.astype(str); GL["known"] = pd.to_datetime(GL.known)
@@ -411,6 +414,18 @@ def rostered_recent(date_v, fw_l0, fw_cur, ko_cur, in_season):
 DUD_PTS, FULL_SNAPS = 5.0, 0.5
 
 
+def offseason_move(date_v, up_s, first_team_up, last_team_prev):
+    """1 from March 15 (free agency) until the upcoming season's kickoff when the player's Week-1 team differs from the
+    last team he was on the season before (a signing or an offseason trade). The Week-1 roster stands in for the
+    signing, the same small hindsight as the 'unsigned' flag; in season, e_x_new_team covers it."""
+    date_v = np.asarray(date_v, dtype="datetime64[ns]")
+    mar15 = pd.to_datetime([f"{int(y)}-03-15" for y in up_s]).values
+    ko = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in up_s], dtype="datetime64[ns]")
+    a, b = pd.Series(first_team_up), pd.Series(last_team_prev)
+    moved = (a.notna() & b.notna() & (a.astype(str) != b.astype(str))).values
+    return (moved & (date_v >= mar15) & (date_v < ko)).astype(float)
+
+
 def game_form(gl, gsis, date_v, l0_s, n=10):
     """Game-by-game form as known on each date. `gl`: one row per game played (gsis, season, known, ppr, off_pct).
     Returns a dict of arrays:
@@ -418,10 +433,11 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         offensive snaps, so not a game he left hurt or a backup's cameo) and, of those, games under 5 PPR (a dud);
       s15_4y / s16_4y / ppg_l0 / ppg_l1: complete seasons (8+ games) of the last four at 15+ / 16+ PPR per game, the
         last two seasons' PPG; ppg_cur / gp_cur: this season's PPR per game and games so far;
+      ypc_2y: yards per carry over the last two complete seasons (100+ carries);
       form_last / form_prev: mean PPR of his last `n` games played by the date and of the `n` before (NaN when he has
         fewer than n / 2n games); they cross seasons, so a rookie who faded late carries that into year two."""
     gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); l0_s = np.asarray(l0_s, dtype=int)
-    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur")}
+    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur", "ypc_2y")}
     if gl is None or not len(gl): return out
     g = gl.dropna(subset=["ppr"]).copy(); g["gsis"] = g.gsis.astype(str)
     full = g.off_pct.fillna(0).values >= FULL_SNAPS
@@ -437,6 +453,12 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
     lk = [ppg.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).values for k in range(4)]
     out["s15_4y"] = sum(np.nan_to_num(x) >= 15 for x in lk).astype(float); out["s16_4y"] = sum(np.nan_to_num(x) >= 16 for x in lk).astype(float)
     out["ppg_l0"] = lk[0]; out["ppg_l1"] = lk[1]
+    # yards per carry over the last two complete seasons (100+ carries between them)
+    if "rush_car" in g:
+        rc = g.groupby(["gsis", "season"])[["rush_car", "rush_yds"]].sum()
+        c2 = sum(rc.rush_car.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).fillna(0).values for k in range(2))
+        y2 = sum(rc.rush_yds.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).fillna(0).values for k in range(2))
+        out["ypc_2y"] = np.where(c2 >= 100, y2 / np.maximum(c2, 1), np.nan)
     g = g.sort_values(["gsis", "known"]); groups = {k: (v.known.values.astype("datetime64[ns]"), v.ppr.values.astype(float), v.season.values.astype(int)) for k, v in g.groupby("gsis")}
     for i in range(N):
         t = groups.get(gsis[i])
@@ -550,6 +572,9 @@ def add_x(df):
     out["e_x_rostered_recent"] = rostered_recent(date_v, RF.reindex(pd.MultiIndex.from_arrays([g_, d.l0_s.values])).values,
                                                  RF.reindex(pd.MultiIndex.from_arrays([g_, d.cur_s.values])).values, ko_c, d.in_season.values)
     gf = game_form(GL, g_, date_v, d.l0_s.values)
+    if "first_team" in RT:
+        out["e_x_moved_off"] = offseason_move(date_v, up_s, RT.first_team.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values,
+                                              RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values)
     for k_, v_ in gf.items(): out[f"e_x_{k_}"] = v_
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
