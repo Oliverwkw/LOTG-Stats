@@ -400,7 +400,8 @@ async function records(sheet, query) {
   let q = params.get("q") || "", end = params.get("end") || "hi";
   let scope = r.scopes.includes(params.get("w")) ? params.get("w") : "all";
   const labelCols = r.labels;
-  const lab = (row) => row.map((x, i) => {
+  const pickSheet = sheet === "rookie_picks" || sheet === "non_rookie_picks";
+  const lab = (row) => pickSheet ? pickLab(row) : row.map((x, i) => {
     const c = labelCols[i];
     if (x === null) return "";
     if (c === "Team" || c === "Top team" || c === "Top Team" || c === "Opponent" || c === "Team's traded with 1") return (c === "Opponent" ? "vs " : "") + teamLink(x);
@@ -410,6 +411,13 @@ async function records(sheet, query) {
     if (c === "Date") return esc(String(x).slice(0, 10));
     return esc(x);
   }).filter(Boolean).join(" · ");
+  // a pick board is about the pick: "2025 3.08 · AceMatthew → Jalen Milroe"
+  function pickLab(row) {
+    const v = (c) => row[labelCols.indexOf(c)];
+    const player = v("Player Picked");
+    const used = player && !/^unknown$/i.test(player);
+    return `<b>${esc(v("Year"))} ${esc(v("Number"))}</b> · ${teamLink(v("Team"))}${used ? ` <span class="muted">→</span> ${playerLink(player)}` : ' <span class="muted">(not used yet)</span>'}`;
+  }
   // ranks as the digest words them: "T2" for a shared place
   const place = (rows, i) => {
     const r0 = rows[i][3], tied = rows.filter((x) => x[3] === r0).length > 1;
@@ -440,7 +448,7 @@ async function records(sheet, query) {
       <span class="seg" style="margin:0"><button data-e="hi" aria-pressed="${end === "hi"}">Highest</button><button data-e="lo" aria-pressed="${end === "lo"}">Lowest</button></span></div>
     <p class="muted small" id="reccount"></p>
     ${r.scopes.length > 1 ? `<div class="seg">${r.scopes.map((k) => `<button data-w="${k}" aria-pressed="${k === scope}">${esc(r.scope_names[k])}</button>`).join("")}</div>` : ""}
-    <div class="note">Top and bottom ${r.depth}, as the digest ranks them: a shared place reads "T2", and a tie that would not fit inside the ${r.depth} is left off. Team PF includes the semifinal +5 bonus; player points do not. Lineups were 9 starters 2020-23 and 10 from 2024.${r.flag ? ` "${esc(r.flag)}" marks ${r.live_season} rows whose numbers are still changing.` : ""}${sheet === "trades" ? " Each trade is listed once per board (the side that ranks), even though the trades sheet has a row for each side." : ""}</div>
+    <div class="note">Top and bottom ${r.depth}, as the digest ranks them: a shared place reads "T2", and a tie that would not fit inside the ${r.depth} is left off. Team PF includes the semifinal +5 bonus; player points do not. Lineups were 9 starters 2020-23 and 10 from 2024.${r.flag ? ` "${esc(r.flag)}" marks a value that can still change: the season is in progress, the stint or tenure is still open, the player is still rostered or still with the drafting team, or a KTC checkpoint's date hasn't come yet. Values a move fixes when it's made (deal-time KTC, prices, ages, a used pick's trade count) never carry it.` : ""}${sheet === "team_all_time" || sheet === "league_all_time" ? " All-time team and league totals move every week of a season." : ""}${sheet === "trades" ? " Each trade is listed once per board (the side that ranks), even though the trades sheet has a row for each side." : ""}</div>
     <div class="recgrid" id="recs"></div>`;
   $app.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => (location.hash = `#/records/${b.dataset.s}${q ? "?q=" + encodeURIComponent(q) : ""}`));
   $app.querySelectorAll("[data-e]").forEach((b) => b.onclick = () => { end = b.dataset.e; $app.querySelectorAll("[data-e]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });

@@ -20,6 +20,12 @@ A static site for league-mates, published on GitHub Pages at
 | Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
 
+**"Still counting"** on the record boards is decided per cell (`Counting` in league_site.py). It needs both:
+- **an open row:** the season is in progress (season sheets); the stint has no "Date dropped/traded" yet (pickups, add/drops); the drafted player is still with the drafting team, or the pick isn't used yet (picks); the team still holds a received asset (trades); or the player is still rostered (player careers);
+- **a column that can still move.**
+
+A column is fixed if it's in the digest's `LOCKED_AT_MOVE` list, or it's a used pick's trade count or cuff flag. A KTC checkpoint ("at end of season", "N years later/after") counts until its date passes, whatever the row. The dropped player's next-17-games columns count for a year after the drop. Week rows are final. Team and league all-time totals move every week, so the board says so rather than tagging every row. Pick boards lead with the pick: "2025 3.08 · AceMatthew → Jalen Milroe".
+
 **Every row opens its details.** Record-board rows, Data rows (the › column), draft tables, home results, team weeks and head-to-head meetings link to the trade, matchup, week, player, pick or team they describe. The record boards' links come from `Site.row_link`, and the Data page's from `rowLink` in app.js, which mirrors it. A test checks that every board link resolves.
 
 **Asset histories.** Each player's and each pick's full history (draft, every add, drop and trade with the whole deal) exists only as a hover comment in the build's `LOTG_Stats.xlsx`. The site workflow downloads that workbook from the triggering build's `LOTG_outputs` artifact, or from the latest successful main build. `lotg_support.workbook_comments` reads the comments without openpyxl, in under a second. A comment is used only where its row's column A still matches the committed CSV. Trade lines link to the trade. Without the workbook, as in a local build without `--workbook`, those sections say they are pending.

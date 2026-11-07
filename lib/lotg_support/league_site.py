@@ -65,8 +65,9 @@ RECORD_SHEETS = {
     "trades": ("Team", "Team's traded with 1", "Date", "Assets received"),
     "add_drops": ("Team", "Player Added", "Player Dropped", "Date"),
     "player_additions": ("Player", "Team", "Addition type", "Date"),
-    "rookie_picks": ("Player Picked", "Team", "Year", "Number"),
-    "non_rookie_picks": ("Player Picked", "Team", "Year", "Number"),
+    # the pick leads: "2025 3.08 · AceMatthew → Jalen Milroe"
+    "rookie_picks": ("Year", "Number", "Team", "Player Picked"),
+    "non_rookie_picks": ("Year", "Number", "Team", "Player Picked"),
 }
 # The digest's board: top / bottom 5, and a tie shows only when all of it fits in
 # the 5 (memory digest-line-rules-0922, `_tie_fits`): no 2-way tie for 5th.
@@ -97,13 +98,114 @@ def week_kind(name) -> str:
     return "playoffs"
 
 
-# Sheets whose rows keep counting while the season is played: the season's own
-# totals, and moves made this season (their points, wins added and later KTC
-# are still accruing). A finished week is final, so week sheets carry no flag.
+# "Still counting" is decided per CELL (`Counting`): a row that is still open —
+# the season in progress, a stint not yet ended, a drafted player still on the
+# drafting team, a trade whose received assets are still held, a rostered
+# player's career — and a column that can still move. Columns a move fixes when
+# it is made are the digest's own list (`digest.LOCKED_AT_MOVE`), plus a pick's
+# trade count once it is used; a KTC checkpoint ("at end of season", "1 year
+# later") counts until its date passes, whatever the row. Week rows are final.
+# Team and league all-time rows move every week of a season, so they carry no
+# per-row tag (the board's note says so).
 STILL_COUNTING = {"team_year": "season in progress", "player_year": "season in progress",
                   "league_year": "season in progress", "trades": "still counting",
                   "add_drops": "still counting", "player_additions": "still counting",
-                  "rookie_picks": "still counting"}
+                  "rookie_picks": "still counting", "non_rookie_picks": "still counting",
+                  "player_all_time": "still counting"}
+_LOCKED_EXTRA = {"rookie_picks": {"Number of trades", "Commissioner moved?", "Cuff when drafted?"},
+                 "non_rookie_picks": {"Number of trades", "Commissioner moved?", "Cuff when drafted?"},
+                 "player_additions": {"Cuff at pickup?"}, "add_drops": set(), "trades": set()}
+_CHECKPOINT_YEARS = re.compile(r"(\d) years? (?:later|after)")
+_CHECKPOINT_SEASON_END = re.compile(r"end of (?:rookie year|season)")
+_DROPPED_SIDE = re.compile(r"^Dropped ")
+_DRAFT_DAY = (8, 28)          # the rookie draft, ≈ Aug 28 (formulas.csv)
+_SEASON_END = (2, 15)         # KTC "end of season" checkpoints, the February after
+
+
+def _locked_columns(sheet: str) -> set:
+    try:
+        from .digest import LOCKED_AT_MOVE
+        locked = set(LOCKED_AT_MOVE.get(sheet, ()))
+    except Exception:                                  # pragma: no cover
+        locked = {"Tanking"}
+    return locked | _LOCKED_EXTRA.get(sheet, set())
+
+
+class Counting:
+    """Which cells of a sheet can still change: `counting(idx, col)`."""
+
+    def __init__(self, sheet: str, df: pd.DataFrame, season: int, rostered: set,
+                 today: Optional[pd.Timestamp] = None):
+        self.sheet, self.df, self.season = sheet, df, season
+        self.today = today or pd.Timestamp.now().normalize()
+        self.locked = _locked_columns(sheet)
+        self.open = self._open_rows(rostered)
+        self.when = self._move_dates()
+
+    def _year(self) -> pd.Series:
+        col = "Year" if "Year" in self.df else ("Season" if "Season" in self.df else None)
+        if col is None:
+            return pd.Series(np.nan, index=self.df.index)
+        y = self.df[col].astype(str).str.extract(r"(\d{4})")[0]
+        out = pd.to_numeric(y, errors="coerce")
+        if self.sheet == "non_rookie_picks":            # "startup" = the 2020 startup draft
+            out = out.fillna(2020)
+        return out
+
+    def _move_dates(self) -> pd.Series:
+        """When the row's move happened: its date, or draft day for a pick."""
+        if self.sheet in ("rookie_picks", "non_rookie_picks"):
+            return pd.to_datetime([f"{int(y)}-{_DRAFT_DAY[0]:02d}-{_DRAFT_DAY[1]:02d}" if pd.notna(y) else None
+                                   for y in self._year()], errors="coerce").to_series(index=self.df.index)
+        if "Date" in self.df:
+            return pd.to_datetime(self.df["Date"].astype(str).str[:10], errors="coerce")
+        return pd.Series(pd.NaT, index=self.df.index)
+
+    def _open_rows(self, rostered: set) -> pd.Series:
+        df, idx = self.df, self.df.index
+        empty = lambda c: (df[c].isna() | df[c].astype(str).str.strip().isin(["", "nan", "N/A"])) \
+            if c in df else pd.Series(True, index=idx)
+        if self.sheet in ("team_year", "player_year", "league_year"):
+            return self._year() == self.season
+        if self.sheet == "player_all_time":
+            key = df["Player ID"].astype(str).str.split(".").str[0] if "Player ID" in df else df["Player"].astype(str)
+            return key.isin(rostered)
+        if self.sheet in ("player_additions", "add_drops"):
+            return empty("Date dropped/traded")
+        if self.sheet in ("rookie_picks", "non_rookie_picks"):
+            drafted = ~empty("Player Picked") & ~df.get("Player Picked", pd.Series("", index=idx)).astype(str).str.lower().isin(["unknown"])
+            # still with the drafting team (no first move after the draft yet), or not drafted yet
+            return (drafted & empty("Link to next transaction")) | ~drafted
+        if self.sheet == "trades":
+            return ~empty("Assets retained now")
+        return pd.Series(False, index=idx)
+
+    def _checkpoint_date(self, idx, col: str) -> Optional[pd.Timestamp]:
+        m = _CHECKPOINT_YEARS.search(col)
+        when = self.when.get(idx)
+        if m and pd.notna(when):
+            return when + pd.DateOffset(years=int(m.group(1)))
+        if _CHECKPOINT_SEASON_END.search(col):
+            y = self._year().get(idx)
+            if pd.notna(y):
+                return pd.Timestamp(int(y) + 1, *_SEASON_END)
+        return None
+
+    def counting(self, idx, col: str) -> bool:
+        if self.sheet in ("rookie_picks", "non_rookie_picks"):
+            undrafted = str(self.df.at[idx, "Player Picked"]).strip().lower() in ("", "nan", "unknown")
+            if undrafted:                       # a pick not used yet can still be traded, nothing else
+                return col == "Number of trades"
+        if col in self.locked:
+            return False
+        due = self._checkpoint_date(idx, col)
+        if due is not None:
+            return bool(self.today < due)
+        if self.sheet == "add_drops" and _DROPPED_SIDE.match(col):
+            # the dropped player's next 17 played games: about a year of football
+            when = self.when.get(idx)
+            return bool(pd.notna(when) and self.today < when + pd.DateOffset(years=1))
+        return bool(self.open.get(idx, False))
 
 
 def board(values: pd.Series, ascending: bool, depth: int = RECORD_DEPTH) -> List[tuple]:
@@ -633,9 +735,7 @@ class Site:
             return {"sheet": sheet, "columns": []}
         labels = tuple(c for c in RECORD_SHEETS.get(sheet, ()) if c in df.columns) or tuple(df.columns[:3])
         flag_text = STILL_COUNTING.get(sheet)
-        year_col = "Year" if "Year" in df else ("Season" if "Season" in df else None)
-        live = (pd.to_numeric(df[year_col], errors="coerce") == self.season) \
-            if (flag_text and year_col) else pd.Series(False, index=df.index)
+        counting = Counting(sheet, df, self.season, self.rostered_now()) if flag_text else None
         scopes = {"all": df.index}
         if "Week Name" in df.columns:
             kinds = df["Week Name"].map(week_kind)
@@ -673,13 +773,22 @@ class Site:
                     else:
                         vals_end = vals
                     out[end] = [[_clean(val, places), [_clean(df.at[idx, lab]) for lab in labels],
-                                 bool(live.get(idx, False)), rank, self.row_link(sheet, df, idx, deal)]
+                                 bool(counting and counting.counting(idx, c)), rank,
+                                 self.row_link(sheet, df, idx, deal)]
                                 for idx, val, rank in board(vals_end, asc)]
                 entry["scopes"][scope] = out
             cols.append(entry)
         return {"sheet": sheet, "labels": list(labels), "flag": flag_text, "live_season": self.season,
                 "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS},
                 "depth": RECORD_DEPTH, "columns": cols}
+
+    def rostered_now(self) -> set:
+        """Sleeper ids (and names) on a roster in the latest built week."""
+        if not hasattr(self, "_rostered"):
+            cur = self.current_roster()
+            ids = set(cur["Player ID"].astype(str).str.split(".").str[0]) if "Player ID" in cur else set()
+            self._rostered = ids | set(cur["Player"].astype(str))
+        return self._rostered
 
     # -- where a row's details live
     def row_link(self, sheet: str, df: pd.DataFrame, idx, deal: Optional[pd.Series] = None) -> Optional[str]:
