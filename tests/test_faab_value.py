@@ -177,6 +177,9 @@ def test_trade_note_rules_reach_only_their_players():
     assert (terms["replacement line"][np.nan_to_num(age, nan=99) <= 25] == 0).all()
     assert (terms["no NFL team"][X["rostered"] > 0] == 0).all()
     assert (terms["te_line"][np.isnan(X["te_x"])] == 0).all()
+    # the old-player decline (old_cliff, rec_age) never reaches a QB or a player whose usage did not drop
+    assert (X["old_cliff"][pos == "QB"] == 0).all() and (X["rec_age"][pos == "QB"] == 0).all()
+    assert "old_cliff" in F.LOWER_ONLY and F.BOUNDS["rec_age"][0] >= 0
 
 
 def test_page_files_in_sync_with_inputs_and_params():

@@ -416,10 +416,11 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
     Returns a dict of arrays:
       duds_2y / full_2y: in the last two complete seasons (l0_s and l0_s - 1), games with a full role (50%+ of the
         offensive snaps, so not a game he left hurt or a backup's cameo) and, of those, games under 5 PPR (a dud);
+      s15_4y / s16_4y / ppg_l0: complete seasons (8+ games) of the last four at 15+ / 16+ PPR per game, last season's PPG;
       form_last / form_prev: mean PPR of his last `n` games played by the date and of the `n` before (NaN when he has
         fewer than n / 2n games); they cross seasons, so a rookie who faded late carries that into year two."""
     gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); l0_s = np.asarray(l0_s, dtype=int)
-    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev")}
+    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0")}
     if gl is None or not len(gl): return out
     g = gl.dropna(subset=["ppr"]).copy(); g["gsis"] = g.gsis.astype(str)
     full = g.off_pct.fillna(0).values >= FULL_SNAPS
@@ -429,6 +430,12 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         a = by_s[c].reindex(pd.MultiIndex.from_arrays([gsis, l0_s])).fillna(0).values
         b = by_s[c].reindex(pd.MultiIndex.from_arrays([gsis, l0_s - 1])).fillna(0).values
         out[k] = a + b
+    # big seasons: PPR per game in each complete season with 8+ games played; how many of the last four reached 15 / 16,
+    # and last season's PPG (8+ games)
+    ss = g.groupby(["gsis", "season"]).ppr.agg(["mean", "size"]); ppg = ss["mean"].where(ss["size"] >= 8)
+    lk = [ppg.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).values for k in range(4)]
+    out["s15_4y"] = sum(np.nan_to_num(x) >= 15 for x in lk).astype(float); out["s16_4y"] = sum(np.nan_to_num(x) >= 16 for x in lk).astype(float)
+    out["ppg_l0"] = lk[0]
     g = g.sort_values(["gsis", "known"]); groups = {k: (v.known.values.astype("datetime64[ns]"), v.ppr.values.astype(float)) for k, v in g.groupby("gsis")}
     for i in range(N):
         t = groups.get(gsis[i])

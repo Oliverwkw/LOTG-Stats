@@ -19,11 +19,17 @@ use only what was known that day, the way the league values players. A 1.05 rook
      sparing only the first three seasons; an older player's drop in expected PPG fades his record boosts
      (`regress`, fitted to 0 so far); a player on any NFL roster (IR, suspended) is never "no NFL team"
      (`e_x_rostered_recent`).
-   - second round of Oliver's notes (2026-11-07): the TE line now keys on a usage level, not a rank (how many TEs
-     hold a real role changes year to year). A 4th-season-on TE whose expected PPG (this season once he has 4+
-     games, else the blend) sits below `te_thr` is docked, and `te_thr` is fitted with the strengths. The first
-     version (within 2.5 of TE replacement, on the blend) also docked TE3-TE7. Three new rules come from the game
-     log (`e_x_duds_2y`, `e_x_form_last` / `e_x_form_prev`, from `faab_features.game_form`):
+   - second round of Oliver's notes (2026-11-07): the TE line keys on usage levels, not a rank (how many TEs hold a
+     real role changes year to year). It has two tiers on a 4th-season-on TE's expected PPG (this season once he
+     has 4+ games, else the blend): a capped light drop below `te_thr` (`te_soft`, fitted 11.25) and a harsher one
+     below `te_thr2` (`te_line`, 9.5; held at 10 or under on Oliver's call, since the free fit puts one harsh cut
+     at 11.1 for -0.03 total). A proven TE (2 of the last 4 seasons at 15+ / 16+ PPR a game, or last season,
+     `e_x_s15_4y` / `e_x_s16_4y` / `e_x_ppg_l0`) can get a softer line (`te_relief`, fitted 0).
+     The old-player decline: past an age wall (RB 29, WR 31, TE 32; never QBs) a player whose expected PPG fell
+     (15% = full) loses his record boosts (`rec_age`) and value (`old_cliff`). Both are held at 1.0 and -2.0 on
+     Oliver's call (Kelce May 2024 at a mid-high 2nd). The free fit sets them to 0 (calls: Stafford, Henry, Kittle)
+     although trades fit better with them (1.122 -> 1.101). The first version also reached QBs.
+     From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
      - `slump` (lower only): a non-QB in his first four seasons whose last 10 games fell 10%+ below the 10 before,
