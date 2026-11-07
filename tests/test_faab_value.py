@@ -161,7 +161,7 @@ def test_qb_rules_reach_only_their_players():
 
 
 def test_trade_note_rules_reach_only_their_players():
-    """TE line: veteran TEs only; regression: only players past the age start; the replacement line spares 25-and-under;
+    """TE line: veteran TEs only; regression: only players past the age start; the replacement line spares 25-and-under (but not a WR who has had no starter's role);
     'no NFL team' never charges a player on a roster"""
     R = F.load_inputs(); p = F.load_params(); T = R.reset_index(drop=True)
     X = F.characteristics(T, p["youth_age"]); age = T.age.values; exp_ = T.exp.fillna(0).values; pos = T.pos.values
@@ -174,12 +174,28 @@ def test_trade_note_rules_reach_only_their_players():
     assert (X["slump"][(pos == "QB") | (exp_ > 3)] == 0).all()
     assert "duds" in F.LOWER_ONLY and "slump" in F.LOWER_ONLY and "peak_share" in F.RAISE_ONLY
     _, terms, _ = F.apply_rules(T, p, explain=True)
-    assert (terms["replacement line"][np.nan_to_num(age, nan=99) <= 25] == 0).all()
+    assert (terms["replacement line"][(np.nan_to_num(age, nan=99) <= 25) & (X["wr_no_role"] == 0)] == 0).all()   # a WR without a starter's role is not spared
     assert (terms["no NFL team"][X["rostered"] > 0] == 0).all()
     assert (terms["te_line"][np.isnan(X["te_x"])] == 0).all()
     # the old-player decline (old_cliff, rec_age) never reaches a QB or a player whose usage did not drop
     assert (X["old_cliff"][pos == "QB"] == 0).all() and (X["rec_age"][pos == "QB"] == 0).all()
     assert "old_cliff" in F.LOWER_ONLY and F.BOUNDS["rec_age"][0] >= 0
+    # the boom-week boost reaches only TEs under 29; the WR no-role flag only WRs
+    assert (X["boom_week"][(pos != "TE") | (np.nan_to_num(age, nan=99) >= 29)] == 0).all() and "boom_week" in F.RAISE_ONLY
+    assert (X["wr_no_role"][pos != "WR"] == 0).all()
+    # a fresh start (followed his coach) is offseason-only, non-QB, under 28
+    assert (X["fresh"][(pos == "QB") | (np.nan_to_num(age, nan=99) >= 28) | (T.e_x_moved_off.fillna(0).values == 0)] == 0).all() and "fresh_start" in F.RAISE_ONLY
+    assert (terms["boom_week"][X["boom_week"] == 0] == 0).all()
+
+
+def test_current_usage_fades_in_over_four_games():
+    """a TE's usage for the TE line moves from last season's to this season's a quarter per game, not all at once at 4"""
+    base = dict(pos="TE", exp=5.0, age=28.0, e_x_l0_xfp_pg=8.0, e_x_l1_xfp_pg=8.0, e_x_cur_xfp_pg=14.0, injury="")
+    T = pd.DataFrame([dict(base, e_x_cur_games=g) for g in (0, 1, 2, 4, 6)])
+    T.loc[0, "e_x_cur_xfp_pg"] = np.nan
+    tx = F.characteristics(T)["te_x"]
+    assert tx[0] == 8.0 and tx[3] == 14.0 and tx[4] == 14.0
+    assert tx[0] < tx[1] < tx[2] < tx[3]
 
 
 def test_page_files_in_sync_with_inputs_and_params():

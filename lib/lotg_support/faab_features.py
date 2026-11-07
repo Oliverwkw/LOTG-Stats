@@ -200,7 +200,8 @@ def build_week(X, FC, OUT, years):
     for side, opp in (("home", "away"), ("away", "home")):
         sp = np.where(side == "home", -G.spread_line, G.spread_line)       # spread_line > 0 = home favoured
         rows.append(pd.DataFrame({"team": G[f"{side}_team"], "season": G.season, "game_type": G.game_type, "gameday": G.gameday,
-                                  "pts": G[f"{side}_score"], "opp_pts": G[f"{opp}_score"], "implied": G.total_line / 2 - sp / 2 * (1 if side == "home" else 1)}))
+                                  "pts": G[f"{side}_score"], "opp_pts": G[f"{opp}_score"], "implied": G.total_line / 2 - sp / 2 * (1 if side == "home" else 1),
+                                  "coach": G[f"{side}_coach"] if f"{side}_coach" in G else None}))
     T = pd.concat(rows, ignore_index=True)
     T["implied"] = np.where(T.team.isin(G.home_team), T.implied, T.implied)
     T["win"] = (T.pts > T.opp_pts).astype(float).where(T.pts.notna())
@@ -414,16 +415,33 @@ def rostered_recent(date_v, fw_l0, fw_cur, ko_cur, in_season):
 DUD_PTS, FULL_SNAPS = 5.0, 0.5
 
 
-def offseason_move(date_v, up_s, first_team_up, last_team_prev):
+def offseason_move(date_v, up_s, first_team_up, last_team_prev, no_cur_team=None):
     """1 from March 15 (free agency) until the upcoming season's kickoff when the player's Week-1 team differs from the
     last team he was on the season before (a signing or an offseason trade). The Week-1 roster stands in for the
-    signing, the same small hindsight as the 'unsigned' flag; in season, e_x_new_team covers it."""
+    signing, the same small hindsight as the 'unsigned' flag; in season, e_x_new_team covers it. `no_cur_team` (True
+    where e_x_new_team is not known yet: no game of his in the stats so far) keeps the flag on past kickoff, up to 5
+    weeks, so the days between kickoff and his first game are not a gap."""
     date_v = np.asarray(date_v, dtype="datetime64[ns]")
     mar15 = pd.to_datetime([f"{int(y)}-03-15" for y in up_s]).values
     ko = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in up_s], dtype="datetime64[ns]")
     a, b = pd.Series(first_team_up), pd.Series(last_team_prev)
     moved = (a.notna() & b.notna() & (a.astype(str) != b.astype(str))).values
-    return (moved & (date_v >= mar15) & (date_v < ko)).astype(float)
+    open_ = (date_v < ko) if no_cur_team is None else ((date_v < ko) | (np.asarray(no_cur_team, dtype=bool) & (date_v < ko + np.timedelta64(35, "D"))))
+    return (moved & (date_v >= mar15) & open_).astype(float)
+
+
+def coach_follow(up_s, first_team_up, last_team_prev, gt):
+    """1 when the player changed teams for the upcoming season (Week-1 team differs from his last team the season
+    before) and his new team's head coach in its first game is the coach his old team had in its last game (he
+    followed his coach: Likely BAL -> NYG with John Harbaugh, 2026). `gt`: team games with season, gameday, coach."""
+    up_s = np.asarray(up_s, dtype=int); a, b = pd.Series(first_team_up).astype(object), pd.Series(last_team_prev).astype(object)
+    if gt is None or "coach" not in gt or gt.coach.isna().all(): return np.zeros(len(up_s))
+    g = gt[gt.game_type == "REG"].dropna(subset=["coach"]).sort_values("gameday")
+    first = g.groupby(["team", "season"]).coach.first(); last = g.groupby(["team", "season"]).coach.last()
+    cf = first.reindex(pd.MultiIndex.from_arrays([a.values, up_s])).values
+    cl = last.reindex(pd.MultiIndex.from_arrays([b.values, up_s - 1])).values
+    moved = a.notna().values & b.notna().values & (a.astype(str).values != b.astype(str).values)
+    return (moved & pd.notna(cf) & pd.notna(cl) & (cf.astype(str) == cl.astype(str))).astype(float)
 
 
 def game_form(gl, gsis, date_v, l0_s, n=10):
@@ -434,10 +452,12 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
       s15_4y / s16_4y / ppg_l0 / ppg_l1: complete seasons (8+ games) of the last four at 15+ / 16+ PPR per game, the
         last two seasons' PPG; ppg_cur / gp_cur: this season's PPR per game and games so far;
       ypc_2y: yards per carry over the last two complete seasons (100+ carries);
+      max_2y: his best single game (PPR) known by the date in the last two complete seasons and this one;
+      g15_3y: games at 15+ PPR in the last three complete seasons;
       form_last / form_prev: mean PPR of his last `n` games played by the date and of the `n` before (NaN when he has
         fewer than n / 2n games); they cross seasons, so a rookie who faded late carries that into year two."""
     gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); l0_s = np.asarray(l0_s, dtype=int)
-    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur", "ypc_2y")}
+    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur", "ypc_2y", "max_2y", "g15_3y")}
     if gl is None or not len(gl): return out
     g = gl.dropna(subset=["ppr"]).copy(); g["gsis"] = g.gsis.astype(str)
     full = g.off_pct.fillna(0).values >= FULL_SNAPS
@@ -453,6 +473,8 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
     lk = [ppg.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).values for k in range(4)]
     out["s15_4y"] = sum(np.nan_to_num(x) >= 15 for x in lk).astype(float); out["s16_4y"] = sum(np.nan_to_num(x) >= 16 for x in lk).astype(float)
     out["ppg_l0"] = lk[0]; out["ppg_l1"] = lk[1]
+    n15 = g.assign(g15=(g.ppr.values >= 15).astype(float)).groupby(["gsis", "season"]).g15.sum()
+    out["g15_3y"] = sum(n15.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).fillna(0).values for k in range(3))
     # yards per carry over the last two complete seasons (100+ carries between them)
     if "rush_car" in g:
         rc = g.groupby(["gsis", "season"])[["rush_car", "rush_yds"]].sum()
@@ -470,6 +492,8 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         cur = t[2][:k] == l0_s[i] + 1                                    # this season's games so far (none in the offseason)
         out["gp_cur"][i] = cur.sum()
         if cur.any(): out["ppg_cur"][i] = t[1][:k][cur].mean()
+        rec = t[2][:k] >= l0_s[i] - 1                                    # the last two complete seasons and this one
+        if rec.any(): out["max_2y"][i] = t[1][:k][rec].max()
     return out
 
 
@@ -574,7 +598,10 @@ def add_x(df):
     gf = game_form(GL, g_, date_v, d.l0_s.values)
     if "first_team" in RT:
         out["e_x_moved_off"] = offseason_move(date_v, up_s, RT.first_team.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values,
-                                              RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values)
+                                              RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values,
+                                              np.isnan(out.e_x_new_team.values.astype(float)))
+        out["e_x_coach_follow"] = coach_follow(up_s, RT.first_team.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values,
+                                               RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values, GT)
     for k_, v_ in gf.items(): out[f"e_x_{k_}"] = v_
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():

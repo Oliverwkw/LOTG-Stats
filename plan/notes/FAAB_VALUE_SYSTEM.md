@@ -41,6 +41,32 @@ use only what was known that day, the way the league values players. A 1.05 rook
      (fitted -0.17); `ypc_bad` docks an RB from his 4th season with under 4.1 yards per carry over the last two
      seasons (`e_x_ypc_2y`, 100+ carries; fitted -1.67). The refit set old_cliff / rec_age to 0 again, so they are
      held at their earlier fitted -1.5 / 1.0 (Kelce May 2024 $435, Oliver's call).
+     Follow-up (2026-11-07, Jonnu / Everett / Osborn / Reed): the move flag stays on past kickoff, up to 5 weeks,
+     until his first game is in the stats (`no_cur_team`): between kickoff and that game neither e_x_moved_off nor
+     e_x_new_team fired, so Jonnu's MIA -> PIT move missed `vet_move` on 2025-09-07. This season's usage fades in
+     over a player's first 4 games (`w4`, a quarter a game) wherever a rule switched from last season's number to
+     this season's at 4 games (te_x, peak share, the decline's usage and PPG drops, a QB's PPG); Everett / Gesicki
+     2022 709% -> 88% off. No params changed (total 7.691 -> 7.672).
+     Then (Oliver's call): a WR in his 4th season on who has not had a starter's role (expected PPG over WR
+     replacement) last season, the one before, or this season (2+ games) gets the full replacement line whatever
+     his age (`wr_no_role`; Osborn Nov 2023 $80 -> $47; Reed 2025 untouched). Tried and rejected: the line by
+     season instead of age (Parker Washington's calls: 8.11-8.86), and holding wr_talent / availability at their
+     #559 strengths (refits 8.00 / 7.71, both also zero ypc_bad and peak_share). `boom_week` (raise only): a TE
+     under 29 (fading from 27) whose best game in the last two complete seasons and this one (`e_x_max_2y`) is
+     28+ PPR (+8 = full), for cheap players (under `boom_hi`); held at 1.0 / $1,000 on Oliver's call for Pitts
+     (the fit sets it to 0; TE-only costs ~0.05; for every position it lifts old RBs / WRs with one big game and
+     costs 0.1-2.2). The first TE tier (`te_soft`) bound opened to -3 and held at -2.0 on Oliver's call (Henry and
+     the 9-11 TEs too high): the fit with it free stays at -1.0, but -2.0 refits best of -1.5 / -2.0 / -2.5
+     (total 7.470, calls 102/121, trades 1.039) and takes the harsh tier (`te_line`) to 0. Pitts $155 -> $320,
+     Kincaid $331 -> $121, Strange $222 -> $85, Kelce $178 -> $55.
+     Last round (Oliver, no refit): `boom_week` now needs a 40+ PPR game (TE under 29); every position at 40+ with
+     the age fade scored slightly worse (+0.025), so it stays TE-only. Moving 28 -> 40 costs 3 calls (Kraft and
+     Likely "stay near the reviewed" fail; they were held up by the 28+ version): total 7.470 -> 7.805, Pitts $320
+     -> $255. `fresh_start` (raise only, held 2.17 on Oliver's call: Likely / Worthy June 2026 964% -> 99% off):
+     offseason (e_x_moved_off), a non-QB under 28 who moved and followed his head coach (`e_x_coach_follow`, from
+     the schedules' coach columns: the new team's coach in its first game = the old team's in its last), with 3+
+     games at 15+ PPR in the last three seasons (`e_x_g15_3y`, 5+ = full); it also lifts the TE line and the
+     replacement line for him. It reaches only Likely 2026-06-09 in today's inputs.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
