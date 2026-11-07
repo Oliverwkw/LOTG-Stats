@@ -123,6 +123,22 @@ def test_game_form_counts_full_role_duds_and_crosses_seasons():
     assert np.isnan(o["form_last"][2]) and o["duds_2y"][2] == 2          # by 2025-09-20 only 7 games are known
 
 
+def test_coach_follow_needs_a_move_and_the_same_head_coach():
+    gt = pd.DataFrame({"team": ["BAL", "BAL", "NYG", "NYG", "MIA"], "season": [2025, 2025, 2026, 2026, 2026], "game_type": "REG",
+                       "gameday": pd.to_datetime(["2025-09-07", "2026-01-04", "2026-09-13", "2026-09-20", "2026-09-13"]),
+                       "coach": ["John Harbaugh", "John Harbaugh", "John Harbaugh", "John Harbaugh", "Jeff Hafley"]})
+    o = X.coach_follow([2026, 2026, 2026], ["NYG", "MIA", "BAL"], ["BAL", "BAL", "BAL"], gt)
+    assert list(o) == [1.0, 0.0, 0.0]                  # followed Harbaugh; new coach; did not move
+    assert list(X.coach_follow([2026], ["NYG"], ["BAL"], gt.drop(columns="coach"))) == [0.0]   # no coach data: never
+
+
+def test_game_form_counts_15_point_games_and_best_game():
+    gl = pd.DataFrame({"gsis": "a", "season": [2023, 2024, 2024, 2025, 2026], "week": 1, "known": pd.to_datetime(["2023-09-15", "2024-09-15", "2024-09-22", "2025-09-15", "2026-09-15"]),
+                       "ppr": [20.0, 16.0, 45.0, 3.0, 12.0], "off_pct": 0.8})
+    f = X.game_form(gl, ["a"], pd.to_datetime(["2026-06-09"]).values, [2025])
+    assert f["g15_3y"][0] == 3.0 and f["max_2y"][0] == 45.0         # 2023-25: 20, 16, 45; best of 2024-25 (+2026, none yet)
+
+
 def test_offseason_move_from_free_agency_to_kickoff():
     d = pd.to_datetime(["2025-03-01", "2025-04-08", "2025-04-08", "2025-09-20"]).values
     o = X.offseason_move(d, [2025, 2025, 2025, 2025], ["LA", "LA", "TB", "LA"], ["NYJ", "NYJ", "TB", "NYJ"])

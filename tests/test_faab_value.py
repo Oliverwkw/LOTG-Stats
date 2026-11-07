@@ -183,6 +183,8 @@ def test_trade_note_rules_reach_only_their_players():
     # the boom-week boost reaches only TEs under 29; the WR no-role flag only WRs
     assert (X["boom_week"][(pos != "TE") | (np.nan_to_num(age, nan=99) >= 29)] == 0).all() and "boom_week" in F.RAISE_ONLY
     assert (X["wr_no_role"][pos != "WR"] == 0).all()
+    # a fresh start (followed his coach) is offseason-only, non-QB, under 28
+    assert (X["fresh"][(pos == "QB") | (np.nan_to_num(age, nan=99) >= 28) | (T.e_x_moved_off.fillna(0).values == 0)] == 0).all() and "fresh_start" in F.RAISE_ONLY
     assert (terms["boom_week"][X["boom_week"] == 0] == 0).all()
 
 
