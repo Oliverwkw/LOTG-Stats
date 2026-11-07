@@ -437,10 +437,11 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
       s15_4y / s16_4y / ppg_l0 / ppg_l1: complete seasons (8+ games) of the last four at 15+ / 16+ PPR per game, the
         last two seasons' PPG; ppg_cur / gp_cur: this season's PPR per game and games so far;
       ypc_2y: yards per carry over the last two complete seasons (100+ carries);
+      max_2y: his best single game (PPR) known by the date in the last two complete seasons and this one;
       form_last / form_prev: mean PPR of his last `n` games played by the date and of the `n` before (NaN when he has
         fewer than n / 2n games); they cross seasons, so a rookie who faded late carries that into year two."""
     gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); l0_s = np.asarray(l0_s, dtype=int)
-    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur", "ypc_2y")}
+    N = len(gsis); out = {k: np.full(N, np.nan) for k in ("duds_2y", "full_2y", "form_last", "form_prev", "s15_4y", "s16_4y", "ppg_l0", "ppg_l1", "ppg_cur", "gp_cur", "ypc_2y", "max_2y")}
     if gl is None or not len(gl): return out
     g = gl.dropna(subset=["ppr"]).copy(); g["gsis"] = g.gsis.astype(str)
     full = g.off_pct.fillna(0).values >= FULL_SNAPS
@@ -473,6 +474,8 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         cur = t[2][:k] == l0_s[i] + 1                                    # this season's games so far (none in the offseason)
         out["gp_cur"][i] = cur.sum()
         if cur.any(): out["ppg_cur"][i] = t[1][:k][cur].mean()
+        rec = t[2][:k] >= l0_s[i] - 1                                    # the last two complete seasons and this one
+        if rec.any(): out["max_2y"][i] = t[1][:k][rec].max()
     return out
 
 
