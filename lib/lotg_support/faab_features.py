@@ -393,6 +393,17 @@ def _rates(s):
     out["big"] = s.big; out["good"] = s.good; out["big_rate"] = s.big / pl; out["good_rate"] = s.good / pl
     return pd.DataFrame(out, index=s.index)
 
+def rostered_recent(date_v, fw_l0, fw_cur, ko_cur, in_season):
+    """1 when the player has a team, whatever the depth charts say: in the season, on an NFL roster (any status:
+    active, reserve/IR, suspended, practice squad) this season by the date; in the offseason, on one last season (a year
+    on IR or suspended is not "no NFL team"). `fw_l0` / `fw_cur` are his first regular-season roster weeks of those
+    seasons (NaN = not on one)."""
+    date_v = np.asarray(date_v, dtype="datetime64[ns]"); fw_l0 = np.asarray(fw_l0, dtype=float); fw_cur = np.asarray(fw_cur, dtype=float)
+    ko_cur = np.asarray(ko_cur, dtype="datetime64[ns]")
+    on_cur = np.asarray(in_season, dtype=bool) & ~np.isnan(fw_cur) & (date_v >= ko_cur + ((np.nan_to_num(fw_cur) - 1) * 7 - 3).astype("timedelta64[D]"))
+    return np.where(np.asarray(in_season, dtype=bool), on_cur, ~np.isnan(fw_l0)).astype(float)
+
+
 def offseason_flags(date_v, fw, ko_up, jun1, career_over):
     """(unsigned, offseason) for each row. `fw` = the player's first regular-season roster week of the upcoming season
     (NaN = never on one), `ko_up` its kickoff, `jun1` its June 1.
@@ -488,6 +499,9 @@ def add_x(df):
     ko_up = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in up_s], dtype="datetime64[ns]")
     jun1 = pd.to_datetime([f"{int(y)}-06-01" for y in up_s]).values
     out["e_x_unsigned"], out["e_x_offseason"] = offseason_flags(date_v, fw, ko_up, jun1, out.e_x_career_over.values)
+    ko_c = np.array([KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08")) for y in d.cur_s.values], dtype="datetime64[ns]")
+    out["e_x_rostered_recent"] = rostered_recent(date_v, RF.reindex(pd.MultiIndex.from_arrays([g_, d.l0_s.values])).values,
+                                                 RF.reindex(pd.MultiIndex.from_arrays([g_, d.cur_s.values])).values, ko_c, d.in_season.values)
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
         ko = KO.get(int(r.season)); a = np.datetime64(ko - pd.Timedelta(days=30)); b = np.datetime64(ko + pd.Timedelta(days=7 * int(r.week_end)))

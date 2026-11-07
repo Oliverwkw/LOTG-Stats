@@ -6,7 +6,8 @@
   player or a date before the grid is skipped, not misplaced;
 - trades.csv parses into two-team sides, players resolved to their player_additions row;
 - a pick's price falls with each further draft out and a late slot never prices above an early one;
-- the summer flags: only a player off the Week-1 roster is 'unsigned'; the offseason window is everyone's.
+- the summer flags: only a player off the Week-1 roster is 'unsigned'; the offseason window is everyone's;
+- a player on a roster (IR, suspended) is never 'no NFL team'.
 
 None of these need scikit-learn (the models import it lazily), so they run in the build's CI. No network. Run: python tests/test_faab_pipeline.py
 """
@@ -87,9 +88,18 @@ def test_unsigned_only_off_the_week1_roster_offseason_for_everyone():
     assert list(un2) == [1, 0], un2
 
 
+def test_rostered_players_have_a_team():
+    # offseason: on a roster last season (a year on IR or suspended) counts; in season only this season's roster does
+    d = pd.to_datetime(["2023-03-21", "2023-03-21", "2023-10-01", "2023-10-01", "2023-09-08"]).values
+    fw_l0 = np.array([9.0, np.nan, 1.0, 1.0, np.nan]); fw_cur = np.array([1.0, np.nan, np.nan, 3.0, 1.0])
+    ko = np.array([X.KO[2022], X.KO[2022], X.KO[2023], X.KO[2023], X.KO[2023]], dtype="datetime64[ns]")
+    ins = np.array([False, False, True, True, True])
+    assert list(X.rostered_recent(d, fw_l0, fw_cur, ko, ins)) == [1, 0, 0, 1, 1]
+
+
 TESTS = [test_replacement_line_by_season, test_excused_fallback_lifts_to_preseason_only, test_votes_map_to_their_own_board_date,
          test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot,
-         test_unsigned_only_off_the_week1_roster_offseason_for_everyone]
+         test_unsigned_only_off_the_week1_roster_offseason_for_everyone, test_rostered_players_have_a_team]
 
 if __name__ == "__main__":
     for fn in TESTS:

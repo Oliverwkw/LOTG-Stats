@@ -14,6 +14,11 @@ use only what was known that day, the way the league values players. A 1.05 rook
    - usage (expected points), team share, availability, a sustained elite record, QB passing quality;
    - early-career draft and college pedigree, efficiency, volatility and TD dependence, age cliffs;
    - injury status, off-field events, the replacement line (vets ranked below the line are worth about 0).
+   - from Oliver's notes on the worst-fit trades (2026-11-07): a veteran TE whose role is within 2.5 expected PPG
+     of TE replacement is near waiver level (`te_line`); the replacement line fades in from age 25 to 28 instead of
+     sparing only the first three seasons; an older player's drop in expected PPG fades his record boosts
+     (`regress`, fitted to 0 so far); a player on any NFL roster (IR, suspended) is never "no NFL team"
+     (`e_x_rostered_recent`).
    - the summer (2026-11-04): one level shift for every player against picks and FAAB from June 1 to 3 days
      before kickoff (`e_x_offseason`, either sign, 0 on every in-season board). Before this, the "unsigned from
      June 1" flag fired for every player on a Week-1 roster too (the weekly rosters start at Week 1), so the
