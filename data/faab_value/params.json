@@ -91,5 +91,6 @@
  "share_old_age": 31.0,
  "undrafted": -2.0,
  "te_one_off": -1.0,
- "team_q_lo": 0.5
+ "team_q_lo": 0.5,
+ "qb_paid": 0.75
 }

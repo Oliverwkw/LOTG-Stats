@@ -266,6 +266,14 @@ def test_team_q_lo_only_lowers_cheap_players_on_bad_teams():
     assert "team_q_lo" in F.REG_KEYS and F.BOUNDS["team_q_lo"][0] >= 0
 
 
+def test_qb_paid_is_a_moved_qb_on_a_big_new_deal_until_he_plays():
+    base = dict(pos="QB", age=32.0, exp=9.0, injury="", e_x_moved_off=1.0, e_x_vet_deal_cap=0.167)
+    rows = [base, dict(base, e_x_vet_deal_cap=0.115), dict(base, e_x_vet_deal_cap=0.05), dict(base, e_x_moved_off=0.0),
+            dict(base, e_x_moved_off=0.0, e_x_new_team=1.0, e_x_cur_games=2.0), dict(base, pos="WR")]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["qb_paid"], [1.0, 0.5, 0.0, 0.0, 0.5, 0.0])
+    assert "qb_paid" in F.RAISE_ONLY
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
