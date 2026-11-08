@@ -47,10 +47,10 @@ def _rowmean(*cols):
 
 # ------------------------------------------------------------------ rules
 P0 = dict(y200=200.0, y450=450.0, y650=650.0, lvl=1.0, vet=1.0, vet_hi=900.0, top_g=0.62,
-          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0)
+          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0, rookie_backup=0.0)
 BOUNDS = dict(y200=(80, 230), y450=(250, 520), y650=(500, 950), lvl=(0.6, 1.6), vet=(0.2, 1.0), vet_hi=(600, 3500), top_g=(0.45, 0.85),
               youth_role=(-0.5, 2.0), te_lo=(-1.5, 0.8), te_hi=(-1.0, 0.6), inj_ir=(-1.0, 0.3), inj_out=(-0.8, 0.3), prone=(-2.5, 0.5),
-              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0))
+              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0), rookie_backup=(-2.0, 0.0))
 P0.update(boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     
@@ -70,7 +70,7 @@ BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
 RAISE_ONLY = ["fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
               "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening", "peak_share", "avail_up"]
-LOWER_ONLY = ["te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
+LOWER_ONLY = ["rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
@@ -78,6 +78,22 @@ AGE_WALL = {"QB": 99, "RB": 30, "WR": 31, "TE": 32}     # past this, a declining
                                                          # not QBs (the superflex QB rules carry their own age fade, and the calls hold old QBs up)
 UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
+BACKUP_POS = ("RB",)
+
+
+def rookie_backup(R, exp_):
+    """a non-rookie RB whose team just added a same-position rookie the league paid for (e_x_rookie_backup: draft price,
+    Week-1 waiver bids x4; $250 = 1, capped at 2). Early in the season (his first 4 games, fading out by 8) a drop in his
+    own carries / targets / snaps vs last season (e_x_rookie_backup_held under 0.9; 0.6 = full) raises it up to 1.5x;
+    later, keeping his workload (held 0.75 -> 0.95) fades it out: the vet kept the job. Low rookie usage never dampens it."""
+    sp = np.clip(np.nan_to_num(col(R, "e_x_rookie_backup")) / 250.0, 0, 2.0)
+    h = col(R, "e_x_rookie_backup_held"); gp = np.nan_to_num(col(R, "e_x_cur_games"))
+    early = 1 - np.clip((gp - 4) / 4.0, 0, 1)
+    amp = 1 + 0.5 * early * np.where(np.isnan(h), 0, np.clip((0.9 - np.nan_to_num(h)) / 0.3, 0, 1))
+    fade = 1 - (1 - early) * np.where(np.isnan(h), 0, np.clip((np.nan_to_num(h) - 0.75) / 0.2, 0, 1))
+    return np.isin(R.pos.values, BACKUP_POS) * (exp_ >= 1) * sp * amp * fade
+
+
 def boom_bust_early(R, cur_gp):
     cv = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv"))
     tds = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share"))
@@ -298,9 +314,10 @@ def characteristics(R, youth_age=26.0):
                 near_wall=(R.pos.values != "QB") * np.clip((np.nan_to_num(age, nan=25) - R.pos.map(AGE_WALL).fillna(31).values + 2.0) / 2.0, 0, 1),
                 # a veteran (27 -> 29) on a new team: signed or traded since last season (offseason from March 15)
                 vet_move=(R.pos.values != "QB") * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off"))) * np.clip((np.nan_to_num(age, nan=25) - 27.0) / 2.0, 0, 1),
-                # an RB who can't run: yards per carry over the last two seasons under 4.1 (3.7 = full), from his 4th season
-                # (a pattern over years, not a rookie behind a bad line)
-                ypc_bad=(R.pos.values == "RB") * (exp_ >= 3) * np.clip((4.1 - np.nan_to_num(col(R, "e_x_ypc_2y"), nan=9.0)) / 0.4, 0, 1.5),
+                # an RB who can't run: yards per carry over the last two seasons under 4.1 (3.7 = full), from his 3rd season
+                # (two complete seasons: a pattern over years, not a rookie behind a bad line)
+                ypc_bad=(R.pos.values == "RB") * (exp_ >= 2) * np.clip((4.1 - np.nan_to_num(col(R, "e_x_ypc_2y"), nan=9.0)) / 0.4, 0, 1.5),
+                rookie_backup=rookie_backup(R, exp_),
                 rookie_day3=(exp_ == 0) * (R.pos.values != "QB") * np.where(np.isnan(pk), 1.0, np.clip((pk - 100) / 60, 0, 1)),
                 rec_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(AGE_WALL).fillna(31).values + 2.0) / 3.0, 0, 1) * drop_old, qb_early=qb_early, te_x=te_x, boom_week=boom_week, fresh=fresh, wr_no_role=wr_no_role, te_proven=te_proven, te_proven16=te_proven16, duds=duds, peak_share=peak_share, slump=slump, regress=regress, rostered=np.nan_to_num(col(R, "e_x_rostered_recent")), avail_prior=avail_prior, qb_starter=qb_starter, qb_pedigree=qb_pedigree, young_starter=young_starter, carry=carry, one_game=one_game, boom_bust=boom_bust, td_dep=td_dep, off_field=off_field, summer=summer, journeyman=journeyman, bust=bust, rb_multi=rb_multi, wr_talent=wr_talent, pick_boom=pick_boom, rb_age=rb_age, rookie_capital=rookie_capital, alpha=alpha,
                 availability=availability, efficiency=efficiency, opening=opening, team_q=np.clip(team_q, -1.5, 1.5), new_team_burst=new_team_burst, share_talent=share_talent,
@@ -309,7 +326,7 @@ def characteristics(R, youth_age=26.0):
                 ir=np.isin(inj, ["IR", "PUP"]).astype(float), out=np.isin(inj, ["Out", "Doubtful"]).astype(float),
                 te=(R.pos.values == "TE").astype(float), vet_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(VET_AGE).fillna(30).values) / 2, 0, 1),
                 un=np.nan_to_num(col(R, "un_x")))
-RULE_KEYS = {"qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "summer": "summer", "old_cliff": "old_cliff", "vet_move": "vet_move", "ypc_bad": "ypc_bad", "duds": "duds", "peak_share": "peak_share", "slump": "slump", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
+RULE_KEYS = {"qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "summer": "summer", "old_cliff": "old_cliff", "vet_move": "vet_move", "ypc_bad": "ypc_bad", "rookie_backup": "rookie_backup", "duds": "duds", "peak_share": "peak_share", "slump": "slump", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
              "wr_talent": "wr_talent", "pick_boom": "pick_boom", "rb_age": "rb_age", "rookie_capital": "rookie_capital", "alpha": "alpha",
              "availability": "availability", "efficiency": "efficiency", "opening": "opening", "team_q": "team_q", "new_team_burst": "new_team_burst",
              "share_talent": "share_talent", "recurring": "recurring", "steady": "steady", "pedigree": "pedigree", "elite_streak": "elite", "track": "track",
@@ -385,7 +402,7 @@ def apply_rules(R, p, X=None, explain=False):
     return out
 
 # ------------------------------------------------------------------ inputs and evidence
-REG_KEYS = ["fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
+REG_KEYS = ["rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
             "rookie_capital", "alpha", "availability", "efficiency", "opening", "team_q", "new_team_burst", "share_talent", "recurring", "steady", "pedigree",
             "elite_streak", "track", "qb_quality", "spike", "team_up", "severe", "qb_lo", "qb_hi", "rb_lo", "rb_hi", "wr_lo", "wr_hi", "usage", "youth_usage",
             "youth_role", "te_lo", "te_hi", "inj_ir", "inj_out", "prone", "two_way", "aw_college", "aw_nfl"]

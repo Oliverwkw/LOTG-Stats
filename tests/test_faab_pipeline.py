@@ -132,6 +132,21 @@ def test_coach_follow_needs_a_move_and_the_same_head_coach():
     assert list(X.coach_follow([2026], ["NYG"], ["BAL"], gt.drop(columns="coach"))) == [0.0]   # no coach data: never
 
 
+def test_rookie_backup_spend_counts_same_team_same_position_rookies():
+    roster = pd.DataFrame({"gsis": ["v", "v", "r", "r", "q", "w"], "season": 2024, "week": [1, 2, 1, 2, 1, 1], "team": ["TB", "TB", "TB", "TB", "TB", "NYG"]})
+    info = pd.DataFrame({"sid": ["R", "Q", "W", "V"], "gsis": ["r", "q", "w", "v"], "pos": ["RB", "QB", "RB", "RB"], "dyear": [2024, 2024, 2024, 2022]})
+    adds = pd.DataFrame({"sid": ["R", "R", "Q", "W", "V"], "date": pd.to_datetime(["2024-05-10", "2024-09-03", "2024-05-10", "2024-05-10", "2022-05-10"]),
+                         "type": ["Draft", "Waiver", "Draft", "Draft", "Draft"], "price": [50.0, 61.0, 900.0, 700.0, 500.0]})
+    rows = pd.DataFrame({"sid": ["V", "V", "V", "R"], "gsis": ["v", "v", "v", "r"], "date": pd.to_datetime(["2024-05-01", "2024-08-01", "2024-09-21", "2024-09-21"]), "pos": "RB"})
+    gl = pd.DataFrame({"gsis": "v", "season": [2023, 2023, 2024, 2024], "known": pd.to_datetime(["2023-09-15", "2023-09-22", "2024-09-14", "2024-09-21"]),
+                       "rush_car": [20.0, 20.0, 10.0, 10.0], "gl_tgt": [4.0, 4.0, 4.0, 4.0], "off_pct": [0.8, 0.8, 0.6, 0.6]})
+    sp, held = X.rookie_backup_spend(rows, adds, info, roster, gl)
+    # before the rookie was added: 0; drafted at $50; the Week-1 bid x4 = $244 is his largest price; the QB and the
+    # other team's RB never count; the rookie's own row is 0
+    assert list(sp) == [0.0, 50.0, 244.0, 0.0]
+    assert np.isnan(held[0]) and np.isnan(held[1]) and abs(held[2] - (0.5 + 1.0 + 0.75) / 3) < 1e-9
+
+
 def test_game_form_counts_15_point_games_and_best_game():
     gl = pd.DataFrame({"gsis": "a", "season": [2023, 2024, 2024, 2025, 2026], "week": 1, "known": pd.to_datetime(["2023-09-15", "2024-09-15", "2024-09-22", "2025-09-15", "2026-09-15"]),
                        "ppr": [20.0, 16.0, 45.0, 3.0, 12.0], "off_pct": 0.8})
