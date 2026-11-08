@@ -253,3 +253,12 @@ def test_wr_mates_pair_each_wr_with_his_teams_top_other_wr():
     finally:
         X.RW = old
     assert m == {0: 1, 1: 0, 2: 0}          # the top WR gets the second; the rest the top; alone on his team: none
+
+
+def test_te_top3_reads_last_two_seasons_top_three_tes():
+    gl = pd.DataFrame([dict(gsis=g, season=y, ppr=p) for g, y, p in (("a", 2021, 200), ("b", 2021, 190), ("c", 2021, 180), ("d", 2021, 170),
+                                                                      ("d", 2020, 300), ("w", 2021, 400))])
+    pos = pd.Series(dict(a="TE", b="TE", c="TE", d="TE", w="WR"))
+    rows = pd.DataFrame(dict(gsis=["c", "d", "d", "a"], date=pd.to_datetime(["2022-11-30", "2022-11-30", "2021-11-30", "2022-11-30"]), pos=["TE", "TE", "TE", "WR"]))
+    # c: TE3 in 2021 (the WR doesn't count); d: TE4 in 2021, TE1 in 2020 (two back = 0.5); d a season earlier: TE1 last season; a WR row: 0
+    assert np.allclose(X.te_top3(rows, gl, pos=pos), [1.0, 0.5, 1.0, 0.0])

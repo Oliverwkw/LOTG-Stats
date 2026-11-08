@@ -168,7 +168,7 @@ def backup_columns(E, gsis, pa):
     E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
     if X.GL is not None:
         E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
-                     e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5))
+                     e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5), e_x_te_top3=X.te_top3(rows, X.GL, pos=dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position))
     try:
         from . import contracts as CT
         E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))

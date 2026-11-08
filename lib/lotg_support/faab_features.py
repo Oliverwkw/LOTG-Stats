@@ -619,6 +619,23 @@ def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
     return out
 
 
+def te_top3(rows, gl, pos=None, top=3):
+    """a TE who finished a season in the top `top` TEs by total PPR: 1 for last season (season-1), 0.5 for the one
+    before, else 0 (the larger). rows: gsis, date, pos. gl: one row per game (gsis, season, ppr, and position unless
+    `pos`, a gsis -> position map, is given)."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    g = gl.assign(gsis=gl.gsis.astype(str))
+    te = g.gsis.map(pos).eq("TE") if pos is not None else g.position.eq("TE")
+    t = g[te.values].groupby(["season", "gsis"]).ppr.sum().reset_index()
+    t["rk"] = t.groupby("season").ppr.rank(ascending=False, method="first")
+    best = {(g, int(y)) for g, y, r in zip(t.gsis, t.season, t.rk) if r <= top}
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    for i in np.where(rows.pos.values == "TE")[0]:
+        g, y = str(rows.gsis.values[i]), int(s_row[i])
+        out[i] = 1.0 if (g, y - 1) in best else (0.5 if (g, y - 2) in best else 0.0)
+    return out
+
+
 TE_BIG, TE_MID = 11.0, 10.0      # PPR per game: a TE's big season / a mid-or-worse one (8+ games)
 
 

@@ -406,3 +406,10 @@ def test_young_elite_is_rbs_wrs_under_24_with_elite_production():
     X = F.characteristics(pd.DataFrame(rows))["young_elite"]
     assert X[0] == 1.0 and 0 < X[1] < 1 and X[2] == 0 and X[3] == 0 and X[4] == 0, X
     assert "young_elite" in F.RAISE_ONLY
+
+
+def test_te_top3_eases_the_te_line():
+    R = F.load_inputs(); p = F.load_params()
+    _, t1, _ = F.apply_rules(R, p, explain=True); _, t0, _ = F.apply_rules(R, dict(p, te_top3=0.0), explain=True)
+    hit = np.nan_to_num(F.col(R, "e_x_te_top3")) > 0
+    assert (t1["te_line"] >= t0["te_line"] - 1e-12).all() and (t1["te_line"][~hit] == t0["te_line"][~hit]).all()
