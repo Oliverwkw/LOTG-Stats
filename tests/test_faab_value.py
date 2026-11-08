@@ -65,8 +65,8 @@ def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
 
 
 def test_calls_regression_floor():
-    R = F.load_inputs(); T = F.board(R, F.load_params(), as_of=LC.CALLS_DATE)
-    t = LC.calls(T.set_index("name").V, pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
+    ev = F.Evidence.load(); T = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
+    t = LC.calls(F.call_values(ev, F.load_params()), pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
     assert sum(x == 0 for _, x in t) >= 85, [n for n, x in t if x > 0]
 
 
@@ -356,3 +356,17 @@ if __name__ == "__main__":
         fn()
         print("  ok")
     print("\nall faab value checks passed")
+
+
+def test_each_call_group_is_judged_on_the_board_of_its_day():
+    ev = F.Evidence.load()
+    assert set(ev.call_boards) == set(LC.CALL_DATES) and all(gd <= d for d, gd in ev.call_boards.items())
+    v = F.call_values(ev, F.load_params())[LC.CALL_DATES[0]]
+    lo, hi = v.copy(), v.copy(); lo["Michael Wilson"], hi["Michael Wilson"] = 300.0, 500.0
+    miss = lambda b: dict(LC.calls(b))["Michael Wilson up (>= $400)"]       # a second-review call (2026-10-25)
+    assert miss(lo) > 0 and miss(hi) == 0
+    # the 2026-10-25 call reads the 10-25 board, not the 10-24 one, and not a later one
+    assert miss({"2026-10-24": lo, "2026-10-25": hi, "2026-10-26": lo}) == 0
+    assert miss({"2026-10-24": hi, "2026-10-25": lo, "2026-10-26": hi}) > 0
+    # no board for its day: the latest earlier one stands in
+    assert miss({"2026-10-24": hi, "2026-10-28": lo}) == 0

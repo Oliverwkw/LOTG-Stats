@@ -147,7 +147,10 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     now = R.date.max(); latest = np.where(R.date.values == np.datetime64(now))[0]
     vi, vd = vote_rows(R, responses)
     cd = R.date[R.date <= pd.Timestamp(LC.CALLS_DATE)].max()          # the board the league's calls were about, kept for good
-    calls = np.where(R.date.values == np.datetime64(cd))[0] if pd.notna(cd) else np.array([], int)
+    # and the board of each day a group of calls was made (each group is judged on its own day's board)
+    cds = {d: R.date[R.date <= pd.Timestamp(d)].max() for d in LC.CALL_DATES}; cds = {d: x for d, x in cds.items() if pd.notna(x)}
+    keep = [np.datetime64(x) for x in ([cd] if pd.notna(cd) else []) + list(cds.values())]
+    calls = np.where(np.isin(R.date.values.astype("datetime64[ns]"), np.array(keep, dtype="datetime64[ns]")))[0]
     idx = np.unique(np.r_[cut, [i for _, s in tr for side in s for i in side[1]], latest, vi, calls].astype(int))
     need = [c for c in rule_columns() if c in R]
     E = R.iloc[idx][need].copy()
@@ -158,6 +161,7 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     E.to_csv(out / "inputs.csv", index=False)
     key = lambda i: [str(R.sid.values[i]), pd.Timestamp(R.date.values[i]).strftime("%Y-%m-%d")]
     json.dump(dict(as_of=str(pd.Timestamp(now).date()), calls_date=str(pd.Timestamp(cd).date()) if pd.notna(cd) else None,
+                   call_dates={d: str(pd.Timestamp(x).date()) for d, x in cds.items()},
                    trades=[dict(date=str(d.date()), sides=[dict(other_value=round(float(pk), 3), players=[key(i) for i in ix]) for pk, ix in s]) for d, s in tr],
                    cuts=[key(i) for i in cut], vote_dates=dict(sorted(vd.items()))), open(out / "evidence.json", "w"), indent=0)
     return len(E)

@@ -72,12 +72,13 @@ def cmd_explain(a):
 
 
 def cmd_calls(a):
-    R, p, _ = _setup(a.params)
-    T = F.board(R, p, as_of=json.load(open(F.DATA / "evidence.json")).get("calls_date") or R.date.max())
-    v = T.set_index("name").V; ref = pd.read_csv(REF).set_index("name").V
-    t = LC.calls(v, ref, set(T.name[T.pos == "QB"]))
+    p = F.load_params(a.params); ev = F.Evidence.load()
+    v = F.call_values(ev, p); ref = pd.read_csv(REF).set_index("name").V
+    first = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
+    t = LC.calls(v, ref, set(first.name[first.pos == "QB"]))
     bad = [(n, x) for n, x in t if x > 0]
-    print(f"{len(t) - len(bad)}/{len(t)} calls pass on the {T.date.iloc[0]} board (calls made about the {LC.CALLS_DATE} board)")
+    on = ", ".join(f"{d} on the {gd} board" for d, gd in ev.call_boards.items())
+    print(f"{len(t) - len(bad)}/{len(t)} calls pass; each group judged on the board of the day it was made ({on})")
     for n, x in sorted(bad, key=lambda z: -z[1]): print(f"  MISS {x:.3f}  {n}")
 
 
