@@ -235,6 +235,15 @@ def test_cheap_deal_reaches_moved_vets_on_cheap_new_deals():
     assert (terms["cheap_deal"][st["base"] <= 300] == 0).all()        # a cheap player's cheap deal is no news
 
 
+def test_older_wr_team_share_is_capped():
+    """a WR's share_talent multiplier is capped at share_old_cap from share_old_age (fading in over the 2 years before)"""
+    p = F.load_params(); cap = np.log(p["share_old_cap"]); a = p["share_old_age"]
+    R = pd.DataFrame([dict(pos=q, age=x, exp=8.0, injury="", V_raw=1500.0, e_x_l0_xfp_share=0.30, e_x_l1_xfp_share=0.30)
+                      for q, x in (("WR", a - 3), ("WR", a - 1), ("WR", a + 1), ("RB", a + 1))])
+    st = F.apply_rules(R, p, explain=True)[1]["share_talent"]
+    assert st[0] > cap and cap < st[1] < st[0] and np.isclose(st[2], cap) and st[3] > cap
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
