@@ -390,3 +390,11 @@ def test_post_rules_dock_the_lesser_of_two_big_wrs_and_cap_fast_risers():
     out = F.post_rules(V, R, dict(lag_cap=2.5, lag_floor=100.0), mate, lag)
     assert np.allclose(out, [2500.0, 2200.0, 1000.0, 1000.0])                             # a's row 4 weeks earlier was $1,000
     assert "wr_pair" in F.LOWER_ONLY and F.load_params()["lag_cap"] >= 50          # the cap stays off until Oliver says
+
+
+def test_wr_talent_is_receivers_only_and_young_qbs_rbs_have_their_own_upside_rule():
+    R = F.load_inputs(); X = F.characteristics(R)
+    assert (X["wr_talent"][~R.pos.isin(["WR", "TE"]).values] == 0).all()
+    yu = X["young_upside"]
+    assert (yu[~R.pos.isin(["QB", "RB"]).values] == 0).all() and (yu[R.exp.values > F.UPSIDE_EXP] == 0).all() and (yu > 0).any()
+    assert "young_upside" in F.RAISE_ONLY
