@@ -47,10 +47,10 @@ def _rowmean(*cols):
 
 # ------------------------------------------------------------------ rules
 P0 = dict(y200=200.0, y450=450.0, y650=650.0, lvl=1.0, vet=1.0, vet_hi=900.0, top_g=0.62,
-          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0, rookie_backup=0.0, draft_comp=0.0)
+          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0, rookie_backup=0.0, draft_comp=0.0, cheap_deal=0.0, undrafted=0.0, te_one_off=0.0, team_q_lo=0.0, qb_paid=0.0, avail_young_floor=0.0, avail_young_age=24.0, share_old_cap=99.0, share_old_age=30.0, wr_pair=0.0, young_upside=0.0, young_elite=0.0, te_top3=0.0, rookie_r1=0.0, r1_wr=0.0, lag_cap=99.0, lag_floor=0.0, overtaken=0.0)
 BOUNDS = dict(y200=(80, 230), y450=(250, 520), y650=(500, 950), lvl=(0.6, 1.6), vet=(0.2, 1.0), vet_hi=(600, 3500), top_g=(0.45, 0.85),
               youth_role=(-0.5, 2.0), te_lo=(-1.5, 0.8), te_hi=(-1.0, 0.6), inj_ir=(-1.0, 0.3), inj_out=(-0.8, 0.3), prone=(-2.5, 0.5),
-              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0), rookie_backup=(-2.0, 0.0), draft_comp=(-2.5, 0.0))
+              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0), rookie_backup=(-2.0, 0.0), draft_comp=(-2.5, 0.0), cheap_deal=(-2.5, 0.0), undrafted=(-2.5, 0.0), overtaken=(-2.5, 0.0), wr_pair=(-3.0, 0.0), lag_cap=(1.5, 99.0), lag_floor=(0.0, 500.0), young_upside=(0.0, 1.5), young_elite=(0.0, 2.0), te_top3=(0.0, 1.0), rookie_r1=(-2.5, 0.0), r1_wr=(-2.5, 0.0), te_one_off=(-2.5, 0.0), team_q_lo=(0.0, 1.5), qb_paid=(0.0, 2.5))
 P0.update(boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     
@@ -67,10 +67,10 @@ BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     spike=(0.0, 1.2), team_q=(0.0, 0.25),                                         # big weeks and team strength: capped
     qb_pedigree=(0.0, 1.5), qb_starter=(0.0, 1.0), qb_opening=(0.0, 1.5),        # QB draft capital, established starting QB, QB opening
     ir_no_double=(0.0, 1.0))                                                      # a blend weight (IR: prior seasons stand in), either direction
-RAISE_ONLY = ["fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
+RAISE_ONLY = ["young_elite", "young_upside", "qb_paid", "team_q_lo", "fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
               "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening", "peak_share", "avail_up"]
-LOWER_ONLY = ["draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
+LOWER_ONLY = ["r1_wr", "rookie_r1", "wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
@@ -78,7 +78,13 @@ AGE_WALL = {"QB": 99, "RB": 30, "WR": 31, "TE": 32}     # past this, a declining
                                                          # not QBs (the superflex QB rules carry their own age fade, and the calls hold old QBs up)
 UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
+UPSIDE_EXP = 2       # young_upside: a player in his first three seasons
+ELITE_AGE = 24.0     # young_elite: full under this age, none a year older
+ROOKIE_PRIOR = {"QB": 1.0, "RB": 0.25, "WR": 1.0, "TE": 1.0}   # share of the 4-game usage prior a rookie year gets (Kyren 2023)
+OVR_AGE = 29.0      # "an aging veteran who loses his role to a rookie": full from this age, none 2 years younger
 BACKUP_POS = ("RB",)
+DEAL_CHEAP = {"RB": 0.03, "WR": 0.04, "TE": 0.03}     # APY share of the cap: a backup's deal at or under this ...
+DEAL_FULL = {"RB": 0.015, "WR": 0.015, "TE": 0.01}      # ... and a minimum-level deal (full)
 
 
 def rookie_backup(R, exp_):
@@ -117,7 +123,9 @@ def characteristics(R, youth_age=26.0):
     w4 = np.where(np.isnan(col(R, "e_x_cur_xfp_pg")), 0.0, np.clip(cur_gp / 4.0, 0, 1))
     # usage: expected fantasy points per game (what the role is worth, not what bounced right), this season blended
     # with last season as 4 games of prior, relative to the position's superflex replacement level
-    xc, xl = col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"); g = np.where(np.isnan(xc), 0, cur_gp); gl = np.where(np.isnan(xl), 0, 4.0)
+    # (in his second season the prior is his rookie year, which counts for less: ROOKIE_PRIOR games of 4, RBs least)
+    rp = np.where(exp_ == 1, R.pos.map(ROOKIE_PRIOR).fillna(1.0).values, 1.0)
+    xc, xl = col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"); g = np.where(np.isnan(xc), 0, cur_gp); gl = np.where(np.isnan(xl), 0, 4.0 * rp)
     xfp_b = (np.nan_to_num(xc) * g + np.nan_to_num(xl) * gl) / np.maximum(g + gl, 1e-9)
     rep = R.pos.map({"QB": 15.7, "RB": 12.1, "WR": 12.2, "TE": 10.5}).fillna(12).values
     best = np.fmax(np.nan_to_num(xl, nan=-9), np.nan_to_num(col(R, "e_x_l1_xfp_pg"), nan=-9))                # best of the last two full seasons
@@ -265,7 +273,10 @@ def characteristics(R, youth_age=26.0):
                                                     + 0.2 * np.nan_to_num((sp_ - 2.8) / 0.4) + 0.25 * np.nan_to_num(col(R, "e_x_top5_6y")) / 3, -1, 2)
     # count talent only beyond what the player already produces (no double count for a star on a good offense)
     prod_z = np.clip(usage, -1, 2)
-    wr_talent = np.clip(wr_talent_raw - prod_z, 0, 2)
+    wr_talent = np.isin(posv, ["WR", "TE"]) * np.clip(wr_talent_raw - prod_z, 0, 2)   # (QBs/RBs: their own rule below)
+    # a QB or RB in his first three seasons not producing yet: upside the stats have not shown (until 2026-11-08 this leaked into
+    # wr_talent for every QB/RB with usage under replacement; now its own rule, young players only)
+    young_upside = np.isin(posv, ["QB", "RB"]) * (exp_ <= UPSIDE_EXP) * np.clip(-prod_z, 0, 1)
     # a top pick finally playing as advertised: this season's points per game above his own last season (upswings only)
     fp_c = col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"); fp_0 = col(R, "e_x_l0_xfp_pg") + col(R, "e_x_l0_fpoe_pg")
     pk = col(R, "e_x_draft_pick"); top_pick = np.where(np.isnan(pk), 0, np.clip((16 - pk) / 15, 0, 1))
@@ -314,14 +325,48 @@ def characteristics(R, youth_age=26.0):
                 near_wall=(R.pos.values != "QB") * np.clip((np.nan_to_num(age, nan=25) - R.pos.map(AGE_WALL).fillna(31).values + 2.0) / 2.0, 0, 1),
                 # a veteran (27 -> 29) on a new team: signed or traded since last season (offseason from March 15)
                 vet_move=(R.pos.values != "QB") * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off"))) * np.clip((np.nan_to_num(age, nan=25) - 27.0) / 2.0, 0, 1),
-                # an RB who can't run: yards per carry over the last two seasons under 4.1 (3.7 = full), from his 3rd season
-                # (two complete seasons: a pattern over years, not a rookie behind a bad line)
-                ypc_bad=(R.pos.values == "RB") * (exp_ >= 2) * np.clip((4.1 - np.nan_to_num(col(R, "e_x_ypc_2y"), nan=9.0)) / 0.4, 0, 1.5),
+                # an RB who can't run: yards per carry over the last two seasons and this one so far (e_x_ypc_3s; else the
+                # last two) under 4.1 (3.7 = full), from his 3rd season (a pattern over years, not a rookie behind a bad line;
+                # this season counts so a workhorse running well now is not docked for two seasons ago: Mixon 2021)
+                ypc_bad=(R.pos.values == "RB") * (exp_ >= 2) * np.clip((4.1 - np.nan_to_num(np.where(np.isnan(col(R, "e_x_ypc_3s")), col(R, "e_x_ypc_2y"), col(R, "e_x_ypc_3s")), nan=9.0)) / 0.4, 0, 1.5),
                 rookie_backup=rookie_backup(R, exp_),
                 # the NFL just drafted his replacement: same-team, same-position rookies taken in rounds 1-2 this season
                 # (from the NFL draft day; a second one counts half), from his 3rd season (a 2nd-year player is still the
                 # team's bet); gated to mid-priced players in apply_rules
                 draft_comp=(exp_ >= 2) * np.clip(np.nan_to_num(col(R, "e_x_draft_comp")), 0, 1.5),
+                # the NFL market's price: a veteran who changed teams (signed or traded since last season) on a cheap
+                # veteran deal signed this season (APY share of the cap under DEAL_CHEAP for his position; DEAL_FULL = full).
+                # Gated to players the base values (apply_rules): a cheap deal for a cheap player is no news
+                cheap_deal=(R.pos.values != "QB") * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off")))
+                    * np.where(np.isnan(col(R, "e_x_vet_deal_cap")), 0.0, np.clip((R.pos.map(DEAL_CHEAP).fillna(0).values - np.nan_to_num(col(R, "e_x_vet_deal_cap")))
+                                                                         / (R.pos.map(DEAL_CHEAP).fillna(1).values - R.pos.map(DEAL_FULL).fillna(0).values), 0, 1)),
+                # a rookie the league passed on: not taken in its rookie draft and not a top pre-Week-1 add
+                # (e_x_league_undrafted: 1 = neither, less credit for his bid); fades out over his first 4 games, when
+                # his own usage prices him (Oliver: Luke McCaffrey 2024, a 3rd-round NFL pick no one here drafted)
+                # a TE's one big year: last season on a team he had just joined, after mid-or-worse seasons
+                # (e_x_te_one_off), and now on the move again (signed or traded since): the big year was the situation,
+                # not him (Oliver: Jonnu Smith 2025). Fades out over his first 4 games for the new team
+                # a QB a new team just paid as its starter (a veteran deal this season at 8%+ of the cap, 15% = full):
+                # the market's call on his role until he plays (fading out over 4 games; Oliver: Carr to New Orleans 2023); the
+                # replacement line is lifted with it
+                qb_paid=(R.pos.values == "QB") * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off")))
+                    * np.clip((np.nan_to_num(col(R, "e_x_vet_deal_cap")) - 0.08) / 0.07, 0, 1) * (1 - np.clip(cur_gp / 4.0, 0, 1)),
+                # last season a same-team rookie outscored him (e_x_overtaken), fading as he plays this season; an aging player only (OVR_AGE)
+                overtaken=np.nan_to_num(col(R, "e_x_overtaken")) * (1 - np.clip(cur_gp / 8.0, 0, 1)) * np.clip((np.nan_to_num(age, nan=25) - OVR_AGE + 2.0) / 2.0, 0, 1),
+                young_upside=young_upside,
+                # elite production at a young age: fantasy points per game (this season from 4 games, else last season)
+                # at 18+ PPR (22 = full) for an RB/WR under ELITE_AGE, gone a year later: the rarest asset (Oliver:
+                # Jefferson at 23, 2022; kept off the 2026 top 3's 24-25 year-olds so they stay inside the top-3 band)
+                young_elite=np.isin(R.pos.values, ["RB", "WR"]) * np.clip((np.nan_to_num(pn_, nan=0) - 18.0) / 4.0, 0, 1) * np.clip(ELITE_AGE + 1.0 - np.nan_to_num(age, nan=30), 0, 1),
+                te_top3=(R.pos.values == "TE") * np.nan_to_num(col(R, "e_x_te_top3")),
+                # an RB the NFL did not draft early (pick 65+ or undrafted) whose team took a 1st-round RB this season
+                # (e_x_draft_comp_r1): the job is the rookie's (Oliver: James Robinson after Etienne, 2021)
+                rookie_r1=(R.pos.values == "RB") * (exp_ >= 1) * np.clip(np.nan_to_num(col(R, "e_x_draft_comp_r1")), 0, 1) * (np.nan_to_num(col(R, "e_x_draft_pick"), nan=999) > 64),
+                # a veteran WR whose team took a 1st-round WR this season (Oliver: Deebo 2024 after Pearsall)
+                r1_wr=(R.pos.values == "WR") * (exp_ >= 2) * np.clip(np.nan_to_num(col(R, "e_x_draft_comp_r1")), 0, 1),
+                te_one_off=(R.pos.values == "TE") * np.nan_to_num(col(R, "e_x_te_one_off")) * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off")))
+                    * (1 - np.clip(cur_gp / 4.0, 0, 1)),
+                undrafted=(exp_ == 0) * np.nan_to_num(col(R, "e_x_league_undrafted")) * (1 - np.clip(cur_gp / 4.0, 0, 1)),
                 rookie_day3=(exp_ == 0) * (R.pos.values != "QB") * np.where(np.isnan(pk), 1.0, np.clip((pk - 100) / 60, 0, 1)),
                 rec_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(AGE_WALL).fillna(31).values + 2.0) / 3.0, 0, 1) * drop_old, qb_early=qb_early, te_x=te_x, boom_week=boom_week, fresh=fresh, wr_no_role=wr_no_role, te_proven=te_proven, te_proven16=te_proven16, duds=duds, peak_share=peak_share, slump=slump, regress=regress, rostered=np.nan_to_num(col(R, "e_x_rostered_recent")), avail_prior=avail_prior, qb_starter=qb_starter, qb_pedigree=qb_pedigree, young_starter=young_starter, carry=carry, one_game=one_game, boom_bust=boom_bust, td_dep=td_dep, off_field=off_field, summer=summer, journeyman=journeyman, bust=bust, rb_multi=rb_multi, wr_talent=wr_talent, pick_boom=pick_boom, rb_age=rb_age, rookie_capital=rookie_capital, alpha=alpha,
                 availability=availability, efficiency=efficiency, opening=opening, team_q=np.clip(team_q, -1.5, 1.5), new_team_burst=new_team_burst, share_talent=share_talent,
@@ -330,7 +375,7 @@ def characteristics(R, youth_age=26.0):
                 ir=np.isin(inj, ["IR", "PUP"]).astype(float), out=np.isin(inj, ["Out", "Doubtful"]).astype(float),
                 te=(R.pos.values == "TE").astype(float), vet_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(VET_AGE).fillna(30).values) / 2, 0, 1),
                 un=np.nan_to_num(col(R, "un_x")))
-RULE_KEYS = {"qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "summer": "summer", "old_cliff": "old_cliff", "vet_move": "vet_move", "ypc_bad": "ypc_bad", "rookie_backup": "rookie_backup", "duds": "duds", "peak_share": "peak_share", "slump": "slump", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
+RULE_KEYS = {"r1_wr": "r1_wr", "rookie_r1": "rookie_r1", "young_elite": "young_elite", "young_upside": "young_upside", "overtaken": "overtaken", "qb_paid": "qb_paid", "te_one_off": "te_one_off", "undrafted": "undrafted", "qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "summer": "summer", "old_cliff": "old_cliff", "vet_move": "vet_move", "ypc_bad": "ypc_bad", "rookie_backup": "rookie_backup", "duds": "duds", "peak_share": "peak_share", "slump": "slump", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
              "wr_talent": "wr_talent", "pick_boom": "pick_boom", "rb_age": "rb_age", "rookie_capital": "rookie_capital", "alpha": "alpha",
              "availability": "availability", "efficiency": "efficiency", "opening": "opening", "team_q": "team_q", "new_team_burst": "new_team_burst",
              "share_talent": "share_talent", "recurring": "recurring", "steady": "steady", "pedigree": "pedigree", "elite_streak": "elite", "track": "track",
@@ -359,8 +404,18 @@ def apply_rules(R, p, X=None, explain=False):
     # availability: missed games lower a value (availability); a clean record raises it by its own strength (avail_up)
     av_ = lambda x: p.get("availability", 0) * np.minimum(x, 0) + p.get("avail_up", 0) * np.maximum(x, 0)
     T_["availability"] = np.where(X["ir"] > 0, (1 - p.get("ir_no_double", 0.0)) * av_(X["availability"]) + p.get("ir_no_double", 0.0) * av_(X["avail_prior"]), av_(X["availability"]))
+    # a young player's missed games: the availability drop is floored (avail_young_floor, a multiplier; 0 = off) under
+    # avail_young_age, fading out over the 2 years after (Oliver: Brooks, Dobbins, Kyren)
+    yf = p.get("avail_young_floor", 0.0)
+    if yf > 0:
+        yw = np.clip((p.get("avail_young_age", 24.0) + 2.0 - np.nan_to_num(col(R, "age"), nan=30)) / 2.0, 0, 1)
+        T_["availability"] = np.maximum(T_["availability"], (1 - yw) * T_["availability"] + yw * np.log(yf))
     # team-share talent is a bet on the future: it fades past the age wall (share_age)
     T_["share_talent"] = T_["share_talent"] * (1 - p.get("share_age", 0.0) * X["past_wall"])
+    # ... and an older WR's team share is capped (share_old_cap, a multiplier, full from share_old_age, fading in over the
+    # 2 years before): a 30+ receiver's share is what he has done, not a long bet (Oliver: Adams 2025, "limit to 1.25-1.5")
+    old_wr = (pos == "WR") * np.clip((np.nan_to_num(col(R, "age"), nan=25) - p.get("share_old_age", 30.0) + 2.0) / 2.0, 0, 1)
+    T_["share_talent"] = np.where(old_wr > 0, np.minimum(T_["share_talent"], (1 - old_wr) * T_["share_talent"] + old_wr * np.log(p.get("share_old_cap", 99.0))), T_["share_talent"])
     # a rookie drafted on day 3 (pick 100+, or undrafted) is priced near his slot until he plays (rookie_day3)
     T_["rookie_day3"] = p.get("rookie_day3", 0.0) * X["rookie_day3"]
     nd = p.get("ir_no_double", 0.0) * X["ir"]                       # on IR: the healthy role (prior seasons) stands in for this season
@@ -368,12 +423,17 @@ def apply_rules(R, p, X=None, explain=False):
     T_["youth_usage"] = p.get("youth_usage", 0) * ((1 - nd) * X["youth_usage"] + nd * X["youth_usage_h"])
     T_["qb_opening"] = p.get("qb_opening", 0.0) * X["qb_played"] * X["opening"] * X["qb_early"]   # a young QB who has played well (PPG over the QB line), competition only an aging backup
     T_["draft_comp"] = p.get("draft_comp", 0.0) * X["draft_comp"] * np.interp(raw, [150, 200, 600, 800], [0, 1, 1, 0])   # base $200-600 (fading 150-200, 600-800): Oliver
+    # a cheap player's team counts for more: a mediocre player on a bad team is worth little, on a good one he has a
+    # path (team_q_lo, extra team-quality strength at base under $75, fading out by $150: Oliver, Tre Tucker 2025)
+    T_["team_q_lo"] = p.get("team_q_lo", 0.0) * np.minimum(X["team_q"], 0) * np.interp(raw, [75, 150], [1, 0])
+    T_["cheap_deal"] = p.get("cheap_deal", 0.0) * X["cheap_deal"] * np.interp(raw, [300, 600], [0, 1])
     T_["boom_week"] = p.get("boom_week", 0.0) * X["boom_week"] * np.clip((p.get("boom_hi", 600.0) - v) / (0.6 * p.get("boom_hi", 600.0)), 0, 1)
     T_["spike"] = p.get("spike", 0) * X["spike"] * unpriced; T_["team_up"] = p.get("team_up", 0) * X["team_up"] * unpriced
     T_["position curve"] = X["te"] * curve(p["te_lo"], p["te_hi"]) + np.select([pos == "QB", pos == "RB", pos == "WR"], [top_curve(p["qb_lo"], p["qb_hi"]), top_curve(p["rb_lo"], p["rb_hi"]), top_curve(p["wr_lo"], p["wr_hi"])], 0.0)
     # TE line in two tiers: a light drop below te_thr (capped, te_soft) and a harsh one below te_thr2 (te_line); a proven
     # TE's line is eased by te_relief
     tx_ = np.nan_to_num(X["te_x"], nan=99.0); pv = p.get("te_pv16", 0.0); relief = 1 - p.get("te_relief", 0.0) * ((1 - pv) * X["te_proven"] + pv * X["te_proven16"])
+    relief = relief * (1 - p.get("te_top3", 0.0) * X["te_top3"])         # a recent top-3 TE season eases it too (Schultz 2022)
     T_["te_line"] = relief * (p.get("te_soft", 0.0) * np.clip((p.get("te_thr", 11.0) - tx_) / 2.5, 0, 1)
                               + p.get("te_line", 0.0) * np.clip((p.get("te_thr2", 9.0) - tx_) / 2.5, 0, 1.5))
     T_["no NFL team"] = -UK * X["un"] * (1 - X["rostered"])     # on a roster last season or this one (IR, suspended): he has a team
@@ -387,6 +447,7 @@ def apply_rules(R, p, X=None, explain=False):
     if "rank_raw" in R:
         n_ = col(R, "line_n"); vetr = (np.nan_to_num(col(R, "exp")) >= 3) * np.where(X["wr_no_role"] > 0, 1.0, np.clip((np.nan_to_num(col(R, "age"), nan=28) - 25.0) / 3.0, 0, 1))   # 4th season on, fading in from 25 to 28 (a WR who never had a starter's role: full)
         T_["replacement line"] = -p.get("bubble", 0.0) * np.nan_to_num(vetr * np.clip((col(R, "rank_raw") - p.get("line_frac", 0.8) * n_) / (0.25 * n_), 0, 1.5))
+    if "replacement line" in T_: T_["replacement line"] = T_["replacement line"] * (1 - X["qb_paid"])
     # a fresh start (followed his coach to a new team): the role-based docks (TE line, replacement line) are lifted
     # and the move is priced by its own strength (fresh_start, held on Oliver's call). Only for a player who would
     # otherwise be worth under $200 (Oliver): a valued player's price already carries his role
@@ -407,7 +468,7 @@ def apply_rules(R, p, X=None, explain=False):
     return out
 
 # ------------------------------------------------------------------ inputs and evidence
-REG_KEYS = ["draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
+REG_KEYS = ["r1_wr", "rookie_r1", "te_top3", "young_elite", "young_upside", "wr_pair", "overtaken", "qb_paid", "team_q_lo", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
             "rookie_capital", "alpha", "availability", "efficiency", "opening", "team_q", "new_team_burst", "share_talent", "recurring", "steady", "pedigree",
             "elite_streak", "track", "qb_quality", "spike", "team_up", "severe", "qb_lo", "qb_hi", "rb_lo", "rb_hi", "wr_lo", "wr_hi", "usage", "youth_usage",
             "youth_role", "te_lo", "te_hi", "inj_ir", "inj_out", "prone", "two_way", "aw_college", "aw_nfl"]
@@ -415,9 +476,50 @@ W_TRADES, W_CUTS = 3.0, 3.0      # trade/cut history counts more than one person
 
 
 def load_inputs(data=DATA):
-    R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str}, keep_default_na=False, na_values=[""])
+    R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str, "wr_mate": str}, keep_default_na=False, na_values=[""])
     R["injury"] = R.injury.fillna("")
     return R
+
+
+LAG_DAYS, LAG_SLACK = 28, 7       # "his value four weeks earlier": the latest row at least 28 days back, at most 35
+PAIR_MIN = 1750.0                 # two WRs on one team both worth this much: the lesser one is docked (wr_pair)
+
+
+def links(R):
+    """positions in R of each row's top WR teammate that day (the export's wr_mate) and of his own row LAG_DAYS
+    earlier (within LAG_SLACK more days); -1 = not in the inputs"""
+    sid = R.sid.astype(str).values; d = pd.to_datetime(R.date).values
+    key = {(a, x): i for i, (a, x) in enumerate(zip(sid, d))}
+    wm = R["wr_mate"].fillna("").astype(str).values if "wr_mate" in R else np.full(len(R), "")
+    mate = np.array([key.get((m, x), -1) if m not in ("", "nan") else -1 for m, x in zip(wm, d)], dtype=int)
+    L = pd.DataFrame(dict(sid=sid, t=pd.to_datetime(d) - pd.Timedelta(days=LAG_DAYS), j=np.arange(len(R))))
+    G = pd.DataFrame(dict(sid=sid, t=pd.to_datetime(d), i=np.arange(len(R))))
+    m = pd.merge_asof(L.sort_values("t"), G.sort_values("t"), on="t", by="sid", direction="backward", tolerance=pd.Timedelta(days=LAG_SLACK))
+    lag = np.full(len(R), -1, dtype=int); lag[m.j.values] = m.i.fillna(-1).astype(int).values
+    return mate, lag
+
+
+def post_rules(V, R, p, mate, lag, X=None):
+    """the rules that read another row's value (after apply_rules; the other row's own value is taken before them):
+    wr_pair: when a team's two WRs are both worth PAIR_MIN+, the lesser one x exp(wr_pair x the other's target share)
+             (Oliver 2026-11-08: Waddle under Hill, Higgins under Chase, Godwin under Evans);
+    lag_cap: no row above lag_cap x his value LAG_DAYS earlier (with a floor of lag_floor), when that row is in the
+             inputs (Oliver 2026-11-08: CEH and Kirk, 2022-10). 99 = off."""
+    V = np.asarray(V, dtype=float); out = V.copy()
+    k = p.get("wr_pair", 0.0)
+    if k and (mate >= 0).any():
+        cur = np.nan_to_num(col(R, "e_x_cur_games"))
+        sh = np.nan_to_num(np.where(cur >= 4, col(R, "e_x_cur_tgt_share"), col(R, "e_x_l0_tgt_share")))
+        has = (mate >= 0) & (R.pos.values == "WR"); m = np.maximum(mate, 0)
+        vm = np.where(has, V[m], 0.0)
+        w = has * (V <= vm) * np.interp(np.minimum(V, vm), [PAIR_MIN - 250, PAIR_MIN], [0, 1])
+        out = out * np.exp(k * w * np.where(has, sh[m], 0.0))
+    c = p.get("lag_cap", 99.0)
+    if c < 50 and (lag >= 0).any():
+        has = lag >= 0
+        lim = np.where(has, np.maximum(c * V[np.maximum(lag, 0)], p.get("lag_floor", 0.0)), np.inf)
+        out = np.minimum(out, lim)
+    return out
 
 
 def load_params(path=None):
@@ -433,14 +535,32 @@ class Evidence:
         key = {(s, d): i for i, (s, d) in enumerate(zip(R.sid.values, R.date.values))}
         self.calls_date = ev.get("calls_date") or ev["as_of"]      # the league's calls are judged on the board they were about
         self.T = R[R.date == self.calls_date].drop_duplicates("name").reset_index(drop=True)
+        # each group of calls on the board of the day it was made: call date -> the inputs' grid date holding it
+        # (the export's choice when it kept that board, else the latest full board on or before the call date)
+        from . import faab_calls as LC
+        n = R.date.value_counts(); full = sorted(n.index[n >= 0.5 * n.max()]); cd = ev.get("call_dates") or {}
+        self.call_boards = {}
+        for d in LC.CALL_DATES:
+            gd = cd.get(d)
+            if gd is None or not (R.date == gd).any(): gd = max([x for x in full if x <= d] or [self.calls_date])
+            self.call_boards[d] = gd
+        R = R.reset_index(drop=True); self.R = R
+        self.pTs = {gd: R[R.date == gd].drop_duplicates("name").index.values for gd in set(self.call_boards.values())}
+        self.Ts = {gd: R.iloc[i].reset_index(drop=True) for gd, i in self.pTs.items()}
+        self.mate, self.lag = links(R)
         rows = sorted({key[tuple(k)] for k in ev["cuts"]} | {key[tuple(k)] for t in ev["trades"] for s in t["sides"] for k in s["players"]})
         pos = {i: j for j, i in enumerate(rows)}
-        self.E = R.iloc[rows].reset_index(drop=True)
+        self.pE = np.array(rows, dtype=int); self.E = R.iloc[rows].reset_index(drop=True)
         self.trades = [(t["date"], [(s["other_value"], [pos[key[tuple(k)]] for k in s["players"]]) for s in t["sides"]]) for t in ev["trades"]]
         self.cuts = np.array([pos[key[tuple(k)]] for k in ev["cuts"]], dtype=int)
         # boards the rating-page votes were asked on: board date -> the inputs' grid date holding its rows
         self.vote_dates = {str(pd.Timestamp(ev["as_of"]).date()): ev["as_of"], **ev.get("vote_dates", {})}
-        self.VR = R[R.date.isin(set(self.vote_dates.values()))].drop_duplicates(["sid", "date"]).reset_index(drop=True)
+        self.pVR = R[R.date.isin(set(self.vote_dates.values()))].drop_duplicates(["sid", "date"]).index.values
+        self.VR = R.iloc[self.pVR].reset_index(drop=True)
+
+    def values(self, p, X=None):
+        """every inputs row's value, the rules on other rows' values (post_rules) included"""
+        return post_rules(apply_rules(self.R, p, X), self.R, p, self.mate, self.lag, X)
 
     def vote_values(self, v):
         """values of the vote rows (aligned with VR) as {(board date, sid): value}"""
@@ -468,10 +588,23 @@ def board(R, p, as_of=None):
     """the as-of date's board: one row per name, ranked by value"""
     as_of = as_of or R.date.max()
     T = R[R.date == as_of].drop_duplicates("name").copy()
-    T["V"] = apply_rules(T, p)
+    T["V"] = with_links(R, p)[R.index.get_indexer(T.index)]
     T = T.sort_values("V", ascending=False).reset_index(drop=True)
     T["rank"] = np.arange(1, len(T) + 1)
     return T
+
+
+def with_links(R, p):
+    """every row's value with the rules on other rows' values (post_rules)"""
+    mate, lag = links(R.reset_index(drop=True))
+    return post_rules(apply_rules(R, p), R, p, mate, lag)
+
+
+def call_values(ev, p):
+    """{call date: name -> value}: each group of the league's calls on the board of the day it was made"""
+    V = ev.values(p)
+    vb = {gd: pd.Series(V[i], index=ev.Ts[gd].name.values) for gd, i in ev.pTs.items()}
+    return {d: vb[gd] for d, gd in ev.call_boards.items()}
 
 
 def explain(R, p, names):
@@ -513,8 +646,8 @@ def objective(ev, ref, votes=None, band=True):
     """the fit's score for a parameter set: calls + 3 x trade error + 3 x cut penalty + capped votes + a light
     pull of every rule strength toward zero (a rule has to earn its strength)"""
     from . import faab_calls as LC
-    T, E, VR = ev.T, ev.E, ev.VR
-    qbs = set(T.name[T.pos == "QB"]); exp_ = pd.Series(T.exp.values, index=T.name.values) if band else None
+    first = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
+    qbs = set(first.name[first.pos == "QB"]); exp_ = pd.Series(first.exp.values, index=first.name.values) if band else None
     cache = {}
 
     def obj(p, detail=False):
@@ -522,13 +655,13 @@ def objective(ev, ref, votes=None, band=True):
         if ya not in cache:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                cache[ya] = (characteristics(T, ya), characteristics(E, ya), characteristics(VR, ya) if votes is not None else None)
-        XT, XE, XV = cache[ya]
-        vt = apply_rules(T, p, XT)
-        c, t = LC.score(pd.Series(vt, index=T.name.values), ref, qbs, exp=exp_)
-        ve = apply_rules(E, p, XE)
+                cache[ya] = characteristics(ev.R, ya)
+        V = ev.values(p, cache[ya])
+        vb = {gd: pd.Series(V[i], index=ev.Ts[gd].name.values) for gd, i in ev.pTs.items()}
+        c, t = LC.score({d: vb[gd] for d, gd in ev.call_boards.items()}, ref, qbs, exp=exp_)
+        ve = V[ev.pE]
         te, ce = trade_err(ve, ev.trades)[0], cut_err(ve, ev.cuts)
-        vo = votes.loss(ev.vote_values(apply_rules(VR, p, XV))) if votes is not None and len(votes.C) else 0.0
+        vo = votes.loss(ev.vote_values(V[ev.pVR])) if votes is not None and len(votes.C) else 0.0
         reg = 0.02 * sum(abs(p[k]) for k in REG_KEYS)
         tot = c + W_TRADES * te + W_CUTS * ce + vo + reg
         return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, tests=t) if detail else tot

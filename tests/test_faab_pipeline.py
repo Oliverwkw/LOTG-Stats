@@ -101,6 +101,14 @@ TESTS = [test_replacement_line_by_season, test_excused_fallback_lifts_to_preseas
          test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot,
          test_unsigned_only_off_the_week1_roster_offseason_for_everyone, test_rostered_players_have_a_team]
 
+def test_lag_rows_find_the_row_four_weeks_earlier():
+    d = pd.to_datetime(["2025-09-02", "2025-09-30", "2025-10-01", "2025-10-28", "2025-09-01", "2025-10-28"])
+    R = pd.DataFrame(dict(sid=["a", "a", "a", "a", "b", "b"], date=d))
+    # a on 10-28 -> 09-30 (the latest at least 28 days earlier); a on 10-01 -> 09-02 (29 days); b on 10-28 -> none
+    # (09-01 is 57 days back, past the 7-day slack); a on 09-02 -> none
+    assert list(P.lag_rows(R, np.array([3, 2, 5, 0]))) == [0, 1]
+
+
 if __name__ == "__main__":
     for fn in TESTS:
         print(f"{fn.__name__}:")
@@ -184,3 +192,73 @@ def test_offseason_move_from_free_agency_to_kickoff():
     o2 = X.offseason_move(d2, [2025] * 3, ["PIT", "PIT", "PIT"], ["MIA", "MIA", "MIA"], [True, False, True])
     assert list(o2) == [1.0, 0.0, 0.0]
 
+
+def test_vet_deal_cap_reads_this_seasons_veteran_deal():
+    """the cap share of a veteran deal signed in the row's season (March-based); rookie deals and other seasons don't count"""
+    c = pd.DataFrame(dict(gsis_id=["a", "a", "a", "b"], year_signed=[2017, 2020, 2024, 2024], draft_year=[2017, 2017, 2017, 2024],
+                          apy_cap_pct=[0.003, 0.031, 0.017, 0.008]))
+    rows = pd.DataFrame(dict(gsis=["a", "a", "a", "b", "a"], date=pd.to_datetime(["2024-07-09", "2025-02-01", "2025-03-02", "2024-07-09", "2017-08-01"])))
+    v = X.vet_deal_cap(rows, c)
+    assert np.allclose(v[:2], [0.017, 0.017]) and np.isnan(v[2]) and np.isnan(v[3]) and np.isnan(v[4])
+
+
+def test_league_undrafted_credits_top_week1_adds():
+    """not taken in the league's rookie draft = 1, less credit for a pre-Week-1 bid against the season's 5th-largest"""
+    d0 = "2024-07-13"
+    adds = pd.DataFrame(dict(sid=["d", "w1", "w2", "w3", "w4", "w5", "luke"], type=["Draft"] + ["Waiver"] * 6,
+                             date=pd.to_datetime([d0] + ["2024-09-03"] * 6), price=[0, 80, 60, 40, 35, 30, 15]))
+    rows = pd.DataFrame(dict(sid=["d", "luke", "luke", "w1", "x", "x"],
+                             date=pd.to_datetime(["2024-08-01", "2024-08-01", "2024-09-04", "2024-09-04", "2024-09-04", "2024-07-01"])))
+    v = X.league_undrafted(rows, adds)
+    assert np.allclose(v[:5], [0.0, 1.0, 0.5, 0.0, 1.0]) and np.isnan(v[5])
+
+
+
+
+def test_te_one_off_is_one_big_year_on_a_new_team_after_mid_seasons():
+    gl = pd.DataFrame([dict(gsis=g, season=y, ppr=p) for g, seas in (("j", {2019: 8, 2020: 7, 2021: 4, 2022: 4, 2023: 7, 2024: 13}),
+                                                                     ("k", {2022: 12, 2023: 7, 2024: 13}), ("m", {2021: 4, 2022: 4, 2023: 7, 2024: 13}))
+                       for y, p in seas.items() for _ in range(10)])
+    ro = pd.DataFrame([dict(gsis=g, season=y, week=1, team=("MIA" if y == 2024 else "ATL") if g != "m" else "MIA") for g in "jkm" for y in range(2019, 2026)])
+    rows = pd.DataFrame(dict(gsis=["j", "k", "m", "j"], date=pd.to_datetime(["2025-09-07"] * 3 + ["2024-09-01"]), pos=["TE"] * 4))
+    assert np.allclose(X.te_one_off(rows, gl, ro), [1.0, 0.0, 0.0, 0.0])    # k: one mid season only; m: big year on the same team
+
+
+def test_ypc_with_current_adds_this_seasons_known_games():
+    gl = pd.DataFrame(dict(gsis="m", season=[2019, 2020, 2021, 2021], week=[1, 1, 1, 10], rush_car=[100, 50, 100, 100], rush_yds=[400, 180, 450, 500],
+                           known=pd.to_datetime(["2019-09-10", "2020-09-15", "2021-09-14", "2021-11-16"])))
+    rows = pd.DataFrame(dict(gsis=["m", "m"], date=pd.to_datetime(["2021-10-01", "2021-12-01"])))
+    v = X.ypc_with_current(rows, gl)
+    assert np.isclose(v[0], (400 + 180 + 450) / 250) and np.isclose(v[1], (400 + 180 + 450 + 500) / 350)
+
+
+
+def test_overtaken_by_a_same_team_rookie_last_season():
+    gl = pd.DataFrame([dict(gsis=g, season=2023, ppr=p) for g, p in (("v", 13.0), ("r", 17.0), ("o", 12.0), ("w", 10.0)) for _ in range(10)])
+    ro = pd.DataFrame([dict(gsis=g, season=2023, week=1, team=t) for g, t in (("v", "LA"), ("r", "LA"), ("o", "SF"), ("w", "LA"))])
+    dp = pd.DataFrame(dict(gsis_id=["v", "r", "o", "w"], position=["WR", "WR", "WR", "RB"], draft_year=[2017, 2023, 2016, 2019]))
+    rows = pd.DataFrame(dict(gsis=["v", "o", "r", "v", "w"], date=pd.to_datetime(["2024-04-30", "2024-04-30", "2024-04-30", "2023-04-30", "2024-04-30"]),
+                             pos=["WR", "WR", "WR", "WR", "RB"]))
+    # v: the LA rookie r outscored him by 4 a game -> 1; o: other team; r: the rookie himself; v a season earlier; w: other position
+    assert np.allclose(X.overtaken_by_rookie(rows, gl, ro, dp), [1.0, 0.0, 0.0, 0.0, 0.0])
+
+
+def test_wr_mates_pair_each_wr_with_his_teams_top_other_wr():
+    R = pd.DataFrame(dict(sid=list("abcd"), gsis=list("abcd"), date=pd.to_datetime(["2024-05-07"] * 4), pos=["WR", "WR", "WR", "WR"],
+                          V_raw=[3000.0, 2000.0, 500.0, 900.0]))
+    ro = pd.DataFrame(dict(gsis=list("abcd"), season=2024, week=1, team=["MIA", "MIA", "MIA", "BUF"]))
+    old = getattr(X, "RW", None); X.RW = ro
+    try:
+        m = P.wr_mates(R, np.arange(4))
+    finally:
+        X.RW = old
+    assert m == {0: 1, 1: 0, 2: 0}          # the top WR gets the second; the rest the top; alone on his team: none
+
+
+def test_te_top3_reads_last_two_seasons_top_three_tes():
+    gl = pd.DataFrame([dict(gsis=g, season=y, ppr=p) for g, y, p in (("a", 2021, 200), ("b", 2021, 190), ("c", 2021, 180), ("d", 2021, 170),
+                                                                      ("d", 2020, 300), ("w", 2021, 400))])
+    pos = pd.Series(dict(a="TE", b="TE", c="TE", d="TE", w="WR"))
+    rows = pd.DataFrame(dict(gsis=["c", "d", "d", "a"], date=pd.to_datetime(["2022-11-30", "2022-11-30", "2021-11-30", "2022-11-30"]), pos=["TE", "TE", "TE", "WR"]))
+    # c: TE3 in 2021 (the WR doesn't count); d: TE4 in 2021, TE1 in 2020 (two back = 0.5); d a season earlier: TE1 last season; a WR row: 0
+    assert np.allclose(X.te_top3(rows, gl, pos=pos), [1.0, 0.5, 1.0, 0.0])

@@ -119,6 +119,39 @@ def vote_rows(R, responses=None):
     return np.array(idx, dtype=int), vd
 
 
+LAG_DAYS, LAG_SLACK = 28, 7
+
+
+def lag_rows(R, idx, days=LAG_DAYS, slack=LAG_SLACK):
+    """row positions in R of each kept row's player on the latest grid date at least `days` earlier (and no more
+    than `slack` days before that): the 'value four weeks earlier' a cap on fast risers reads"""
+    if not len(idx): return np.array([], int)
+    L = pd.DataFrame(dict(sid=R.sid.astype(str).values[idx], t=pd.to_datetime(R.date.values[idx]) - pd.Timedelta(days=days)))
+    G = pd.DataFrame(dict(sid=R.sid.astype(str).values, t=pd.to_datetime(R.date.values), i=np.arange(len(R))))
+    m = pd.merge_asof(L.sort_values("t"), G.sort_values("t"), on="t", by="sid", direction="backward", tolerance=pd.Timedelta(days=slack))
+    return np.unique(m.i.dropna().astype(int).values)
+
+
+def wr_mates(R, idx):
+    """for each kept WR row (positions in R), the row of his team's other WR with the highest base value that day:
+    {row: mate row}. A team's top WR gets its second; nobody else on the team gets anyone but the top one."""
+    if "gsis" not in R or getattr(X, "RW", None) is None: return {}
+    sel = idx[R.pos.values[idx] == "WR"]
+    if not len(sel): return {}
+    W = np.where((R.pos.values == "WR") & np.isin(R.date.values, np.unique(R.date.values[sel])))[0]
+    D = pd.DataFrame(dict(i=W, date=R.date.values[W], team=X.team_on(R.gsis.values[W], R.date.values[W], X.RW), v=R.V_raw.values[W]))
+    D = D[D.team.notna()].sort_values("v", ascending=False)
+    top = D.groupby(["date", "team"]).i.apply(lambda x: list(x.iloc[:2]))
+    team = dict(zip(D.i, zip(D.date, D.team))); out = {}
+    for i in sel:
+        k = team.get(i)
+        if k is None: continue
+        t = top.get(k, [])
+        m = t[1] if t and t[0] == i and len(t) > 1 else (t[0] if t and t[0] != i else None)
+        if m is not None: out[int(i)] = int(m)
+    return out
+
+
 def backup_columns(E, gsis, pa):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
     (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
@@ -131,7 +164,18 @@ def backup_columns(E, gsis, pa):
     sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
     dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
     dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
-    return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
+    dc1 = X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
+    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc, e_x_draft_comp_r1=dc1)
+    E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
+    if X.GL is not None:
+        E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
+                     e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5), e_x_te_top3=X.te_top3(rows, X.GL, pos=dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position))
+    try:
+        from . import contracts as CT
+        E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))
+    except Exception as e:      # no contracts file (offline, no pyarrow): the rule reads NaN and stays off
+        print(f"contracts unavailable ({type(e).__name__}): e_x_vet_deal_cap left empty")
+    return E
 
 
 def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
@@ -139,10 +183,17 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     now = R.date.max(); latest = np.where(R.date.values == np.datetime64(now))[0]
     vi, vd = vote_rows(R, responses)
     cd = R.date[R.date <= pd.Timestamp(LC.CALLS_DATE)].max()          # the board the league's calls were about, kept for good
-    calls = np.where(R.date.values == np.datetime64(cd))[0] if pd.notna(cd) else np.array([], int)
+    # and the board of each day a group of calls was made (each group is judged on its own day's board)
+    cds = {d: R.date[R.date <= pd.Timestamp(d)].max() for d in LC.CALL_DATES}; cds = {d: x for d, x in cds.items() if pd.notna(x)}
+    keep = [np.datetime64(x) for x in ([cd] if pd.notna(cd) else []) + list(cds.values())]
+    calls = np.where(np.isin(R.date.values.astype("datetime64[ns]"), np.array(keep, dtype="datetime64[ns]")))[0]
     idx = np.unique(np.r_[cut, [i for _, s in tr for side in s for i in side[1]], latest, vi, calls].astype(int))
+    mates = wr_mates(R, idx)                                          # each WR's top teammate WR that day (and his row)
+    idx = np.unique(np.r_[idx, list(mates.values())].astype(int))
+    idx = np.unique(np.r_[idx, lag_rows(R, idx)].astype(int))          # and each one's row four weeks earlier
     need = [c for c in rule_columns() if c in R]
     E = R.iloc[idx][need].copy()
+    E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
     if pa is not None and "gsis" in R: E = backup_columns(E, R.gsis.values[idx], pa)
     E["date"] = pd.to_datetime(E.date).dt.strftime("%Y-%m-%d")
     for c in E.columns:
@@ -150,6 +201,7 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     E.to_csv(out / "inputs.csv", index=False)
     key = lambda i: [str(R.sid.values[i]), pd.Timestamp(R.date.values[i]).strftime("%Y-%m-%d")]
     json.dump(dict(as_of=str(pd.Timestamp(now).date()), calls_date=str(pd.Timestamp(cd).date()) if pd.notna(cd) else None,
+                   call_dates={d: str(pd.Timestamp(x).date()) for d, x in cds.items()},
                    trades=[dict(date=str(d.date()), sides=[dict(other_value=round(float(pk), 3), players=[key(i) for i in ix]) for pk, ix in s]) for d, s in tr],
                    cuts=[key(i) for i in cut], vote_dates=dict(sorted(vd.items()))), open(out / "evidence.json", "w"), indent=0)
     return len(E)

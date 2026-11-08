@@ -4,12 +4,18 @@ Nothing here sets a value. The general rules in `faab_value` are fitted so the b
 list is the regression test afterwards: if a later season's data breaks one, it shows up as a failed check,
 never as a hand edit. Each test returns a hinge loss in log units (0 = passes). A call names the board it was
 made about (2026-10-24); it is a test of that date's board only.
+
+Each group of calls is judged on the board of the day it was made (CALL_DATES: the first review of the 2026-10-24
+board, the second review on 2026-10-25, the league chat thread of 2026-10-25/26, dated by its last day), so data
+that arrived after a call (a later game, a later KTC move) never counts for or against it. Where the inputs hold no
+full board for a call's date, the latest full board before it stands in (see `faab_value.Evidence.call_boards`).
 """
 from __future__ import annotations
 
 import numpy as np
 
-CALLS_DATE = "2026-10-24"
+CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
+CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26")   # first review, second review, league chat consensus
 LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Derrick Henry", "Denzel Boston", "Ladd McConkey",
              "A.J. Brown", "Bo Nix", "Bucky Irving", "TreVeyon Henderson", "Jalen Coker", "Luther Burden", "Emeka Egbuka",
              "Parker Washington", "Bryce Young"]
@@ -18,17 +24,20 @@ MID_TE = ["Sam LaPorta", "Colston Loveland", "Isaiah Likely", "George Kittle", "
 TOP3 = ["Josh Allen", "Jahmyr Gibbs", "Bijan Robinson"]
 
 def calls(v, ref=None, qbs=()):
-    """v: Series name -> value (today's board). ref: Series of the board Oliver reviewed (for 'looks alright').
-    Returns list of (call, loss)."""
-    g = lambda n: float(v.get(n, np.nan))
+    """v: Series name -> value (one board for every call), or {call date: Series} (each group on the board of the
+    day it was made; a date with no board uses the latest earlier one). ref: Series of the board Oliver reviewed
+    (for 'looks alright'). Returns list of (call, loss)."""
+    on = lambda d: v if not isinstance(v, dict) else v[max([k for k in v if k <= d] or [min(v)])]
+    B = on(CALL_DATES[0])
+    g = lambda n: float(B.get(n, np.nan))
     def gt(a, b, m=0.03): return max(0.0, np.log(g(b)) - np.log(g(a)) + m) if not (np.isnan(g(a)) or np.isnan(g(b))) else 0.0
     def rng(n, lo, hi): x = g(n); return 0.0 if np.isnan(x) else max(0.0, np.log(lo) - np.log(x)) + max(0.0, np.log(x) - np.log(hi))
     t = []
-    rest = v.drop([n for n in TOP3 if n in v.index]).max()
+    rest = B.drop([n for n in TOP3 if n in B.index]).max()
     t += [(f"{n} above everyone outside the top 3", max(0.0, np.log(rest) - np.log(g(n)) + 0.02)) for n in TOP3]
     hi_, lo_ = max(g(n) for n in TOP3), min(g(n) for n in TOP3)
     t += [("top 3 within 15%", max(0.0, np.log(hi_ / lo_) - np.log(1.15))), ("top 3 at most about $4,300 (5 firsts is an overpay; top end lower than the reviewed board)", rng("Josh Allen", 3700, 4300) + rng("Jahmyr Gibbs", 3700, 4300))]
-    q = v[[n for n in v.index if n in set(qbs)]].sort_values(ascending=False)
+    q = B[[n for n in B.index if n in set(qbs)]].sort_values(ascending=False)
     if len(q) > 10:
         t += [("Allen QB1", max(0.0, np.log(q.drop("Josh Allen").max()) - np.log(g("Josh Allen")) + 0.02)),
               ("Lamar QB2", max(0.0, np.log(q.drop(["Josh Allen", "Lamar Jackson"]).max()) - np.log(g("Lamar Jackson")) + 0.02)),
@@ -39,7 +48,7 @@ def calls(v, ref=None, qbs=()):
           ("Herbert > Stafford", gt("Justin Herbert", "Matthew Stafford"))]
     for a in ["Puka Nacua", "Ja'Marr Chase", "Amon-Ra St. Brown"]:
         t += [(f"{a} > CeeDee", gt(a, "CeeDee Lamb")), (f"{a} > Nabers", gt(a, "Malik Nabers"))]
-    jj = v.drop("Justin Jefferson").nlargest(12).iloc[-1]
+    jj = B.drop("Justin Jefferson").nlargest(12).iloc[-1]
     t += [("Jefferson top 12", max(0.0, np.log(jj) - np.log(g("Justin Jefferson"))))]
     t += [("Walker >= Tet", gt("Kenneth Walker", "Tetairoa McMillan", 0.0)), ("Bijan > Tet", gt("Bijan Robinson", "Tetairoa McMillan")),
           ("Bijan > Jeanty", gt("Bijan Robinson", "Ashton Jeanty")), ("Tate > Tyson", gt("Carnell Tate", "Jordyn Tyson")),
@@ -60,6 +69,7 @@ def calls(v, ref=None, qbs=()):
     for n, was in [("Chuba Hubbard", 1500), ("Isaiah Likely", 1252), ("Sam LaPorta", 1286), ("C.J. Stroud", 1252), ("Jordyn Tyson", 1377)]:
         t += [(f"{n} below the ${was:,} flagged as too high", rng(n, 1, 0.85 * was))]
     # second review (2026-10-25)
+    B = on(CALL_DATES[1])
     t += [("Walker > CMC", gt("Kenneth Walker", "Christian McCaffrey")), ("Kyren > Tet", gt("Kyren Williams", "Tetairoa McMillan")),
           ("Nabers > Tet", gt("Malik Nabers", "Tetairoa McMillan")), ("London > Olave", gt("Drake London", "Chris Olave")),
           ("London > Golden", gt("Drake London", "Matthew Golden")), ("London > Tate", gt("Drake London", "Carnell Tate", 0.0)),
@@ -67,7 +77,7 @@ def calls(v, ref=None, qbs=()):
           ("Zay > AJ Brown", gt("Zay Flowers", "A.J. Brown")), ("Zay > Golden", gt("Zay Flowers", "Matthew Golden")),
           ("Nico up (>= $1,300)", rng("Nico Collins", 1300, 99999)), ("Zay up (>= $1,300)", rng("Zay Flowers", 1300, 99999)),
           ("Jefferson up (>= $2,500)", rng("Justin Jefferson", 2500, 99999)), ("Hurts down (<= $1,800)", rng("Jalen Hurts", 1, 1800)),
-          ("Rice up (>= $900)", rng("Rashee Rice", 900, 99999)), ("Michael Wilson up (>= $500)", rng("Michael Wilson", 500, 99999)),
+          ("Rice up (>= $900)", rng("Rashee Rice", 900, 99999)), ("Michael Wilson up (>= $400)", rng("Michael Wilson", 400, 99999)),
           ("Ollie Gordon down (<= $350)", rng("Ollie Gordon", 1, 350)), ("Etienne down (<= $450)", rng("Travis Etienne", 1, 450)),
           ("Antonio Williams down (<= $300)", rng("Antonio Williams", 1, 300)),
           ("CeeDee > Kyren", gt("CeeDee Lamb", "Kyren Williams")), ("Nabers > London", gt("Malik Nabers", "Drake London")),
@@ -80,8 +90,10 @@ def calls(v, ref=None, qbs=()):
           ("Coker like a breakout (>= $700)", rng("Jalen Coker", 700, 99999)), ("Parker Washington like a breakout (>= $700)", rng("Parker Washington", 700, 99999))]
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
     # Hampton at least Bucky, Henderson at least a high second
+    B = on(CALL_DATES[2])
     t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-340)", rng("Kyle Monangai", 180, 340)),
           ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999))]
+    B = on(CALL_DATES[0])
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"
             if n in ref.index: t += [(f"{n} stays near the reviewed ${ref[n]:,.0f}", rng(n, 0.75 * ref[n], 1.3 * ref[n]))]
@@ -95,6 +107,7 @@ def vet_bubble(v, exp):
 def score(v, ref=None, qbs=(), others_w=0.15, exp=None):
     """sum of call losses + a light pull of everyone else toward the reviewed board ('a lot of the rest looks alright')"""
     t = calls(v, ref, qbs)
+    v = v if not isinstance(v, dict) else v[min(v)]      # the first review's board: the bubble and the 'rest looks alright' pull
     if exp is not None: t.append(vet_bubble(v, exp))
     loss = sum(x for _, x in t)
     if ref is not None:

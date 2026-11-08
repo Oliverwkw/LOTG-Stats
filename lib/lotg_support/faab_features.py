@@ -575,6 +575,130 @@ def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
     return out
 
 
+def ypc_with_current(rows, gl):
+    """yards per carry over the last two complete seasons AND this season's games known by the date (100+ carries
+    between them); NaN otherwise. gl: one row per game played (gsis, season, known, rush_car, rush_yds)."""
+    rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
+    g = gl.dropna(subset=["rush_car"]).assign(gsis=lambda x: x.gsis.astype(str), known=lambda x: pd.to_datetime(x.known))
+    by = {k: v for k, v in g.groupby("gsis")}
+    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).values, s_row)):
+        v = by.get(gs)
+        if v is None: continue
+        v = v[(v.season >= y - 2) & (v.season <= y) & ((v.season < y) | (v.known.values <= dt[i]))]
+        c = float(v.rush_car.sum())
+        if c >= 100: out[i] = float(v.rush_yds.fillna(0).sum()) / c
+    return out
+
+
+def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
+    """last season (season-1), a same-team, same-position ROOKIE outscored the player: (rookie PPR/g - his PPR/g) /
+    gap, capped at 1; 0 when no rookie did (rookie: 8+ games, his draft year = season-1, on the player's last team of
+    season-1; the player: 4+ games). rows: gsis, date, pos. gl: one row per game (gsis, season, ppr). roster: gsis,
+    season, week, team. dp: dynastyprocess ids (gsis_id, position, draft_year)."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    last = r.groupby(["gsis", "season"]).team.last()
+    d = dp.dropna(subset=["gsis_id", "draft_year"]).assign(gsis_id=lambda x: x.gsis_id.astype(str)).drop_duplicates("gsis_id")
+    best = {}                                                   # (team, pos, season) -> the best rookie's PPR/g
+    for x in d.itertuples():
+        y = int(x.draft_year); q = g.loc[(x.gsis_id, y)] if (x.gsis_id, y) in g.index else None
+        t = last.get((x.gsis_id, y))
+        if q is None or q["count"] < min_games or t is None: continue
+        k = (t, x.position, y); best[k] = max(best.get(k, 0.0), float(q["mean"]))
+    for i in range(len(rows)):
+        gs, y = str(rows.gsis.values[i]), int(s_row[i]) - 1
+        q = g.loc[(gs, y)] if (gs, y) in g.index else None
+        t = last.get((gs, y))
+        if q is None or q["count"] < own_min or t is None: continue
+        b = best.get((t, rows.pos.values[i], y), 0.0)
+        if (d.draft_year[d.gsis_id == gs] == y).any(): continue                 # a rookie himself
+        out[i] = float(np.clip((b - q["mean"]) / gap, 0, 1))
+    return out
+
+
+def te_top3(rows, gl, pos=None, top=3):
+    """a TE who finished a season in the top `top` TEs by total PPR: 1 for last season (season-1), 0.5 for the one
+    before, else 0 (the larger). rows: gsis, date, pos. gl: one row per game (gsis, season, ppr, and position unless
+    `pos`, a gsis -> position map, is given)."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    g = gl.assign(gsis=gl.gsis.astype(str))
+    te = g.gsis.map(pos).eq("TE") if pos is not None else g.position.eq("TE")
+    t = g[te.values].groupby(["season", "gsis"]).ppr.sum().reset_index()
+    t["rk"] = t.groupby("season").ppr.rank(ascending=False, method="first")
+    best = {(g, int(y)) for g, y, r in zip(t.gsis, t.season, t.rk) if r <= top}
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    for i in np.where(rows.pos.values == "TE")[0]:
+        g, y = str(rows.gsis.values[i]), int(s_row[i])
+        out[i] = 1.0 if (g, y - 1) in best else (0.5 if (g, y - 2) in best else 0.0)
+    return out
+
+
+TE_BIG, TE_MID = 11.0, 10.0      # PPR per game: a TE's big season / a mid-or-worse one (8+ games)
+
+
+def te_one_off(rows, gl, roster, min_games=8):
+    """a TE whose last season (season-1) was his one big year (TE_BIG+ PPR a game) on a team he had just joined, after
+    mid-or-worse seasons (under TE_MID, 8+ games) in the five before it: (count - 1) / 2, capped at 1 (3+ = full), else
+    0. rows: gsis, date, pos. gl: one row per game played (gsis, season, ppr). roster: gsis, season, week, team."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    first = r.groupby(["gsis", "season"]).team.first(); last = r.groupby(["gsis", "season"]).team.last()
+    for i in np.where(rows.pos.values == "TE")[0]:
+        gs, y = str(rows.gsis.values[i]), int(s_row[i])
+        b = g.loc[(gs, y - 1)] if (gs, y - 1) in g.index else None
+        if b is None or b["count"] < min_games or b["mean"] < TE_BIG: continue
+        t0, tp = first.get((gs, y - 1)), last.get((gs, y - 2))
+        if t0 is None or tp is None or t0 == tp: continue
+        n = sum(1 for k in range(2, 7) if (gs, y - k) in g.index and g.loc[(gs, y - k)]["count"] >= min_games and g.loc[(gs, y - k)]["mean"] < TE_MID)
+        out[i] = min(max((n - 1) / 2.0, 0.0), 1.0)
+    return out
+
+
+TOP_ADDS = 5      # the league's top N pre-Week-1 free-agent bids of a season are "top adds"
+
+
+def league_undrafted(rows, adds):
+    """for each row from the league's rookie draft to the end of that season (2021 on): 1 if the player was not taken in
+    that draft, less credit for a pre-Week-1 free-agent bid (his largest bid from the draft to kickoff + 4 days, known by
+    the row's date, over the season's TOP_ADDS-th largest such bid, $5 at least: a top add = 0); 0 if he was drafted;
+    NaN before the draft or in 2020 (the startup). adds: sid, date, type, price (player_additions)."""
+    rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
+    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    a = adds.assign(sid=adds.sid.astype(str), date=pd.to_datetime(adds.date)); a["s"] = np.where(a.date.dt.month >= 3, a.date.dt.year, a.date.dt.year - 1)
+    sid = rows.sid.astype(str).values
+    for y in sorted(set(s_row)):
+        if y < 2021 or y not in KO: continue
+        dr = a[(a.type == "Draft") & (a.s == y)]
+        if not len(dr): continue
+        d0 = dr.date.min(); got = set(dr.sid)
+        fa = a[a.type.isin(["Waiver", "Free agency"]) & (a.date > d0) & (a.date <= KO[y] + pd.Timedelta(days=4))]
+        px = fa.price.astype(float).fillna(0)
+        cut = max(float(np.sort(px.values)[::-1][TOP_ADDS - 1]) if len(px) >= TOP_ADDS else 0.0, 5.0)
+        m = np.where((s_row == y) & (dt >= np.datetime64(d0)))[0]
+        for i in m:
+            if sid[i] in got: out[i] = 0.0; continue
+            b = fa[(fa.sid == sid[i]) & (fa.date.values <= dt[i])]
+            out[i] = 1.0 - min(float(b.price.astype(float).fillna(0).max()) / cut, 1.0) if len(b) else 1.0
+    return out
+
+
+def vet_deal_cap(rows, contracts):
+    """the share of the salary cap (APY) of a veteran contract the player signed this season (the season whose rosters
+    count from March 1), NaN if none: what the NFL market paid him. Rookie deals don't count; two signings in one season
+    keep the bigger. rows: gsis, date. contracts: Over The Cap's history (lotg_support.contracts.load_contracts)."""
+    c = contracts[contracts.gsis_id.notna()].copy()
+    c = c[~(c.draft_year.notna() & (c.year_signed <= c.draft_year))]
+    c = c.sort_values("apy_cap_pct").drop_duplicates(["gsis_id", "year_signed"], keep="last")
+    m = {(str(g), int(y)): float(x) for g, y, x in zip(c.gsis_id, c.year_signed, c.apy_cap_pct) if pd.notna(y)}
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s = np.where(di.month >= 3, di.year, di.year - 1)
+    return np.array([m.get((str(g), int(y)), np.nan) for g, y in zip(rows.gsis.values, s)])
+
+
 def game_form(gl, gsis, date_v, l0_s, n=10):
     """Game-by-game form as known on each date. `gl`: one row per game played (gsis, season, known, ppr, off_pct).
     Returns a dict of arrays:

@@ -85,5 +85,21 @@
  "qb_opening": 1.5,
  "fresh_start": 2.1666666666666665,
  "rookie_backup": 0.0,
- "draft_comp": -1.5
+ "draft_comp": -1.5,
+ "cheap_deal": -2.5,
+ "share_old_cap": 1.25,
+ "share_old_age": 31.0,
+ "undrafted": -2.0,
+ "te_one_off": -1.0,
+ "team_q_lo": 0.5,
+ "qb_paid": 0.75,
+ "avail_young_floor": 0.5,
+ "avail_young_age": 24.0,
+ "overtaken": -1.5,
+ "wr_pair": -2.0,
+ "young_upside": 0.45,
+ "young_elite": 1.0,
+ "te_top3": 0.5,
+ "rookie_r1": -1.5,
+ "r1_wr": -0.3
 }

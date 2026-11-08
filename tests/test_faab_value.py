@@ -65,8 +65,8 @@ def test_board_reproduces_and_beats_rules_off_on_trades_and_cuts():
 
 
 def test_calls_regression_floor():
-    R = F.load_inputs(); T = F.board(R, F.load_params(), as_of=LC.CALLS_DATE)
-    t = LC.calls(T.set_index("name").V, pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
+    ev = F.Evidence.load(); T = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
+    t = LC.calls(F.call_values(ev, F.load_params()), pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
     assert sum(x == 0 for _, x in t) >= 85, [n for n, x in t if x > 0]
 
 
@@ -222,6 +222,66 @@ def test_draft_comp_reaches_mid_priced_players_from_their_third_season():
     assert (terms["draft_comp"][(st["base"] <= 150) | (st["base"] >= 800)] == 0).all()   # gated to base $150-800
 
 
+def test_cheap_deal_reaches_moved_vets_on_cheap_new_deals():
+    """a veteran who moved on a cheap deal signed this season (Ekeler 2024: 1.7% of the cap) is docked; a big deal, a QB,
+    a player who did not move, or no deal this season is not"""
+    base = dict(pos="RB", age=29.0, exp=7.0, injury="", e_x_moved_off=1.0, e_x_vet_deal_cap=0.015)
+    rows = [base, dict(base, e_x_vet_deal_cap=0.0225), dict(base, e_x_vet_deal_cap=0.05), dict(base, pos="QB"),
+            dict(base, e_x_moved_off=0.0), dict(base, e_x_vet_deal_cap=np.nan), dict(base, pos="WR", e_x_vet_deal_cap=0.015)]
+    x = F.characteristics(pd.DataFrame(rows))["cheap_deal"]
+    assert np.allclose(x, [1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0])
+    assert "cheap_deal" in F.LOWER_ONLY and F.BOUNDS["cheap_deal"][1] <= 0
+    R = F.load_inputs(); p = F.load_params(); _, terms, st = F.apply_rules(R, p, explain=True)
+    assert (terms["cheap_deal"][st["base"] <= 300] == 0).all()        # a cheap player's cheap deal is no news
+
+
+def test_older_wr_team_share_is_capped():
+    """a WR's share_talent multiplier is capped at share_old_cap from share_old_age (fading in over the 2 years before)"""
+    p = F.load_params(); cap = np.log(p["share_old_cap"]); a = p["share_old_age"]
+    R = pd.DataFrame([dict(pos=q, age=x, exp=8.0, injury="", V_raw=1500.0, e_x_l0_xfp_share=0.30, e_x_l1_xfp_share=0.30)
+                      for q, x in (("WR", a - 3), ("WR", a - 1), ("WR", a + 1), ("RB", a + 1))])
+    st = F.apply_rules(R, p, explain=True)[1]["share_talent"]
+    assert st[0] > cap and cap < st[1] < st[0] and np.isclose(st[2], cap) and st[3] > cap
+
+
+def test_undrafted_rookie_fades_out_as_he_plays():
+    base = dict(pos="WR", age=22.0, exp=0.0, injury="", e_x_league_undrafted=1.0)
+    rows = [dict(base, e_x_cur_games=g) for g in (0.0, 2.0, 4.0)] + [dict(base, exp=1.0), dict(base, e_x_league_undrafted=0.0)]
+    x = F.characteristics(pd.DataFrame(rows))["undrafted"]
+    assert np.allclose(x, [1.0, 0.5, 0.0, 0.0, 0.0])
+    assert "undrafted" in F.LOWER_ONLY and F.BOUNDS["undrafted"][1] <= 0
+
+
+def test_te_one_off_needs_a_move_and_fades_as_he_plays():
+    base = dict(pos="TE", age=30.0, exp=8.0, injury="", e_x_te_one_off=1.0, e_x_moved_off=1.0)
+    rows = [base, dict(base, e_x_moved_off=0.0), dict(base, e_x_moved_off=0.0, e_x_new_team=1.0, e_x_cur_games=2.0), dict(base, pos="WR")]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["te_one_off"], [1.0, 0.0, 0.5, 0.0])
+    assert "te_one_off" in F.LOWER_ONLY
+
+
+def test_team_q_lo_only_lowers_cheap_players_on_bad_teams():
+    p = F.load_params(); R = F.load_inputs(); _, terms, st = F.apply_rules(R, p, explain=True)
+    t = terms["team_q_lo"]
+    assert (t <= 0).all() and (t[st["base"] >= 150] == 0).all() and (t < 0).any()
+    assert "team_q_lo" in F.REG_KEYS and F.BOUNDS["team_q_lo"][0] >= 0
+
+
+def test_qb_paid_is_a_moved_qb_on_a_big_new_deal_until_he_plays():
+    base = dict(pos="QB", age=32.0, exp=9.0, injury="", e_x_moved_off=1.0, e_x_vet_deal_cap=0.167)
+    rows = [base, dict(base, e_x_vet_deal_cap=0.115), dict(base, e_x_vet_deal_cap=0.05), dict(base, e_x_moved_off=0.0),
+            dict(base, e_x_moved_off=0.0, e_x_new_team=1.0, e_x_cur_games=2.0), dict(base, pos="WR")]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["qb_paid"], [1.0, 0.5, 0.0, 0.0, 0.5, 0.0])
+    assert "qb_paid" in F.RAISE_ONLY
+
+
+def test_young_players_availability_drop_is_floored():
+    p = F.load_params(); fl = np.log(p["avail_young_floor"]); a = p["avail_young_age"]
+    base = dict(pos="RB", exp=2.0, injury="", V_raw=500.0, e_x_l0_games=2.0, e_x_l1_games=3.0)
+    R = pd.DataFrame([dict(base, age=x) for x in (a - 1, a + 1, a + 3)])
+    av = F.apply_rules(R, p, explain=True)[1]["availability"]
+    assert np.isclose(av[0], fl) and fl > av[1] > av[2] and av[2] < fl
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
@@ -296,3 +356,81 @@ if __name__ == "__main__":
         fn()
         print("  ok")
     print("\nall faab value checks passed")
+
+
+def test_each_call_group_is_judged_on_the_board_of_its_day():
+    ev = F.Evidence.load()
+    assert set(ev.call_boards) == set(LC.CALL_DATES) and all(gd <= d for d, gd in ev.call_boards.items())
+    v = F.call_values(ev, F.load_params())[LC.CALL_DATES[0]]
+    lo, hi = v.copy(), v.copy(); lo["Michael Wilson"], hi["Michael Wilson"] = 300.0, 500.0
+    miss = lambda b: dict(LC.calls(b))["Michael Wilson up (>= $400)"]       # a second-review call (2026-10-25)
+    assert miss(lo) > 0 and miss(hi) == 0
+    # the 2026-10-25 call reads the 10-25 board, not the 10-24 one, and not a later one
+    assert miss({"2026-10-24": lo, "2026-10-25": hi, "2026-10-26": lo}) == 0
+    assert miss({"2026-10-24": hi, "2026-10-25": lo, "2026-10-26": hi}) > 0
+    # no board for its day: the latest earlier one stands in
+    assert miss({"2026-10-24": hi, "2026-10-28": lo}) == 0
+
+
+def test_overtaken_reaches_aging_players_and_fades_as_he_plays():
+    base = dict(pos="WR", age=31.0, exp=8.0, injury="", e_x_overtaken=1.0)
+    rows = [base, dict(base, age=28.0), dict(base, age=26.0), dict(base, e_x_cur_games=4.0), dict(base, e_x_overtaken=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["overtaken"], [1.0, 0.5, 0.0, 0.5, 0.0])
+    assert "overtaken" in F.LOWER_ONLY and F.load_params()["overtaken"] < 0
+
+
+def test_post_rules_dock_the_lesser_of_two_big_wrs_and_cap_fast_risers():
+    R = pd.DataFrame(dict(sid=["a", "b", "c", "a"], date=["2024-05-07", "2024-05-07", "2024-05-07", "2024-04-02"], pos=["WR", "WR", "RB", "WR"],
+                          e_x_cur_games=[0.0] * 4, e_x_l0_tgt_share=[0.30, 0.20, 0.10, 0.30], wr_mate=["b", "a", "", ""]))
+    mate, lag = F.links(R)
+    assert list(mate) == [1, 0, -1, -1] and list(lag) == [3, -1, -1, -1]
+    V = np.array([3600.0, 2200.0, 1000.0, 1000.0])
+    out = F.post_rules(V, R, dict(wr_pair=-2.0), mate, lag)
+    assert np.allclose(out, [3600.0, 2200.0 * np.exp(-2.0 * 0.30), 1000.0, 1000.0])      # the lesser WR, by the other's share
+    out = F.post_rules(V, R, dict(lag_cap=2.5, lag_floor=100.0), mate, lag)
+    assert np.allclose(out, [2500.0, 2200.0, 1000.0, 1000.0])                             # a's row 4 weeks earlier was $1,000
+    assert "wr_pair" in F.LOWER_ONLY and F.load_params()["lag_cap"] >= 50          # the cap stays off until Oliver says
+
+
+def test_wr_talent_is_receivers_only_and_young_qbs_rbs_have_their_own_upside_rule():
+    R = F.load_inputs(); X = F.characteristics(R)
+    assert (X["wr_talent"][~R.pos.isin(["WR", "TE"]).values] == 0).all()
+    yu = X["young_upside"]
+    assert (yu[~R.pos.isin(["QB", "RB"]).values] == 0).all() and (yu[R.exp.values > F.UPSIDE_EXP] == 0).all() and (yu > 0).any()
+    assert "young_upside" in F.RAISE_ONLY
+
+
+def test_young_elite_is_rbs_wrs_under_24_with_elite_production():
+    base = dict(pos="WR", age=23.0, exp=2.0, injury="", e_x_gp_cur=6.0, e_x_ppg_cur=22.0, e_x_ppg_l0=15.0)
+    rows = [base, dict(base, age=24.5), dict(base, age=25.5), dict(base, pos="QB"), dict(base, e_x_ppg_cur=16.0)]
+    X = F.characteristics(pd.DataFrame(rows))["young_elite"]
+    assert X[0] == 1.0 and 0 < X[1] < 1 and X[2] == 0 and X[3] == 0 and X[4] == 0, X
+    assert "young_elite" in F.RAISE_ONLY
+
+
+def test_te_top3_eases_the_te_line():
+    R = F.load_inputs(); p = F.load_params()
+    _, t1, _ = F.apply_rules(R, p, explain=True); _, t0, _ = F.apply_rules(R, dict(p, te_top3=0.0), explain=True)
+    hit = np.nan_to_num(F.col(R, "e_x_te_top3")) > 0
+    assert (t1["te_line"] >= t0["te_line"] - 1e-12).all() and (t1["te_line"][~hit] == t0["te_line"][~hit]).all()
+
+
+def test_rookie_r1_is_a_late_round_rb_behind_a_first_round_rookie():
+    base = dict(pos="RB", age=23.0, exp=1.0, injury="", e_x_draft_comp_r1=1.0, e_x_draft_pick=np.nan)
+    rows = [base, dict(base, e_x_draft_pick=20.0), dict(base, exp=0.0), dict(base, pos="WR"), dict(base, e_x_draft_comp_r1=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["rookie_r1"], [1, 0, 0, 0, 0])
+    assert "rookie_r1" in F.LOWER_ONLY and F.load_params()["rookie_r1"] < 0
+
+
+def test_r1_wr_is_a_veteran_wr_whose_team_took_a_first_round_wr():
+    base = dict(pos="WR", age=28.0, exp=5.0, injury="", e_x_draft_comp_r1=1.0)
+    rows = [base, dict(base, exp=1.0), dict(base, pos="TE"), dict(base, e_x_draft_comp_r1=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["r1_wr"], [1, 0, 0, 0])
+    assert "r1_wr" in F.LOWER_ONLY and F.load_params()["r1_wr"] < 0
+
+
+def test_a_second_year_rbs_rookie_year_is_a_lighter_usage_prior():
+    base = dict(pos="RB", age=23.0, exp=1.0, injury="", e_x_cur_games=4.0, e_x_cur_xfp_pg=19.5, e_x_l0_xfp_pg=4.2)
+    rows = [base, dict(base, exp=2.0), dict(base, pos="WR")]
+    u = F.characteristics(pd.DataFrame(rows))["usage"]
+    assert u[0] > u[1] and u[2] < u[0] and F.ROOKIE_PRIOR["RB"] < 1.0
