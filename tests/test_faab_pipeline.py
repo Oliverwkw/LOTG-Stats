@@ -147,6 +147,27 @@ def test_rookie_backup_spend_counts_same_team_same_position_rookies():
     assert np.isnan(held[0]) and np.isnan(held[1]) and abs(held[2] - (0.5 + 1.0 + 0.75) / 3) < 1e-9
 
 
+def test_nfl_draft_comp_counts_early_round_rookies_from_draft_day():
+    roster = pd.DataFrame({"gsis": ["v", "h", "k", "o"], "season": 2025, "week": 1, "team": ["LAC", "LAC", "LAC", "NYG"],
+                           "draft_club": [None, "LAC", "LAC", "NYG"]})
+    dp = pd.DataFrame({"gsis_id": ["h", "k", "o"], "position": "WR", "draft_year": 2025, "draft_round": [2, 5, 1]})
+    rows = pd.DataFrame({"sid": "V", "gsis": "v", "pos": "WR", "date": pd.to_datetime(["2025-04-20", "2025-04-29", "2025-10-01", "2026-03-10"])})
+    # before the draft: 0; round 2 same team counts, round 5 and another team's do not; a new season (March on) resets it
+    assert list(X.nfl_draft_comp(rows, dp, roster)) == [0.0, 1.0, 1.0, 0.0]
+    assert list(X.nfl_draft_comp(rows.assign(pos="RB"), dp, roster)) == [0.0] * 4
+
+
+def test_departed_starter_means_the_rookie_replaced_him():
+    roster = pd.DataFrame({"gsis": ["a", "a", "b", "b", "h"], "season": [2025, 2026, 2025, 2026, 2026], "week": 1,
+                           "team": ["PHI", "NE", "PHI", "PHI", "PHI"], "draft_club": [None, None, None, None, "PHI"]})
+    dp = pd.DataFrame({"gsis_id": ["a", "b", "h"], "position": "WR", "draft_year": [2018, 2020, 2026], "draft_round": [2, 1, 1]})
+    gl = pd.DataFrame({"gsis": ["a"] * 8 + ["b"] * 8, "season": 2025, "ppr": [15.0] * 8 + [12.0] * 8})
+    gone = X.departed(dp, roster, gl)
+    assert gone == {("PHI", "WR", 2026)}                 # a (15 PPR/g) left; b stayed; nothing for a season without rosters
+    rows = pd.DataFrame({"sid": "B", "gsis": "b", "pos": "WR", "date": pd.to_datetime(["2026-10-01"])})
+    assert list(X.nfl_draft_comp(rows, dp, roster)) == [1.0] and list(X.nfl_draft_comp(rows, dp, roster, gone=gone)) == [0.0]
+
+
 def test_game_form_counts_15_point_games_and_best_game():
     gl = pd.DataFrame({"gsis": "a", "season": [2023, 2024, 2024, 2025, 2026], "week": 1, "known": pd.to_datetime(["2023-09-15", "2024-09-15", "2024-09-22", "2025-09-15", "2026-09-15"]),
                        "ppr": [20.0, 16.0, 45.0, 3.0, 12.0], "off_pct": 0.8})

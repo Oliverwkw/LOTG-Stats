@@ -84,5 +84,6 @@
  "ir_no_double": 0.0,
  "qb_opening": 1.5,
  "fresh_start": 2.1666666666666665,
- "rookie_backup": 0.0
+ "rookie_backup": 0.0,
+ "draft_comp": -1.5
 }

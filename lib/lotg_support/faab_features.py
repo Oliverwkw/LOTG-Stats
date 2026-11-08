@@ -196,7 +196,7 @@ def build_week(X, FC, OUT, years):
         r = rd(f"roster_weekly_{y}")
         if r is None: continue
         r = r[(r.game_type == "REG") if "game_type" in r else slice(None)]
-        RW.append(r[["gsis_id", "season", "week", "team"]].rename(columns={"gsis_id": "gsis"}))
+        RW.append(r[["gsis_id", "season", "week", "team"] + [c for c in ("draft_club",) if c in r]].rename(columns={"gsis_id": "gsis"}))
     pd.concat(RW).dropna(subset=["gsis"]).astype({"gsis": str}).to_parquet(f"{OUT}/xf_roster_team.parquet")
     RP.groupby("gsis").season.max().rename("last_roster_season").reset_index().to_parquet(f"{OUT}/xf_last_season.parquet"); print("roster presence", RP.shape)
 
@@ -523,6 +523,56 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
               for v0 in [float(np.nanmean(g0[c].astype(float).fillna(0)))] if v0 >= BACKUP_FLOOR[c]]
         if r_: held[i] = float(np.mean(r_))
     return out, held
+
+
+NFL_DRAFT = {2020: "2020-04-23", 2021: "2021-04-29", 2022: "2022-04-28", 2023: "2023-04-27", 2024: "2024-04-25", 2025: "2025-04-24", 2026: "2026-04-23"}
+
+
+DEPARTED_PPG = {"QB": 16.0, "RB": 13.0, "WR": 13.0, "TE": 10.5}   # last-season PPR/game ~ a $200 base value (inputs, 2026-11-08)
+
+
+def departed(dp, roster, gl, min_games=6):
+    """(team, position, season) where a player left in the offseason who was worth replacing: on the team's roster in
+    his last REG week of season-1, not on its roster in his first week of the season (another team, or none), and
+    DEPARTED_PPG+ PPR per game over 6+ games in season-1. gl: one row per game played (gsis, season, ppr)."""
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    last = r.groupby(["gsis", "season"]).team.last(); first = r.groupby(["gsis", "season"]).team.first()
+    pos = dp.dropna(subset=["gsis_id"]).assign(gsis_id=lambda x: x.gsis_id.astype(str)).drop_duplicates("gsis_id").set_index("gsis_id").position
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    out = set(); seasons = set(r.season.astype(int))
+    for (gs, y), t in last.items():
+        if y + 1 not in seasons: continue                                       # next season's rosters not out yet
+        q = g.loc[(gs, y)] if (gs, y) in g.index else None
+        ps = pos.get(gs)
+        if q is None or q["count"] < min_games or ps not in DEPARTED_PPG or q["mean"] < DEPARTED_PPG[ps]: continue
+        if first.get((gs, y + 1)) != t: out.add((t, ps, y + 1))
+    return out
+
+
+def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
+    """same-team, same-position rookies the NFL took in rounds 1-2 (max_round) this season (from the NFL draft to the end of the
+    season, i.e. the season whose rosters count from March 1), counted per row. rows: sid, gsis, date, pos. dp: the
+    dynastyprocess ids (gsis_id, position, draft_year, draft_round). roster: gsis, season, week, team, draft_club
+    (nflverse weekly rosters; a rookie's team = his draft club, else his first roster team). A player's own row is 0.
+    gone: departed()'s set; a rookie whose team lost a same-position player worth replacing that offseason replaced
+    him, and does not count."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    d = dp.dropna(subset=["gsis_id", "draft_year", "draft_round"]).copy()
+    d = d[(d.draft_round.astype(float) >= 1) & (d.draft_round.astype(float) <= max_round) & d.position.isin(["QB", "RB", "WR", "TE"])]
+    d["gsis_id"] = d.gsis_id.astype(str); d["draft_year"] = d.draft_year.astype(int)
+    r = roster.dropna(subset=["gsis"]).assign(gsis=lambda x: x.gsis.astype(str))
+    club = r.dropna(subset=["draft_club"]).groupby("gsis").draft_club.first() if "draft_club" in r else pd.Series(dtype=object)
+    first = r.sort_values(["season", "week"]).groupby(["gsis", "season"]).team.first()
+    team_row = team_on(rows.gsis.astype(str).values, dt, roster)
+    gs_row = rows.gsis.astype(str).values
+    for x in d.itertuples():
+        t = club.get(x.gsis_id) if x.gsis_id in club.index else first.get((x.gsis_id, x.draft_year))
+        nd = NFL_DRAFT.get(x.draft_year)
+        if t is None or pd.isna(t) or nd is None or (gone and (t, x.position, x.draft_year) in gone): continue
+        m = (s_row == x.draft_year) & (dt >= np.datetime64(pd.Timestamp(nd))) & (rows.pos.values == x.position) & (gs_row != x.gsis_id) & (team_row == t)
+        out[m] += 1.0
+    return out
 
 
 def game_form(gl, gsis, date_v, l0_s, n=10):

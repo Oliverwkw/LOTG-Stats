@@ -121,14 +121,17 @@ def vote_rows(R, responses=None):
 
 def backup_columns(E, gsis, pa):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
-    (the player's own usage so far over his last season) for the exported rows; needs the feature store (load_store)"""
+    (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
+    took in rounds 1-2 this season) for the exported rows; needs the feature store (load_store)"""
     if getattr(X, "RW", None) is None: return E
     adds = pd.DataFrame(dict(sid=pa.sid.astype(str), date=pd.to_datetime(pa.Date.astype(str).str[:10]), type=pa["Addition type"],
                              price=pa["Price paid (FAAB)"])).dropna(subset=["sid"])
     info = kp.player_info(sorted(set(adds.sid)))
     rows = pd.DataFrame(dict(sid=E.sid.astype(str).values, gsis=pd.Series(gsis).astype(str).values, date=pd.to_datetime(E.date).values, pos=E.pos.values))
     sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
-    return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5))
+    dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
+    dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
+    return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
 
 
 def export(R, tr, cut, out=V.DATA, responses=None, pa=None):

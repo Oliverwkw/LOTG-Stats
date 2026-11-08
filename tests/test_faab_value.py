@@ -213,6 +213,15 @@ def test_rookie_backup_reaches_vet_rbs_and_follows_the_workload():
     assert np.allclose(x, [1.0, 1.5, 1.0, 0.0, 1.0, 0.0, 0.0])
 
 
+def test_draft_comp_reaches_mid_priced_players_from_their_third_season():
+    base = dict(pos="WR", age=24.0, injury="", e_x_draft_comp=1.0)
+    x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (0.0, 1.0, 2.0)] + [dict(base, exp=4.0, e_x_draft_comp=2.0)]))["draft_comp"]
+    assert np.allclose(x, [0.0, 0.0, 1.0, 1.5])
+    assert "draft_comp" in F.LOWER_ONLY and F.BOUNDS["draft_comp"][1] <= 0
+    R = F.load_inputs(); p = F.load_params(); _, terms, st = F.apply_rules(R, p, explain=True)
+    assert (terms["draft_comp"][(st["base"] <= 150) | (st["base"] >= 800)] == 0).all()   # gated to base $150-800
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
