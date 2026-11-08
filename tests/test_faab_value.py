@@ -398,3 +398,11 @@ def test_wr_talent_is_receivers_only_and_young_qbs_rbs_have_their_own_upside_rul
     yu = X["young_upside"]
     assert (yu[~R.pos.isin(["QB", "RB"]).values] == 0).all() and (yu[R.exp.values > F.UPSIDE_EXP] == 0).all() and (yu > 0).any()
     assert "young_upside" in F.RAISE_ONLY
+
+
+def test_young_elite_is_rbs_wrs_under_24_with_elite_production():
+    base = dict(pos="WR", age=23.0, exp=2.0, injury="", e_x_gp_cur=6.0, e_x_ppg_cur=22.0, e_x_ppg_l0=15.0)
+    rows = [base, dict(base, age=24.5), dict(base, age=25.5), dict(base, pos="QB"), dict(base, e_x_ppg_cur=16.0)]
+    X = F.characteristics(pd.DataFrame(rows))["young_elite"]
+    assert X[0] == 1.0 and 0 < X[1] < 1 and X[2] == 0 and X[3] == 0 and X[4] == 0, X
+    assert "young_elite" in F.RAISE_ONLY

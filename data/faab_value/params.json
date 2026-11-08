@@ -97,5 +97,6 @@
  "avail_young_age": 24.0,
  "overtaken": -1.5,
  "wr_pair": -2.0,
- "young_upside": 0.45
+ "young_upside": 0.45,
+ "young_elite": 1.0
 }
