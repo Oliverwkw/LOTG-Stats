@@ -98,6 +98,38 @@ use only what was known that day, the way the league values players. A 1.05 rook
      as base values are not in the inputs for every player). Reaches DeVonta Smith 2026 (A.J. Brown left; $100 ->
      $446 back), Kirk 2024 (Ridley left; BTJ) and DJ Moore 2021. Total 7.952 -> 7.893, trades 1.056 -> 1.044,
      over 100% off 74 -> 72 (+$25), 40 -> 39 (+$100).
+     Trade-note rules, 2026-11-08 (Oliver's review of the two far-off lists; each strength set by a one-rule scan,
+     no other refit; the objective's parts are in the PR):
+     `cheap_deal` (lower only, -2.5): a non-QB who moved (signed / traded since last season) on a veteran deal signed
+     this season under 3% of the cap for an RB (1.5% = full), 4% WR (1.5%), 3% TE (1%) (`e_x_vet_deal_cap`, Over The
+     Cap via nflverse, `lotg_support.contracts`), for base values from $300 (full by $600). Ekeler 2024 $1,234 -> $141.
+     `share_old_cap` / `share_old_age` (1.25, 31): an older WR's share_talent multiplier is capped at x1.25 (full from
+     31, fading in from 29). Adams 2025-04 $894 -> $628. At 29-30 it breaks the A.J. Brown call.
+     `undrafted` (lower only, -2): a rookie not taken in the league's rookie draft and not a top pre-Week-1 add
+     (`e_x_league_undrafted`: 1, less his largest bid from the draft to kickoff + 4 days over that season's 5th-largest
+     such bid), fading out over his first 4 games. Luke McCaffrey 2024 $197 -> ~$30, LeQuint Allen 2025 $99 -> ~$20.
+     `te_one_off` (lower only, -1): a TE whose last season was his one big year (11+ PPR a game) on a team he had just
+     joined, after 2+ mid seasons (under 10, 8+ games) in the five before (3 = full), now on the move again; fades over
+     4 games. Jonnu Smith 2025 $167 -> $61.
+     `team_q_lo` (raise-only strength 0.5 on the negative side only): a bad team counts extra for base values under
+     $75 (fading out by $150). Tre Tucker 2025 $111 -> $79. Trades and cuts better; the "Michael Wilson up (>= $500)"
+     call fails (the objective is +0.04 worse, all calls). Both directions scored worse (cuts).
+     `qb_paid` (raise only, 0.75): a QB a new team just signed to a veteran deal at 8%+ of the cap (15% = full), until
+     he plays (fading over 4 games); the replacement line is lifted for him. Carr 2023-03 $71 -> $337 (Wilson 2022 and
+     Garoppolo 2023 are the others it reaches). Without the in-season fade it broke the Carr 2023-11 trade.
+     `avail_young_floor` / `avail_young_age` (0.5, 24): the availability multiplier is floored at x0.5 under 24, fading
+     out by 26. Dobbins 2023 $78 -> $104.
+     ypc_bad now reads `e_x_ypc_3s` (the last two complete seasons and this season's games known by the date) where it
+     has 100+ carries: Mixon 2021-12 $1,872 -> $2,132, Akers, White 2024, Najee 2024 better.
+     Tested and NOT kept (the numbers are in the PR): a 2.5x cap on the value 4 weeks earlier (needs grid rows the
+     committed inputs don't have), spike reset after 3 games on a new team (17 rows, one trade worse), early exits
+     counted as missed games (with or without a missed-next-game check: calls break; the version that improves trades
+     is really a low-snap-games penalty), a 3-good-game streak on spike (no trade moves), a vacated-role boost (more
+     trades worse than better), a young-elite boost and an award age fade (both blocked by the top-end and veteran
+     calls), a rushing-share WR dock (Deebo 2022 and 2025 trades worse), a lighter usage prior for young players.
+     Defect found, not fixed: `wr_talent` is `clip(raw - usage)` with raw = 0 for QBs / RBs, so a QB or RB with usage
+     under replacement gets wr_talent = -usage (Mac Jones 2022 x1.07, Fields 2021 x1.48). Fixing it moves trades
+     0.987 -> 0.982 and cuts better but fails two calls (Henderson, Love > Egbuka); waiting on Oliver.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
