@@ -127,9 +127,36 @@ use only what was known that day, the way the league values players. A 1.05 rook
      is really a low-snap-games penalty), a 3-good-game streak on spike (no trade moves), a vacated-role boost (more
      trades worse than better), a young-elite boost and an award age fade (both blocked by the top-end and veteran
      calls), a rushing-share WR dock (Deebo 2022 and 2025 trades worse), a lighter usage prior for young players.
-     Defect found, not fixed: `wr_talent` is `clip(raw - usage)` with raw = 0 for QBs / RBs, so a QB or RB with usage
+     Defect found (fixed in round 3, below): `wr_talent` was `clip(raw - usage)` with raw = 0 for QBs / RBs, so a QB or RB with usage
      under replacement gets wr_talent = -usage (Mac Jones 2022 x1.07, Fields 2021 x1.48). Fixing it moves trades
      0.987 -> 0.982 and cuts better but fails two calls (Henderson, Love > Egbuka); waiting on Oliver.
+     Trade-note rules round 3, 2026-11-08 (Oliver's 16 items; one-rule strength scans, no other refit):
+     the 2025 2.09 toilet-reward hop 2 moved from the 2025-04-15 Adams trade to the 2025-06-25 Roschon Johnson /
+     Jerry Jeudy trade (data/commissioner_pick_trades.csv, a build change). Calls are dated (`faab_calls.CALL_DATES`:
+     first review 2026-10-24, second 2026-10-25, chat consensus 2026-10-26) and each group is scored on the latest
+     board on or before its date; the Michael Wilson call is now >= $400. Kept:
+     `overtaken` (lower only, -1.5): a player 29+ outscored last season by a same-team, same-position rookie
+     (`faab_features.overtaken_by_rookie`, by PPR/game gap over 4), fading over 8 games of this season (Kupp 2024
+     $1,225 -> $288; with no age gate the Coker and Doubs calls break).
+     `wr_pair` (lower only, -2, a post-rule): when two WRs on one team are both over $1,750, the lesser is docked by
+     the other's target share (`wr_mates` rows in the export; Waddle $2,205 -> $1,171).
+     `wr_talent` is WR/TE only (the QB/RB defect above, fixed), with `young_upside` (0.45) for QBs/RBs in their first
+     two seasons by how far production lags usage.
+     `young_elite` (raise only, 1.0): an RB/WR under 24 (gone by 25) at 18-22+ PPG (Jefferson 2022 $3,027 -> $3,562).
+     `te_top3` (0.5): a top-3 TE by this-season PPG keeps more of the TE-line relief (Schultz $121 -> $314; flag:
+     Pitts on the board $255 -> $694).
+     `rookie_r1` (lower only, -1.5): a non-rookie RB whose team just drafted an RB in NFL round 1 (`e_x_draft_comp_r1`),
+     when he himself was a pick after 64 or undrafted (Robinson $2,246 -> $910). `r1_wr` (-0.3): the WR version for 2+ year WRs (Deebo 2024
+     $2,183 -> $2,079).
+     `ROOKIE_PRIOR` RB 0.25: a second-year RB's rookie usage counts a quarter in the usage prior (Kyren 2023; the
+     Monangai call now passes; at WR/TE it breaks "Nabers > Tet").
+     `lag_cap` (a cap at a multiple of the value 28 days earlier, from the export's `lag_rows`) is built and off (99)
+     until a rebuild provides the lag rows. Result on the local inputs: over 100% off 67 -> 61 (+$25), 32 -> 26 (+$100).
+     Tested, NOT kept: season-start ages (Deebo 2025, Gainwell worse), a cuff role that ends in season, injury-report
+     weeks over two seasons (trades better, 10 calls break), ACL-recovery forgiveness, a lower alpha floor, a vacated
+     12-PPG role boost, faster award decay, an award cap, NFL round-3 draft capital for WRs (Cooper).
+     Investigated, nothing to change: Tannehill vs Carr (the base model's prior PPG), Sutton (the Burrow side),
+     Adams/Rodgers 2022 (a 4-for-1 consolidation).
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
