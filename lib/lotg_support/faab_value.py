@@ -80,6 +80,7 @@ UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
 UPSIDE_EXP = 2       # young_upside: a player in his first three seasons
 ELITE_AGE = 24.0     # young_elite: full under this age, none a year older
+ROOKIE_PRIOR = {"QB": 1.0, "RB": 0.25, "WR": 1.0, "TE": 1.0}   # share of the 4-game usage prior a rookie year gets (Kyren 2023)
 OVR_AGE = 29.0      # "an aging veteran who loses his role to a rookie": full from this age, none 2 years younger
 BACKUP_POS = ("RB",)
 DEAL_CHEAP = {"RB": 0.03, "WR": 0.04, "TE": 0.03}     # APY share of the cap: a backup's deal at or under this ...
@@ -122,7 +123,9 @@ def characteristics(R, youth_age=26.0):
     w4 = np.where(np.isnan(col(R, "e_x_cur_xfp_pg")), 0.0, np.clip(cur_gp / 4.0, 0, 1))
     # usage: expected fantasy points per game (what the role is worth, not what bounced right), this season blended
     # with last season as 4 games of prior, relative to the position's superflex replacement level
-    xc, xl = col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"); g = np.where(np.isnan(xc), 0, cur_gp); gl = np.where(np.isnan(xl), 0, 4.0)
+    # (in his second season the prior is his rookie year, which counts for less: ROOKIE_PRIOR games of 4, RBs least)
+    rp = np.where(exp_ == 1, R.pos.map(ROOKIE_PRIOR).fillna(1.0).values, 1.0)
+    xc, xl = col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"); g = np.where(np.isnan(xc), 0, cur_gp); gl = np.where(np.isnan(xl), 0, 4.0 * rp)
     xfp_b = (np.nan_to_num(xc) * g + np.nan_to_num(xl) * gl) / np.maximum(g + gl, 1e-9)
     rep = R.pos.map({"QB": 15.7, "RB": 12.1, "WR": 12.2, "TE": 10.5}).fillna(12).values
     best = np.fmax(np.nan_to_num(xl, nan=-9), np.nan_to_num(col(R, "e_x_l1_xfp_pg"), nan=-9))                # best of the last two full seasons

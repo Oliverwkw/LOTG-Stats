@@ -427,3 +427,10 @@ def test_r1_wr_is_a_veteran_wr_whose_team_took_a_first_round_wr():
     rows = [base, dict(base, exp=1.0), dict(base, pos="TE"), dict(base, e_x_draft_comp_r1=0.0)]
     assert np.allclose(F.characteristics(pd.DataFrame(rows))["r1_wr"], [1, 0, 0, 0])
     assert "r1_wr" in F.LOWER_ONLY and F.load_params()["r1_wr"] < 0
+
+
+def test_a_second_year_rbs_rookie_year_is_a_lighter_usage_prior():
+    base = dict(pos="RB", age=23.0, exp=1.0, injury="", e_x_cur_games=4.0, e_x_cur_xfp_pg=19.5, e_x_l0_xfp_pg=4.2)
+    rows = [base, dict(base, exp=2.0), dict(base, pos="WR")]
+    u = F.characteristics(pd.DataFrame(rows))["usage"]
+    assert u[0] > u[1] and u[2] < u[0] and F.ROOKIE_PRIOR["RB"] < 1.0
