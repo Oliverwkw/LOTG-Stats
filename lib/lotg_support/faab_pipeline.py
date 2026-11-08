@@ -146,7 +146,9 @@ def backup_columns(E, gsis, pa):
     dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
     E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
     E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
-    if X.GL is not None: E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5))
+    if X.GL is not None:
+        E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
+                     e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5))
     try:
         from . import contracts as CT
         E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))

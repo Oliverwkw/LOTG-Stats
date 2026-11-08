@@ -591,6 +591,34 @@ def ypc_with_current(rows, gl):
     return out
 
 
+def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
+    """last season (season-1), a same-team, same-position ROOKIE outscored the player: (rookie PPR/g - his PPR/g) /
+    gap, capped at 1; 0 when no rookie did (rookie: 8+ games, his draft year = season-1, on the player's last team of
+    season-1; the player: 4+ games). rows: gsis, date, pos. gl: one row per game (gsis, season, ppr). roster: gsis,
+    season, week, team. dp: dynastyprocess ids (gsis_id, position, draft_year)."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    last = r.groupby(["gsis", "season"]).team.last()
+    d = dp.dropna(subset=["gsis_id", "draft_year"]).assign(gsis_id=lambda x: x.gsis_id.astype(str)).drop_duplicates("gsis_id")
+    best = {}                                                   # (team, pos, season) -> the best rookie's PPR/g
+    for x in d.itertuples():
+        y = int(x.draft_year); q = g.loc[(x.gsis_id, y)] if (x.gsis_id, y) in g.index else None
+        t = last.get((x.gsis_id, y))
+        if q is None or q["count"] < min_games or t is None: continue
+        k = (t, x.position, y); best[k] = max(best.get(k, 0.0), float(q["mean"]))
+    for i in range(len(rows)):
+        gs, y = str(rows.gsis.values[i]), int(s_row[i]) - 1
+        q = g.loc[(gs, y)] if (gs, y) in g.index else None
+        t = last.get((gs, y))
+        if q is None or q["count"] < own_min or t is None: continue
+        b = best.get((t, rows.pos.values[i], y), 0.0)
+        if (d.draft_year[d.gsis_id == gs] == y).any(): continue                 # a rookie himself
+        out[i] = float(np.clip((b - q["mean"]) / gap, 0, 1))
+    return out
+
+
 TE_BIG, TE_MID = 11.0, 10.0      # PPR per game: a TE's big season / a mid-or-worse one (8+ games)
 
 

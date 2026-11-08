@@ -94,5 +94,6 @@
  "team_q_lo": 0.5,
  "qb_paid": 0.75,
  "avail_young_floor": 0.5,
- "avail_young_age": 24.0
+ "avail_young_age": 24.0,
+ "overtaken": -1.5
 }

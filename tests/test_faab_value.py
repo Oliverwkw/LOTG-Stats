@@ -370,3 +370,10 @@ def test_each_call_group_is_judged_on_the_board_of_its_day():
     assert miss({"2026-10-24": hi, "2026-10-25": lo, "2026-10-26": hi}) > 0
     # no board for its day: the latest earlier one stands in
     assert miss({"2026-10-24": hi, "2026-10-28": lo}) == 0
+
+
+def test_overtaken_reaches_aging_players_and_fades_as_he_plays():
+    base = dict(pos="WR", age=31.0, exp=8.0, injury="", e_x_overtaken=1.0)
+    rows = [base, dict(base, age=28.0), dict(base, age=26.0), dict(base, e_x_cur_games=4.0), dict(base, e_x_overtaken=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["overtaken"], [1.0, 0.5, 0.0, 0.5, 0.0])
+    assert "overtaken" in F.LOWER_ONLY and F.load_params()["overtaken"] < 0

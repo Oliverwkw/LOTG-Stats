@@ -231,3 +231,13 @@ def test_ypc_with_current_adds_this_seasons_known_games():
     v = X.ypc_with_current(rows, gl)
     assert np.isclose(v[0], (400 + 180 + 450) / 250) and np.isclose(v[1], (400 + 180 + 450 + 500) / 350)
 
+
+
+def test_overtaken_by_a_same_team_rookie_last_season():
+    gl = pd.DataFrame([dict(gsis=g, season=2023, ppr=p) for g, p in (("v", 13.0), ("r", 17.0), ("o", 12.0), ("w", 10.0)) for _ in range(10)])
+    ro = pd.DataFrame([dict(gsis=g, season=2023, week=1, team=t) for g, t in (("v", "LA"), ("r", "LA"), ("o", "SF"), ("w", "LA"))])
+    dp = pd.DataFrame(dict(gsis_id=["v", "r", "o", "w"], position=["WR", "WR", "WR", "RB"], draft_year=[2017, 2023, 2016, 2019]))
+    rows = pd.DataFrame(dict(gsis=["v", "o", "r", "v", "w"], date=pd.to_datetime(["2024-04-30", "2024-04-30", "2024-04-30", "2023-04-30", "2024-04-30"]),
+                             pos=["WR", "WR", "WR", "WR", "RB"]))
+    # v: the LA rookie r outscored him by 4 a game -> 1; o: other team; r: the rookie himself; v a season earlier; w: other position
+    assert np.allclose(X.overtaken_by_rookie(rows, gl, ro, dp), [1.0, 0.0, 0.0, 0.0, 0.0])
