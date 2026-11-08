@@ -132,6 +132,26 @@ def lag_rows(R, idx, days=LAG_DAYS, slack=LAG_SLACK):
     return np.unique(m.i.dropna().astype(int).values)
 
 
+def wr_mates(R, idx):
+    """for each kept WR row (positions in R), the row of his team's other WR with the highest base value that day:
+    {row: mate row}. A team's top WR gets its second; nobody else on the team gets anyone but the top one."""
+    if "gsis" not in R or getattr(X, "RW", None) is None: return {}
+    sel = idx[R.pos.values[idx] == "WR"]
+    if not len(sel): return {}
+    W = np.where((R.pos.values == "WR") & np.isin(R.date.values, np.unique(R.date.values[sel])))[0]
+    D = pd.DataFrame(dict(i=W, date=R.date.values[W], team=X.team_on(R.gsis.values[W], R.date.values[W], X.RW), v=R.V_raw.values[W]))
+    D = D[D.team.notna()].sort_values("v", ascending=False)
+    top = D.groupby(["date", "team"]).i.apply(lambda x: list(x.iloc[:2]))
+    team = dict(zip(D.i, zip(D.date, D.team))); out = {}
+    for i in sel:
+        k = team.get(i)
+        if k is None: continue
+        t = top.get(k, [])
+        m = t[1] if t and t[0] == i and len(t) > 1 else (t[0] if t and t[0] != i else None)
+        if m is not None: out[int(i)] = int(m)
+    return out
+
+
 def backup_columns(E, gsis, pa):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
     (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
@@ -167,9 +187,12 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     keep = [np.datetime64(x) for x in ([cd] if pd.notna(cd) else []) + list(cds.values())]
     calls = np.where(np.isin(R.date.values.astype("datetime64[ns]"), np.array(keep, dtype="datetime64[ns]")))[0]
     idx = np.unique(np.r_[cut, [i for _, s in tr for side in s for i in side[1]], latest, vi, calls].astype(int))
+    mates = wr_mates(R, idx)                                          # each WR's top teammate WR that day (and his row)
+    idx = np.unique(np.r_[idx, list(mates.values())].astype(int))
     idx = np.unique(np.r_[idx, lag_rows(R, idx)].astype(int))          # and each one's row four weeks earlier
     need = [c for c in rule_columns() if c in R]
     E = R.iloc[idx][need].copy()
+    E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
     if pa is not None and "gsis" in R: E = backup_columns(E, R.gsis.values[idx], pa)
     E["date"] = pd.to_datetime(E.date).dt.strftime("%Y-%m-%d")
     for c in E.columns:

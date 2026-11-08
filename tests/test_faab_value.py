@@ -377,3 +377,16 @@ def test_overtaken_reaches_aging_players_and_fades_as_he_plays():
     rows = [base, dict(base, age=28.0), dict(base, age=26.0), dict(base, e_x_cur_games=4.0), dict(base, e_x_overtaken=0.0)]
     assert np.allclose(F.characteristics(pd.DataFrame(rows))["overtaken"], [1.0, 0.5, 0.0, 0.5, 0.0])
     assert "overtaken" in F.LOWER_ONLY and F.load_params()["overtaken"] < 0
+
+
+def test_post_rules_dock_the_lesser_of_two_big_wrs_and_cap_fast_risers():
+    R = pd.DataFrame(dict(sid=["a", "b", "c", "a"], date=["2024-05-07", "2024-05-07", "2024-05-07", "2024-04-02"], pos=["WR", "WR", "RB", "WR"],
+                          e_x_cur_games=[0.0] * 4, e_x_l0_tgt_share=[0.30, 0.20, 0.10, 0.30], wr_mate=["b", "a", "", ""]))
+    mate, lag = F.links(R)
+    assert list(mate) == [1, 0, -1, -1] and list(lag) == [3, -1, -1, -1]
+    V = np.array([3600.0, 2200.0, 1000.0, 1000.0])
+    out = F.post_rules(V, R, dict(wr_pair=-2.0), mate, lag)
+    assert np.allclose(out, [3600.0, 2200.0 * np.exp(-2.0 * 0.30), 1000.0, 1000.0])      # the lesser WR, by the other's share
+    out = F.post_rules(V, R, dict(lag_cap=2.5, lag_floor=100.0), mate, lag)
+    assert np.allclose(out, [2500.0, 2200.0, 1000.0, 1000.0])                             # a's row 4 weeks earlier was $1,000
+    assert "wr_pair" in F.LOWER_ONLY and F.load_params()["lag_cap"] >= 50          # the cap stays off until Oliver says

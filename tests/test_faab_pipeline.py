@@ -241,3 +241,15 @@ def test_overtaken_by_a_same_team_rookie_last_season():
                              pos=["WR", "WR", "WR", "WR", "RB"]))
     # v: the LA rookie r outscored him by 4 a game -> 1; o: other team; r: the rookie himself; v a season earlier; w: other position
     assert np.allclose(X.overtaken_by_rookie(rows, gl, ro, dp), [1.0, 0.0, 0.0, 0.0, 0.0])
+
+
+def test_wr_mates_pair_each_wr_with_his_teams_top_other_wr():
+    R = pd.DataFrame(dict(sid=list("abcd"), gsis=list("abcd"), date=pd.to_datetime(["2024-05-07"] * 4), pos=["WR", "WR", "WR", "WR"],
+                          V_raw=[3000.0, 2000.0, 500.0, 900.0]))
+    ro = pd.DataFrame(dict(gsis=list("abcd"), season=2024, week=1, team=["MIA", "MIA", "MIA", "BUF"]))
+    old = getattr(X, "RW", None); X.RW = ro
+    try:
+        m = P.wr_mates(R, np.arange(4))
+    finally:
+        X.RW = old
+    assert m == {0: 1, 1: 0, 2: 0}          # the top WR gets the second; the rest the top; alone on his team: none

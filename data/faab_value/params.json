@@ -95,5 +95,6 @@
  "qb_paid": 0.75,
  "avail_young_floor": 0.5,
  "avail_young_age": 24.0,
- "overtaken": -1.5
+ "overtaken": -1.5,
+ "wr_pair": -2.0
 }

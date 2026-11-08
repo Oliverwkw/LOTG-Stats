@@ -47,10 +47,10 @@ def _rowmean(*cols):
 
 # ------------------------------------------------------------------ rules
 P0 = dict(y200=200.0, y450=450.0, y650=650.0, lvl=1.0, vet=1.0, vet_hi=900.0, top_g=0.62,
-          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0, rookie_backup=0.0, draft_comp=0.0, cheap_deal=0.0, undrafted=0.0, te_one_off=0.0, team_q_lo=0.0, qb_paid=0.0, avail_young_floor=0.0, avail_young_age=24.0, share_old_cap=99.0, share_old_age=30.0, overtaken=0.0)
+          youth_role=0.0, te_lo=0.0, te_hi=0.0, inj_ir=0.0, inj_out=0.0, prone=0.0, two_way=0.0, aw_college=0.0, aw_nfl=0.0, usage=0.0, youth_usage=0.0, qb_lo=0.0, qb_hi=0.0, rb_lo=0.0, rb_hi=0.0, wr_lo=0.0, wr_hi=0.0, youth_age=26.0, spike=0.0, team_up=0.0, severe=0.0, spike_hi=1500.0, anchor_w=0.0, anchor_slope=0.5, qb_quality=0.0, elite_streak=0.0, track=0.0, recurring=0.0, steady=0.0, pedigree=0.0, efficiency=0.0, opening=0.0, team_q=0.0, new_team_burst=0.0, share_talent=0.0, availability=0.0, rb_multi=0.0, wr_talent=0.0, pick_boom=0.0, rb_age=0.0, rookie_capital=0.0, alpha=0.0, off_field=0.0, journeyman=0.0, bust=0.0, bubble=0.0, line_frac=0.8, summer=0.0, te_line=0.0, regress=0.0, te_thr=11.0, te_soft=0.0, te_thr2=9.0, te_relief=0.0, te_pv16=0.0, old_cliff=0.0, rec_age=0.0, avail_up=0.0, share_age=0.0, anchor_old=0.0, rookie_day3=0.0, vet_move=0.0, ypc_bad=0.0, duds=0.0, peak_share=0.0, slump=0.0, boom_week=0.0, boom_hi=600.0, fresh_start=0.0, rookie_backup=0.0, draft_comp=0.0, cheap_deal=0.0, undrafted=0.0, te_one_off=0.0, team_q_lo=0.0, qb_paid=0.0, avail_young_floor=0.0, avail_young_age=24.0, share_old_cap=99.0, share_old_age=30.0, wr_pair=0.0, lag_cap=99.0, lag_floor=0.0, overtaken=0.0)
 BOUNDS = dict(y200=(80, 230), y450=(250, 520), y650=(500, 950), lvl=(0.6, 1.6), vet=(0.2, 1.0), vet_hi=(600, 3500), top_g=(0.45, 0.85),
               youth_role=(-0.5, 2.0), te_lo=(-1.5, 0.8), te_hi=(-1.0, 0.6), inj_ir=(-1.0, 0.3), inj_out=(-0.8, 0.3), prone=(-2.5, 0.5),
-              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0), rookie_backup=(-2.0, 0.0), draft_comp=(-2.5, 0.0), cheap_deal=(-2.5, 0.0), undrafted=(-2.5, 0.0), overtaken=(-2.5, 0.0), te_one_off=(-2.5, 0.0), team_q_lo=(0.0, 1.5), qb_paid=(0.0, 2.5))
+              two_way=(0.0, 2.5), aw_college=(-0.3, 1.5), aw_nfl=(-0.3, 1.0), usage=(-0.3, 1.5), youth_usage=(-0.3, 2.0), qb_lo=(-0.5, 0.4), qb_hi=(-0.6, 0.6), rb_lo=(-0.5, 0.15), rb_hi=(-0.6, 0.6), wr_lo=(-0.5, 0.15), wr_hi=(-0.6, 0.6), youth_age=(24.5, 29.0), spike=(-0.5, 2.0), team_up=(-0.5, 1.0), severe=(-1.5, 0.3), spike_hi=(500.0, 3000.0), anchor_w=(0.0, 0.7), anchor_slope=(0.2, 0.9), qb_quality=(-0.5, 2.0), elite_streak=(0.0, 1.5), track=(-0.3, 1.0), recurring=(-0.6, 0.2), steady=(-0.3, 1.0), pedigree=(-0.3, 1.0), efficiency=(-0.3, 1.2), opening=(-0.3, 1.2), team_q=(-0.3, 0.8), new_team_burst=(-0.3, 1.2), share_talent=(-0.3, 1.2), availability=(0.0, 1.5), rb_multi=(-0.3, 1.0), wr_talent=(-0.3, 1.0), pick_boom=(-0.3, 1.5), rb_age=(-1.2, 0.2), rookie_capital=(-0.3, 1.5), alpha=(-0.3, 1.0), off_field=(-5.0, 0.0), journeyman=(-2.0, 0.3), bust=(-2.0, 0.3), bubble=(0.0, 4.0), line_frac=(0.4, 1.1), summer=(-1.5, 0.5), te_line=(-3.0, 0.0), regress=(0.0, 1.0), te_thr=(9.5, 13.0), te_soft=(-3.0, 0.0), te_thr2=(7.0, 10.0), te_relief=(0.0, 1.0), te_pv16=(0.0, 1.0), old_cliff=(-3.0, 0.0), rec_age=(0.0, 1.0), avail_up=(0.0, 1.5), share_age=(0.0, 1.0), anchor_old=(0.0, 0.7), rookie_day3=(-3.0, 0.0), vet_move=(-2.0, 0.0), ypc_bad=(-2.0, 0.0), duds=(-1.5, 0.0), peak_share=(0.0, 1.5), slump=(-1.5, 0.0), boom_week=(0.0, 1.5), boom_hi=(300.0, 1500.0), fresh_start=(0.0, 4.0), rookie_backup=(-2.0, 0.0), draft_comp=(-2.5, 0.0), cheap_deal=(-2.5, 0.0), undrafted=(-2.5, 0.0), overtaken=(-2.5, 0.0), wr_pair=(-3.0, 0.0), lag_cap=(1.5, 99.0), lag_floor=(0.0, 500.0), te_one_off=(-2.5, 0.0), team_q_lo=(0.0, 1.5), qb_paid=(0.0, 2.5))
 P0.update(boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
     
@@ -70,7 +70,7 @@ BOUNDS.update(rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
 RAISE_ONLY = ["qb_paid", "team_q_lo", "fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
               "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening", "peak_share", "avail_up"]
-LOWER_ONLY = ["overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
+LOWER_ONLY = ["wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
@@ -448,7 +448,7 @@ def apply_rules(R, p, X=None, explain=False):
     return out
 
 # ------------------------------------------------------------------ inputs and evidence
-REG_KEYS = ["overtaken", "qb_paid", "team_q_lo", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
+REG_KEYS = ["wr_pair", "overtaken", "qb_paid", "team_q_lo", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
             "rookie_capital", "alpha", "availability", "efficiency", "opening", "team_q", "new_team_burst", "share_talent", "recurring", "steady", "pedigree",
             "elite_streak", "track", "qb_quality", "spike", "team_up", "severe", "qb_lo", "qb_hi", "rb_lo", "rb_hi", "wr_lo", "wr_hi", "usage", "youth_usage",
             "youth_role", "te_lo", "te_hi", "inj_ir", "inj_out", "prone", "two_way", "aw_college", "aw_nfl"]
@@ -456,9 +456,50 @@ W_TRADES, W_CUTS = 3.0, 3.0      # trade/cut history counts more than one person
 
 
 def load_inputs(data=DATA):
-    R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str}, keep_default_na=False, na_values=[""])
+    R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str, "wr_mate": str}, keep_default_na=False, na_values=[""])
     R["injury"] = R.injury.fillna("")
     return R
+
+
+LAG_DAYS, LAG_SLACK = 28, 7       # "his value four weeks earlier": the latest row at least 28 days back, at most 35
+PAIR_MIN = 1750.0                 # two WRs on one team both worth this much: the lesser one is docked (wr_pair)
+
+
+def links(R):
+    """positions in R of each row's top WR teammate that day (the export's wr_mate) and of his own row LAG_DAYS
+    earlier (within LAG_SLACK more days); -1 = not in the inputs"""
+    sid = R.sid.astype(str).values; d = pd.to_datetime(R.date).values
+    key = {(a, x): i for i, (a, x) in enumerate(zip(sid, d))}
+    wm = R["wr_mate"].fillna("").astype(str).values if "wr_mate" in R else np.full(len(R), "")
+    mate = np.array([key.get((m, x), -1) if m not in ("", "nan") else -1 for m, x in zip(wm, d)], dtype=int)
+    L = pd.DataFrame(dict(sid=sid, t=pd.to_datetime(d) - pd.Timedelta(days=LAG_DAYS), j=np.arange(len(R))))
+    G = pd.DataFrame(dict(sid=sid, t=pd.to_datetime(d), i=np.arange(len(R))))
+    m = pd.merge_asof(L.sort_values("t"), G.sort_values("t"), on="t", by="sid", direction="backward", tolerance=pd.Timedelta(days=LAG_SLACK))
+    lag = np.full(len(R), -1, dtype=int); lag[m.j.values] = m.i.fillna(-1).astype(int).values
+    return mate, lag
+
+
+def post_rules(V, R, p, mate, lag, X=None):
+    """the rules that read another row's value (after apply_rules; the other row's own value is taken before them):
+    wr_pair: when a team's two WRs are both worth PAIR_MIN+, the lesser one x exp(wr_pair x the other's target share)
+             (Oliver 2026-11-08: Waddle under Hill, Higgins under Chase, Godwin under Evans);
+    lag_cap: no row above lag_cap x his value LAG_DAYS earlier (with a floor of lag_floor), when that row is in the
+             inputs (Oliver 2026-11-08: CEH and Kirk, 2022-10). 99 = off."""
+    V = np.asarray(V, dtype=float); out = V.copy()
+    k = p.get("wr_pair", 0.0)
+    if k and (mate >= 0).any():
+        cur = np.nan_to_num(col(R, "e_x_cur_games"))
+        sh = np.nan_to_num(np.where(cur >= 4, col(R, "e_x_cur_tgt_share"), col(R, "e_x_l0_tgt_share")))
+        has = (mate >= 0) & (R.pos.values == "WR"); m = np.maximum(mate, 0)
+        vm = np.where(has, V[m], 0.0)
+        w = has * (V <= vm) * np.interp(np.minimum(V, vm), [PAIR_MIN - 250, PAIR_MIN], [0, 1])
+        out = out * np.exp(k * w * np.where(has, sh[m], 0.0))
+    c = p.get("lag_cap", 99.0)
+    if c < 50 and (lag >= 0).any():
+        has = lag >= 0
+        lim = np.where(has, np.maximum(c * V[np.maximum(lag, 0)], p.get("lag_floor", 0.0)), np.inf)
+        out = np.minimum(out, lim)
+    return out
 
 
 def load_params(path=None):
@@ -483,15 +524,23 @@ class Evidence:
             gd = cd.get(d)
             if gd is None or not (R.date == gd).any(): gd = max([x for x in full if x <= d] or [self.calls_date])
             self.call_boards[d] = gd
-        self.Ts = {gd: R[R.date == gd].drop_duplicates("name").reset_index(drop=True) for gd in set(self.call_boards.values())}
+        R = R.reset_index(drop=True); self.R = R
+        self.pTs = {gd: R[R.date == gd].drop_duplicates("name").index.values for gd in set(self.call_boards.values())}
+        self.Ts = {gd: R.iloc[i].reset_index(drop=True) for gd, i in self.pTs.items()}
+        self.mate, self.lag = links(R)
         rows = sorted({key[tuple(k)] for k in ev["cuts"]} | {key[tuple(k)] for t in ev["trades"] for s in t["sides"] for k in s["players"]})
         pos = {i: j for j, i in enumerate(rows)}
-        self.E = R.iloc[rows].reset_index(drop=True)
+        self.pE = np.array(rows, dtype=int); self.E = R.iloc[rows].reset_index(drop=True)
         self.trades = [(t["date"], [(s["other_value"], [pos[key[tuple(k)]] for k in s["players"]]) for s in t["sides"]]) for t in ev["trades"]]
         self.cuts = np.array([pos[key[tuple(k)]] for k in ev["cuts"]], dtype=int)
         # boards the rating-page votes were asked on: board date -> the inputs' grid date holding its rows
         self.vote_dates = {str(pd.Timestamp(ev["as_of"]).date()): ev["as_of"], **ev.get("vote_dates", {})}
-        self.VR = R[R.date.isin(set(self.vote_dates.values()))].drop_duplicates(["sid", "date"]).reset_index(drop=True)
+        self.pVR = R[R.date.isin(set(self.vote_dates.values()))].drop_duplicates(["sid", "date"]).index.values
+        self.VR = R.iloc[self.pVR].reset_index(drop=True)
+
+    def values(self, p, X=None):
+        """every inputs row's value, the rules on other rows' values (post_rules) included"""
+        return post_rules(apply_rules(self.R, p, X), self.R, p, self.mate, self.lag, X)
 
     def vote_values(self, v):
         """values of the vote rows (aligned with VR) as {(board date, sid): value}"""
@@ -519,15 +568,22 @@ def board(R, p, as_of=None):
     """the as-of date's board: one row per name, ranked by value"""
     as_of = as_of or R.date.max()
     T = R[R.date == as_of].drop_duplicates("name").copy()
-    T["V"] = apply_rules(T, p)
+    T["V"] = with_links(R, p)[R.index.get_indexer(T.index)]
     T = T.sort_values("V", ascending=False).reset_index(drop=True)
     T["rank"] = np.arange(1, len(T) + 1)
     return T
 
 
+def with_links(R, p):
+    """every row's value with the rules on other rows' values (post_rules)"""
+    mate, lag = links(R.reset_index(drop=True))
+    return post_rules(apply_rules(R, p), R, p, mate, lag)
+
+
 def call_values(ev, p):
     """{call date: name -> value}: each group of the league's calls on the board of the day it was made"""
-    vb = {gd: pd.Series(apply_rules(T, p), index=T.name.values) for gd, T in ev.Ts.items()}
+    V = ev.values(p)
+    vb = {gd: pd.Series(V[i], index=ev.Ts[gd].name.values) for gd, i in ev.pTs.items()}
     return {d: vb[gd] for d, gd in ev.call_boards.items()}
 
 
@@ -570,10 +626,8 @@ def objective(ev, ref, votes=None, band=True):
     """the fit's score for a parameter set: calls + 3 x trade error + 3 x cut penalty + capped votes + a light
     pull of every rule strength toward zero (a rule has to earn its strength)"""
     from . import faab_calls as LC
-    T, E, VR = ev.T, ev.E, ev.VR
     first = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
     qbs = set(first.name[first.pos == "QB"]); exp_ = pd.Series(first.exp.values, index=first.name.values) if band else None
-    gds = sorted(ev.Ts)
     cache = {}
 
     def obj(p, detail=False):
@@ -581,14 +635,13 @@ def objective(ev, ref, votes=None, band=True):
         if ya not in cache:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                cache[ya] = ({gd: characteristics(ev.Ts[gd], ya) for gd in gds}, characteristics(E, ya),
-                             characteristics(VR, ya) if votes is not None else None)
-        XT, XE, XV = cache[ya]
-        vb = {gd: pd.Series(apply_rules(ev.Ts[gd], p, XT[gd]), index=ev.Ts[gd].name.values) for gd in gds}
+                cache[ya] = characteristics(ev.R, ya)
+        V = ev.values(p, cache[ya])
+        vb = {gd: pd.Series(V[i], index=ev.Ts[gd].name.values) for gd, i in ev.pTs.items()}
         c, t = LC.score({d: vb[gd] for d, gd in ev.call_boards.items()}, ref, qbs, exp=exp_)
-        ve = apply_rules(E, p, XE)
+        ve = V[ev.pE]
         te, ce = trade_err(ve, ev.trades)[0], cut_err(ve, ev.cuts)
-        vo = votes.loss(ev.vote_values(apply_rules(VR, p, XV))) if votes is not None and len(votes.C) else 0.0
+        vo = votes.loss(ev.vote_values(V[ev.pVR])) if votes is not None and len(votes.C) else 0.0
         reg = 0.02 * sum(abs(p[k]) for k in REG_KEYS)
         tot = c + W_TRADES * te + W_CUTS * ce + vo + reg
         return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, tests=t) if detail else tot
