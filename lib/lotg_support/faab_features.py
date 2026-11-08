@@ -575,6 +575,22 @@ def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
     return out
 
 
+def ypc_with_current(rows, gl):
+    """yards per carry over the last two complete seasons AND this season's games known by the date (100+ carries
+    between them); NaN otherwise. gl: one row per game played (gsis, season, known, rush_car, rush_yds)."""
+    rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
+    g = gl.dropna(subset=["rush_car"]).assign(gsis=lambda x: x.gsis.astype(str), known=lambda x: pd.to_datetime(x.known))
+    by = {k: v for k, v in g.groupby("gsis")}
+    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).values, s_row)):
+        v = by.get(gs)
+        if v is None: continue
+        v = v[(v.season >= y - 2) & (v.season <= y) & ((v.season < y) | (v.known.values <= dt[i]))]
+        c = float(v.rush_car.sum())
+        if c >= 100: out[i] = float(v.rush_yds.fillna(0).sum()) / c
+    return out
+
+
 TE_BIG, TE_MID = 11.0, 10.0      # PPR per game: a TE's big season / a mid-or-worse one (8+ games)
 
 

@@ -316,9 +316,10 @@ def characteristics(R, youth_age=26.0):
                 near_wall=(R.pos.values != "QB") * np.clip((np.nan_to_num(age, nan=25) - R.pos.map(AGE_WALL).fillna(31).values + 2.0) / 2.0, 0, 1),
                 # a veteran (27 -> 29) on a new team: signed or traded since last season (offseason from March 15)
                 vet_move=(R.pos.values != "QB") * np.fmax(np.nan_to_num(col(R, "e_x_new_team")), np.nan_to_num(col(R, "e_x_moved_off"))) * np.clip((np.nan_to_num(age, nan=25) - 27.0) / 2.0, 0, 1),
-                # an RB who can't run: yards per carry over the last two seasons under 4.1 (3.7 = full), from his 3rd season
-                # (two complete seasons: a pattern over years, not a rookie behind a bad line)
-                ypc_bad=(R.pos.values == "RB") * (exp_ >= 2) * np.clip((4.1 - np.nan_to_num(col(R, "e_x_ypc_2y"), nan=9.0)) / 0.4, 0, 1.5),
+                # an RB who can't run: yards per carry over the last two seasons and this one so far (e_x_ypc_3s; else the
+                # last two) under 4.1 (3.7 = full), from his 3rd season (a pattern over years, not a rookie behind a bad line;
+                # this season counts so a workhorse running well now is not docked for two seasons ago: Mixon 2021)
+                ypc_bad=(R.pos.values == "RB") * (exp_ >= 2) * np.clip((4.1 - np.nan_to_num(np.where(np.isnan(col(R, "e_x_ypc_3s")), col(R, "e_x_ypc_2y"), col(R, "e_x_ypc_3s")), nan=9.0)) / 0.4, 0, 1.5),
                 rookie_backup=rookie_backup(R, exp_),
                 # the NFL just drafted his replacement: same-team, same-position rookies taken in rounds 1-2 this season
                 # (from the NFL draft day; a second one counts half), from his 3rd season (a 2nd-year player is still the

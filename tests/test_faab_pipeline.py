@@ -215,3 +215,11 @@ def test_te_one_off_is_one_big_year_on_a_new_team_after_mid_seasons():
     rows = pd.DataFrame(dict(gsis=["j", "k", "m", "j"], date=pd.to_datetime(["2025-09-07"] * 3 + ["2024-09-01"]), pos=["TE"] * 4))
     assert np.allclose(X.te_one_off(rows, gl, ro), [1.0, 0.0, 0.0, 0.0])    # k: one mid season only; m: big year on the same team
 
+
+def test_ypc_with_current_adds_this_seasons_known_games():
+    gl = pd.DataFrame(dict(gsis="m", season=[2019, 2020, 2021, 2021], week=[1, 1, 1, 10], rush_car=[100, 50, 100, 100], rush_yds=[400, 180, 450, 500],
+                           known=pd.to_datetime(["2019-09-10", "2020-09-15", "2021-09-14", "2021-11-16"])))
+    rows = pd.DataFrame(dict(gsis=["m", "m"], date=pd.to_datetime(["2021-10-01", "2021-12-01"])))
+    v = X.ypc_with_current(rows, gl)
+    assert np.isclose(v[0], (400 + 180 + 450) / 250) and np.isclose(v[1], (400 + 180 + 450 + 500) / 350)
+
