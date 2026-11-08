@@ -252,6 +252,13 @@ def test_undrafted_rookie_fades_out_as_he_plays():
     assert "undrafted" in F.LOWER_ONLY and F.BOUNDS["undrafted"][1] <= 0
 
 
+def test_te_one_off_needs_a_move_and_fades_as_he_plays():
+    base = dict(pos="TE", age=30.0, exp=8.0, injury="", e_x_te_one_off=1.0, e_x_moved_off=1.0)
+    rows = [base, dict(base, e_x_moved_off=0.0), dict(base, e_x_moved_off=0.0, e_x_new_team=1.0, e_x_cur_games=2.0), dict(base, pos="WR")]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["te_one_off"], [1.0, 0.0, 0.5, 0.0])
+    assert "te_one_off" in F.LOWER_ONLY
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]

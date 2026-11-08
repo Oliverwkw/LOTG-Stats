@@ -204,3 +204,14 @@ def test_league_undrafted_credits_top_week1_adds():
     v = X.league_undrafted(rows, adds)
     assert np.allclose(v[:5], [0.0, 1.0, 0.5, 0.0, 1.0]) and np.isnan(v[5])
 
+
+
+
+def test_te_one_off_is_one_big_year_on_a_new_team_after_mid_seasons():
+    gl = pd.DataFrame([dict(gsis=g, season=y, ppr=p) for g, seas in (("j", {2019: 8, 2020: 7, 2021: 4, 2022: 4, 2023: 7, 2024: 13}),
+                                                                     ("k", {2022: 12, 2023: 7, 2024: 13}), ("m", {2021: 4, 2022: 4, 2023: 7, 2024: 13}))
+                       for y, p in seas.items() for _ in range(10)])
+    ro = pd.DataFrame([dict(gsis=g, season=y, week=1, team=("MIA" if y == 2024 else "ATL") if g != "m" else "MIA") for g in "jkm" for y in range(2019, 2026)])
+    rows = pd.DataFrame(dict(gsis=["j", "k", "m", "j"], date=pd.to_datetime(["2025-09-07"] * 3 + ["2024-09-01"]), pos=["TE"] * 4))
+    assert np.allclose(X.te_one_off(rows, gl, ro), [1.0, 0.0, 0.0, 0.0])    # k: one mid season only; m: big year on the same team
+

@@ -575,6 +575,29 @@ def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
     return out
 
 
+TE_BIG, TE_MID = 11.0, 10.0      # PPR per game: a TE's big season / a mid-or-worse one (8+ games)
+
+
+def te_one_off(rows, gl, roster, min_games=8):
+    """a TE whose last season (season-1) was his one big year (TE_BIG+ PPR a game) on a team he had just joined, after
+    mid-or-worse seasons (under TE_MID, 8+ games) in the five before it: (count - 1) / 2, capped at 1 (3+ = full), else
+    0. rows: gsis, date, pos. gl: one row per game played (gsis, season, ppr). roster: gsis, season, week, team."""
+    rows = rows.reset_index(drop=True); out = np.zeros(len(rows))
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    first = r.groupby(["gsis", "season"]).team.first(); last = r.groupby(["gsis", "season"]).team.last()
+    for i in np.where(rows.pos.values == "TE")[0]:
+        gs, y = str(rows.gsis.values[i]), int(s_row[i])
+        b = g.loc[(gs, y - 1)] if (gs, y - 1) in g.index else None
+        if b is None or b["count"] < min_games or b["mean"] < TE_BIG: continue
+        t0, tp = first.get((gs, y - 1)), last.get((gs, y - 2))
+        if t0 is None or tp is None or t0 == tp: continue
+        n = sum(1 for k in range(2, 7) if (gs, y - k) in g.index and g.loc[(gs, y - k)]["count"] >= min_games and g.loc[(gs, y - k)]["mean"] < TE_MID)
+        out[i] = min(max((n - 1) / 2.0, 0.0), 1.0)
+    return out
+
+
 TOP_ADDS = 5      # the league's top N pre-Week-1 free-agent bids of a season are "top adds"
 
 

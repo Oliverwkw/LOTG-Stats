@@ -89,5 +89,6 @@
  "cheap_deal": -2.5,
  "share_old_cap": 1.25,
  "share_old_age": 31.0,
- "undrafted": -2.0
+ "undrafted": -2.0,
+ "te_one_off": -1.0
 }
