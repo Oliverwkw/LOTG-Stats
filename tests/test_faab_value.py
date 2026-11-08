@@ -413,3 +413,10 @@ def test_te_top3_eases_the_te_line():
     _, t1, _ = F.apply_rules(R, p, explain=True); _, t0, _ = F.apply_rules(R, dict(p, te_top3=0.0), explain=True)
     hit = np.nan_to_num(F.col(R, "e_x_te_top3")) > 0
     assert (t1["te_line"] >= t0["te_line"] - 1e-12).all() and (t1["te_line"][~hit] == t0["te_line"][~hit]).all()
+
+
+def test_rookie_r1_is_a_late_round_rb_behind_a_first_round_rookie():
+    base = dict(pos="RB", age=23.0, exp=1.0, injury="", e_x_draft_comp_r1=1.0, e_x_draft_pick=np.nan)
+    rows = [base, dict(base, e_x_draft_pick=20.0), dict(base, exp=0.0), dict(base, pos="WR"), dict(base, e_x_draft_comp_r1=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["rookie_r1"], [1, 0, 0, 0, 0])
+    assert "rookie_r1" in F.LOWER_ONLY and F.load_params()["rookie_r1"] < 0

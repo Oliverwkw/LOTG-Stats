@@ -164,7 +164,8 @@ def backup_columns(E, gsis, pa):
     sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
     dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
     dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
-    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
+    dc1 = X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
+    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc, e_x_draft_comp_r1=dc1)
     E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
     if X.GL is not None:
         E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
