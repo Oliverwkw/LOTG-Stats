@@ -274,6 +274,14 @@ def test_qb_paid_is_a_moved_qb_on_a_big_new_deal_until_he_plays():
     assert "qb_paid" in F.RAISE_ONLY
 
 
+def test_young_players_availability_drop_is_floored():
+    p = F.load_params(); fl = np.log(p["avail_young_floor"]); a = p["avail_young_age"]
+    base = dict(pos="RB", exp=2.0, injury="", V_raw=500.0, e_x_l0_games=2.0, e_x_l1_games=3.0)
+    R = pd.DataFrame([dict(base, age=x) for x in (a - 1, a + 1, a + 3)])
+    av = F.apply_rules(R, p, explain=True)[1]["availability"]
+    assert np.isclose(av[0], fl) and fl > av[1] > av[2] and av[2] < fl
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]

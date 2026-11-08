@@ -92,5 +92,7 @@
  "undrafted": -2.0,
  "te_one_off": -1.0,
  "team_q_lo": 0.5,
- "qb_paid": 0.75
+ "qb_paid": 0.75,
+ "avail_young_floor": 0.5,
+ "avail_young_age": 24.0
 }
