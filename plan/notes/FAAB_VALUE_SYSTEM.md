@@ -84,6 +84,15 @@ use only what was known that day, the way the league values players. A 1.05 rook
      Gordon 2021 and White himself (below the $373 paid) all get worse; James Robinson 2021 improves. The inputs
      columns come from `faab_pipeline.backup_columns` (feature store `xf_roster_team` + the game log, which now
      carries targets).
+     `draft_comp` (lower only, set to -1.5 on Oliver's call to explain Quentin Johnston, May 2025: model $870 for
+     a 4th + $20; Oliver: "around two good 3s" = ~$190-220): same-team, same-position rookies the NFL took in
+     rounds 1-2 this season (`e_x_draft_comp`, from NFL draft day until March; a second one counts half), from the
+     player's 3rd season, for base values $200-600 (fading 150-200 and 600-800). QJ $870 -> $194 (Tre Harris).
+     No other refit. Total 7.798 -> 7.952, trades 1.029 -> 1.056, calls 99 -> 100/121; over 100% off 71 -> 74
+     (+$25), 41 -> 40 (+$100). Fixes Mike Williams 2023, Deebo 2025, Reed 2025; breaks Kirk Jul-Aug 2024 (BTJ),
+     Claypool 2022, Gordon 2021, Dobbins 2025. Rounds 1-3 from the 2nd season (Oliver's first spec) scored 8.914
+     and docked 2nd-year Burden $1,595 -> $356. Board 2026-10-28: DeVonta Smith $446 -> $100, Garrett Wilson
+     $1,093 -> $885.
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.
