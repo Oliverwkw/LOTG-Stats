@@ -101,6 +101,14 @@ TESTS = [test_replacement_line_by_season, test_excused_fallback_lifts_to_preseas
          test_trades_parse_into_two_sides, test_pick_prices_fall_with_distance_and_slot,
          test_unsigned_only_off_the_week1_roster_offseason_for_everyone, test_rostered_players_have_a_team]
 
+def test_lag_rows_find_the_row_four_weeks_earlier():
+    d = pd.to_datetime(["2025-09-02", "2025-09-30", "2025-10-01", "2025-10-28", "2025-09-01", "2025-10-28"])
+    R = pd.DataFrame(dict(sid=["a", "a", "a", "a", "b", "b"], date=d))
+    # a on 10-28 -> 09-30 (the latest at least 28 days earlier); a on 10-01 -> 09-02 (29 days); b on 10-28 -> none
+    # (09-01 is 57 days back, past the 7-day slack); a on 09-02 -> none
+    assert list(P.lag_rows(R, np.array([3, 2, 5, 0]))) == [0, 1]
+
+
 if __name__ == "__main__":
     for fn in TESTS:
         print(f"{fn.__name__}:")

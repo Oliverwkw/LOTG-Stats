@@ -119,6 +119,19 @@ def vote_rows(R, responses=None):
     return np.array(idx, dtype=int), vd
 
 
+LAG_DAYS, LAG_SLACK = 28, 7
+
+
+def lag_rows(R, idx, days=LAG_DAYS, slack=LAG_SLACK):
+    """row positions in R of each kept row's player on the latest grid date at least `days` earlier (and no more
+    than `slack` days before that): the 'value four weeks earlier' a cap on fast risers reads"""
+    if not len(idx): return np.array([], int)
+    L = pd.DataFrame(dict(sid=R.sid.astype(str).values[idx], t=pd.to_datetime(R.date.values[idx]) - pd.Timedelta(days=days)))
+    G = pd.DataFrame(dict(sid=R.sid.astype(str).values, t=pd.to_datetime(R.date.values), i=np.arange(len(R))))
+    m = pd.merge_asof(L.sort_values("t"), G.sort_values("t"), on="t", by="sid", direction="backward", tolerance=pd.Timedelta(days=slack))
+    return np.unique(m.i.dropna().astype(int).values)
+
+
 def backup_columns(E, gsis, pa):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
     (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
@@ -152,6 +165,7 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     keep = [np.datetime64(x) for x in ([cd] if pd.notna(cd) else []) + list(cds.values())]
     calls = np.where(np.isin(R.date.values.astype("datetime64[ns]"), np.array(keep, dtype="datetime64[ns]")))[0]
     idx = np.unique(np.r_[cut, [i for _, s in tr for side in s for i in side[1]], latest, vi, calls].astype(int))
+    idx = np.unique(np.r_[idx, lag_rows(R, idx)].astype(int))          # and each one's row four weeks earlier
     need = [c for c in rule_columns() if c in R]
     E = R.iloc[idx][need].copy()
     if pa is not None and "gsis" in R: E = backup_columns(E, R.gsis.values[idx], pa)
