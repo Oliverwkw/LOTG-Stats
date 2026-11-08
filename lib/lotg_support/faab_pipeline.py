@@ -129,7 +129,8 @@ def backup_columns(E, gsis, pa):
     info = kp.player_info(sorted(set(adds.sid)))
     rows = pd.DataFrame(dict(sid=E.sid.astype(str).values, gsis=pd.Series(gsis).astype(str).values, date=pd.to_datetime(E.date).values, pos=E.pos.values))
     sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
-    dc = X.nfl_draft_comp(rows, pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False), X.RW)
+    dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
+    dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
     return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
 
 

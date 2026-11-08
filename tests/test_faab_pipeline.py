@@ -157,6 +157,17 @@ def test_nfl_draft_comp_counts_early_round_rookies_from_draft_day():
     assert list(X.nfl_draft_comp(rows.assign(pos="RB"), dp, roster)) == [0.0] * 4
 
 
+def test_departed_starter_means_the_rookie_replaced_him():
+    roster = pd.DataFrame({"gsis": ["a", "a", "b", "b", "h"], "season": [2025, 2026, 2025, 2026, 2026], "week": 1,
+                           "team": ["PHI", "NE", "PHI", "PHI", "PHI"], "draft_club": [None, None, None, None, "PHI"]})
+    dp = pd.DataFrame({"gsis_id": ["a", "b", "h"], "position": "WR", "draft_year": [2018, 2020, 2026], "draft_round": [2, 1, 1]})
+    gl = pd.DataFrame({"gsis": ["a"] * 8 + ["b"] * 8, "season": 2025, "ppr": [15.0] * 8 + [12.0] * 8})
+    gone = X.departed(dp, roster, gl)
+    assert gone == {("PHI", "WR", 2026)}                 # a (15 PPR/g) left; b stayed; nothing for a season without rosters
+    rows = pd.DataFrame({"sid": "B", "gsis": "b", "pos": "WR", "date": pd.to_datetime(["2026-10-01"])})
+    assert list(X.nfl_draft_comp(rows, dp, roster)) == [1.0] and list(X.nfl_draft_comp(rows, dp, roster, gone=gone)) == [0.0]
+
+
 def test_game_form_counts_15_point_games_and_best_game():
     gl = pd.DataFrame({"gsis": "a", "season": [2023, 2024, 2024, 2025, 2026], "week": 1, "known": pd.to_datetime(["2023-09-15", "2024-09-15", "2024-09-22", "2025-09-15", "2026-09-15"]),
                        "ppr": [20.0, 16.0, 45.0, 3.0, 12.0], "off_pct": 0.8})
