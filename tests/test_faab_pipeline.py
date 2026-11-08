@@ -184,3 +184,11 @@ def test_offseason_move_from_free_agency_to_kickoff():
     o2 = X.offseason_move(d2, [2025] * 3, ["PIT", "PIT", "PIT"], ["MIA", "MIA", "MIA"], [True, False, True])
     assert list(o2) == [1.0, 0.0, 0.0]
 
+
+def test_vet_deal_cap_reads_this_seasons_veteran_deal():
+    """the cap share of a veteran deal signed in the row's season (March-based); rookie deals and other seasons don't count"""
+    c = pd.DataFrame(dict(gsis_id=["a", "a", "a", "b"], year_signed=[2017, 2020, 2024, 2024], draft_year=[2017, 2017, 2017, 2024],
+                          apy_cap_pct=[0.003, 0.031, 0.017, 0.008]))
+    rows = pd.DataFrame(dict(gsis=["a", "a", "a", "b", "a"], date=pd.to_datetime(["2024-07-09", "2025-02-01", "2025-03-02", "2024-07-09", "2017-08-01"])))
+    v = X.vet_deal_cap(rows, c)
+    assert np.allclose(v[:2], [0.017, 0.017]) and np.isnan(v[2]) and np.isnan(v[3]) and np.isnan(v[4])

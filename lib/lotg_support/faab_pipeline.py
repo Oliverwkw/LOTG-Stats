@@ -131,7 +131,13 @@ def backup_columns(E, gsis, pa):
     sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
     dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
     dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
-    return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
+    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc)
+    try:
+        from . import contracts as CT
+        E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))
+    except Exception as e:      # no contracts file (offline, no pyarrow): the rule reads NaN and stays off
+        print(f"contracts unavailable ({type(e).__name__}): e_x_vet_deal_cap left empty")
+    return E
 
 
 def export(R, tr, cut, out=V.DATA, responses=None, pa=None):

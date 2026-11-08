@@ -85,5 +85,6 @@
  "qb_opening": 1.5,
  "fresh_start": 2.1666666666666665,
  "rookie_backup": 0.0,
- "draft_comp": -1.5
+ "draft_comp": -1.5,
+ "cheap_deal": -2.5
 }

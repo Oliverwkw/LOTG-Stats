@@ -575,6 +575,18 @@ def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
     return out
 
 
+def vet_deal_cap(rows, contracts):
+    """the share of the salary cap (APY) of a veteran contract the player signed this season (the season whose rosters
+    count from March 1), NaN if none: what the NFL market paid him. Rookie deals don't count; two signings in one season
+    keep the bigger. rows: gsis, date. contracts: Over The Cap's history (lotg_support.contracts.load_contracts)."""
+    c = contracts[contracts.gsis_id.notna()].copy()
+    c = c[~(c.draft_year.notna() & (c.year_signed <= c.draft_year))]
+    c = c.sort_values("apy_cap_pct").drop_duplicates(["gsis_id", "year_signed"], keep="last")
+    m = {(str(g), int(y)): float(x) for g, y, x in zip(c.gsis_id, c.year_signed, c.apy_cap_pct) if pd.notna(y)}
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s = np.where(di.month >= 3, di.year, di.year - 1)
+    return np.array([m.get((str(g), int(y)), np.nan) for g, y in zip(rows.gsis.values, s)])
+
+
 def game_form(gl, gsis, date_v, l0_s, n=10):
     """Game-by-game form as known on each date. `gl`: one row per game played (gsis, season, known, ppr, off_pct).
     Returns a dict of arrays:

@@ -222,6 +222,19 @@ def test_draft_comp_reaches_mid_priced_players_from_their_third_season():
     assert (terms["draft_comp"][(st["base"] <= 150) | (st["base"] >= 800)] == 0).all()   # gated to base $150-800
 
 
+def test_cheap_deal_reaches_moved_vets_on_cheap_new_deals():
+    """a veteran who moved on a cheap deal signed this season (Ekeler 2024: 1.7% of the cap) is docked; a big deal, a QB,
+    a player who did not move, or no deal this season is not"""
+    base = dict(pos="RB", age=29.0, exp=7.0, injury="", e_x_moved_off=1.0, e_x_vet_deal_cap=0.015)
+    rows = [base, dict(base, e_x_vet_deal_cap=0.0225), dict(base, e_x_vet_deal_cap=0.05), dict(base, pos="QB"),
+            dict(base, e_x_moved_off=0.0), dict(base, e_x_vet_deal_cap=np.nan), dict(base, pos="WR", e_x_vet_deal_cap=0.015)]
+    x = F.characteristics(pd.DataFrame(rows))["cheap_deal"]
+    assert np.allclose(x, [1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0])
+    assert "cheap_deal" in F.LOWER_ONLY and F.BOUNDS["cheap_deal"][1] <= 0
+    R = F.load_inputs(); p = F.load_params(); _, terms, st = F.apply_rules(R, p, explain=True)
+    assert (terms["cheap_deal"][st["base"] <= 300] == 0).all()        # a cheap player's cheap deal is no news
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
