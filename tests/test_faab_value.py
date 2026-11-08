@@ -259,6 +259,13 @@ def test_te_one_off_needs_a_move_and_fades_as_he_plays():
     assert "te_one_off" in F.LOWER_ONLY
 
 
+def test_team_q_lo_only_lowers_cheap_players_on_bad_teams():
+    p = F.load_params(); R = F.load_inputs(); _, terms, st = F.apply_rules(R, p, explain=True)
+    t = terms["team_q_lo"]
+    assert (t <= 0).all() and (t[st["base"] >= 150] == 0).all() and (t < 0).any()
+    assert "team_q_lo" in F.REG_KEYS and F.BOUNDS["team_q_lo"][0] >= 0
+
+
 def test_ypc_bad_starts_in_the_third_season():
     base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
     x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
