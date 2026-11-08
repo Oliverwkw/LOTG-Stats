@@ -192,3 +192,15 @@ def test_vet_deal_cap_reads_this_seasons_veteran_deal():
     rows = pd.DataFrame(dict(gsis=["a", "a", "a", "b", "a"], date=pd.to_datetime(["2024-07-09", "2025-02-01", "2025-03-02", "2024-07-09", "2017-08-01"])))
     v = X.vet_deal_cap(rows, c)
     assert np.allclose(v[:2], [0.017, 0.017]) and np.isnan(v[2]) and np.isnan(v[3]) and np.isnan(v[4])
+
+
+def test_league_undrafted_credits_top_week1_adds():
+    """not taken in the league's rookie draft = 1, less credit for a pre-Week-1 bid against the season's 5th-largest"""
+    d0 = "2024-07-13"
+    adds = pd.DataFrame(dict(sid=["d", "w1", "w2", "w3", "w4", "w5", "luke"], type=["Draft"] + ["Waiver"] * 6,
+                             date=pd.to_datetime([d0] + ["2024-09-03"] * 6), price=[0, 80, 60, 40, 35, 30, 15]))
+    rows = pd.DataFrame(dict(sid=["d", "luke", "luke", "w1", "x", "x"],
+                             date=pd.to_datetime(["2024-08-01", "2024-08-01", "2024-09-04", "2024-09-04", "2024-09-04", "2024-07-01"])))
+    v = X.league_undrafted(rows, adds)
+    assert np.allclose(v[:5], [0.0, 1.0, 0.5, 0.0, 1.0]) and np.isnan(v[5])
+

@@ -575,6 +575,34 @@ def nfl_draft_comp(rows, dp, roster, max_round=2, gone=None):
     return out
 
 
+TOP_ADDS = 5      # the league's top N pre-Week-1 free-agent bids of a season are "top adds"
+
+
+def league_undrafted(rows, adds):
+    """for each row from the league's rookie draft to the end of that season (2021 on): 1 if the player was not taken in
+    that draft, less credit for a pre-Week-1 free-agent bid (his largest bid from the draft to kickoff + 4 days, known by
+    the row's date, over the season's TOP_ADDS-th largest such bid, $5 at least: a top add = 0); 0 if he was drafted;
+    NaN before the draft or in 2020 (the startup). adds: sid, date, type, price (player_additions)."""
+    rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
+    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    a = adds.assign(sid=adds.sid.astype(str), date=pd.to_datetime(adds.date)); a["s"] = np.where(a.date.dt.month >= 3, a.date.dt.year, a.date.dt.year - 1)
+    sid = rows.sid.astype(str).values
+    for y in sorted(set(s_row)):
+        if y < 2021 or y not in KO: continue
+        dr = a[(a.type == "Draft") & (a.s == y)]
+        if not len(dr): continue
+        d0 = dr.date.min(); got = set(dr.sid)
+        fa = a[a.type.isin(["Waiver", "Free agency"]) & (a.date > d0) & (a.date <= KO[y] + pd.Timedelta(days=4))]
+        px = fa.price.astype(float).fillna(0)
+        cut = max(float(np.sort(px.values)[::-1][TOP_ADDS - 1]) if len(px) >= TOP_ADDS else 0.0, 5.0)
+        m = np.where((s_row == y) & (dt >= np.datetime64(d0)))[0]
+        for i in m:
+            if sid[i] in got: out[i] = 0.0; continue
+            b = fa[(fa.sid == sid[i]) & (fa.date.values <= dt[i])]
+            out[i] = 1.0 - min(float(b.price.astype(float).fillna(0).max()) / cut, 1.0) if len(b) else 1.0
+    return out
+
+
 def vet_deal_cap(rows, contracts):
     """the share of the salary cap (APY) of a veteran contract the player signed this season (the season whose rosters
     count from March 1), NaN if none: what the NFL market paid him. Rookie deals don't count; two signings in one season
