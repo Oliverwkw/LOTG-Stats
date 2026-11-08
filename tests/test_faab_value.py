@@ -420,3 +420,10 @@ def test_rookie_r1_is_a_late_round_rb_behind_a_first_round_rookie():
     rows = [base, dict(base, e_x_draft_pick=20.0), dict(base, exp=0.0), dict(base, pos="WR"), dict(base, e_x_draft_comp_r1=0.0)]
     assert np.allclose(F.characteristics(pd.DataFrame(rows))["rookie_r1"], [1, 0, 0, 0, 0])
     assert "rookie_r1" in F.LOWER_ONLY and F.load_params()["rookie_r1"] < 0
+
+
+def test_r1_wr_is_a_veteran_wr_whose_team_took_a_first_round_wr():
+    base = dict(pos="WR", age=28.0, exp=5.0, injury="", e_x_draft_comp_r1=1.0)
+    rows = [base, dict(base, exp=1.0), dict(base, pos="TE"), dict(base, e_x_draft_comp_r1=0.0)]
+    assert np.allclose(F.characteristics(pd.DataFrame(rows))["r1_wr"], [1, 0, 0, 0])
+    assert "r1_wr" in F.LOWER_ONLY and F.load_params()["r1_wr"] < 0

@@ -100,5 +100,6 @@
  "young_upside": 0.45,
  "young_elite": 1.0,
  "te_top3": 0.5,
- "rookie_r1": -1.5
+ "rookie_r1": -1.5,
+ "r1_wr": -0.3
 }
