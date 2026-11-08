@@ -68,6 +68,22 @@ use only what was known that day, the way the league values players. A 1.05 rook
      games at 15+ PPR in the last three seasons (`e_x_g15_3y`, 5+ = full); it also lifts the TE line and the
      replacement line for him. It reaches only Likely 2026-06-09 in today's inputs.
      Then limited to a player who would otherwise be worth under $200 (`FRESH_MAX`, Oliver): Likely was $13 without it.
+     Next round (Oliver, 2026-11-08, from Rachaad White's Sept 2024 trade, model $1,737 vs $373 of picks):
+     `ypc_bad` now starts in an RB's 3rd season (exp >= 2: two complete seasons behind `e_x_ypc_2y`), strength
+     unchanged (-1.17). White's 3.67 YPC over 2022-23 gives x0.28 -> $493 (Oliver: $400-700). Total 7.816 -> 7.798,
+     trades 1.035 -> 1.029, calls 99/121; 12 other evidence rows move (7 cheap RBs); on the 2026-10-28 board
+     Braelon Allen $85 -> $29, Vidal $34 -> $28, Wright $15 -> $8. The -1.17 was fitted on 4th-year-plus RBs: the
+     3rd-year reach is an extrapolation (half strength would put White at ~$926).
+     `rookie_backup` (lower only) BUILT AT 0: a non-rookie RB (`BACKUP_POS`) whose team added a same-position rookie
+     the league paid for this season (`e_x_rookie_backup` = each rookie's largest rookie-draft price or waiver bid,
+     a bid in the first 10 days of the season x4 = `ROOKIE_W1_MULT`; $250 = 1, cap 2). Early (his first 4 games,
+     gone by 8) a drop in his OWN per-game carries / targets / snaps vs last season (`e_x_rookie_backup_held`
+     under 0.9, 0.6 = full) raises it up to 1.5x; later a kept workload (0.75 -> 0.95) fades it out. A rookie's
+     low usage never dampens it. Every strength makes trades worse (-0.25: 1.051; -1.0: 1.075; RB+TE same, +QB
+     costs calls): Warren / Kaleb Johnson 2025 (held 1.38), Dobbins / RJ Harvey 2025, Tracy / Skattebo 2025,
+     Gordon 2021 and White himself (below the $373 paid) all get worse; James Robinson 2021 improves. The inputs
+     columns come from `faab_pipeline.backup_columns` (feature store `xf_roster_team` + the game log, which now
+     carries targets).
      From the game log (`faab_features.game_form`), built on Oliver's call; `duds` and `slump` are fitted to 0:
      - `duds` (lower only): a WR/TE's full-role games (50%+ of snaps) under 5 PPR in the last two complete seasons,
        past 2.

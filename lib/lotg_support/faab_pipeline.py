@@ -119,7 +119,19 @@ def vote_rows(R, responses=None):
     return np.array(idx, dtype=int), vd
 
 
-def export(R, tr, cut, out=V.DATA, responses=None):
+def backup_columns(E, gsis, pa):
+    """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
+    (the player's own usage so far over his last season) for the exported rows; needs the feature store (load_store)"""
+    if getattr(X, "RW", None) is None: return E
+    adds = pd.DataFrame(dict(sid=pa.sid.astype(str), date=pd.to_datetime(pa.Date.astype(str).str[:10]), type=pa["Addition type"],
+                             price=pa["Price paid (FAAB)"])).dropna(subset=["sid"])
+    info = kp.player_info(sorted(set(adds.sid)))
+    rows = pd.DataFrame(dict(sid=E.sid.astype(str).values, gsis=pd.Series(gsis).astype(str).values, date=pd.to_datetime(E.date).values, pos=E.pos.values))
+    sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
+    return E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5))
+
+
+def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     """the committed inputs: the as-of board + every evidence row + every voted row, and the evidence structure"""
     now = R.date.max(); latest = np.where(R.date.values == np.datetime64(now))[0]
     vi, vd = vote_rows(R, responses)
@@ -127,7 +139,9 @@ def export(R, tr, cut, out=V.DATA, responses=None):
     calls = np.where(R.date.values == np.datetime64(cd))[0] if pd.notna(cd) else np.array([], int)
     idx = np.unique(np.r_[cut, [i for _, s in tr for side in s for i in side[1]], latest, vi, calls].astype(int))
     need = [c for c in rule_columns() if c in R]
-    E = R.iloc[idx][need].copy(); E["date"] = pd.to_datetime(E.date).dt.strftime("%Y-%m-%d")
+    E = R.iloc[idx][need].copy()
+    if pa is not None and "gsis" in R: E = backup_columns(E, R.gsis.values[idx], pa)
+    E["date"] = pd.to_datetime(E.date).dt.strftime("%Y-%m-%d")
     for c in E.columns:
         if E[c].dtype.kind == "f": E[c] = E[c].astype("float64").round(5)
     E.to_csv(out / "inputs.csv", index=False)
@@ -188,6 +202,6 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     R = add_rank(latest_status(R, players))
     R.to_parquet(WORK / ("raw.parquet" if end is None else "raw_partial.parquet"))
     tr, cut = evidence_rows(R, TR, pa, picks, drops)
-    n = export(R, tr, cut, out or V.DATA)
+    n = export(R, tr, cut, out or V.DATA, pa=pa)
     log(f"exported {n} input rows, {len(tr)} trades, {len(cut)} cuts as of {R.date.max().date()} ({time.time() - t0:.0f}s)")
     return R

@@ -194,6 +194,31 @@ def test_trade_note_rules_reach_only_their_players():
     assert (terms["boom_week"][X["boom_week"] == 0] == 0).all()
 
 
+def test_rookie_backup_reaches_vet_rbs_and_follows_the_workload():
+    """non-rookie RBs with a paid same-team rookie only; an early workload drop raises it, a kept workload late fades it,
+    a rookie's low usage never matters (the rule reads the vet's own usage)"""
+    R = F.load_inputs(); p = F.load_params(); T = R.reset_index(drop=True)
+    X = F.characteristics(T, p["youth_age"]); pos = T.pos.values; exp_ = T.exp.fillna(0).values
+    assert (X["rookie_backup"][~np.isin(pos, F.BACKUP_POS) | (exp_ < 1) | (T.e_x_rookie_backup.fillna(0).values == 0)] == 0).all()
+    assert "rookie_backup" in F.LOWER_ONLY and F.BOUNDS["rookie_backup"][1] <= 0
+    base = dict(pos="RB", exp=3.0, age=26.0, injury="", e_x_rookie_backup=250.0)
+    rows = [dict(base, e_x_cur_games=np.nan, e_x_rookie_backup_held=np.nan),     # preseason: spend only
+            dict(base, e_x_cur_games=2.0, e_x_rookie_backup_held=0.55),          # early, big drop: up to 1.5x
+            dict(base, e_x_cur_games=2.0, e_x_rookie_backup_held=1.2),           # early, held: no change
+            dict(base, e_x_cur_games=10.0, e_x_rookie_backup_held=1.0),          # late, held: faded out
+            dict(base, e_x_cur_games=10.0, e_x_rookie_backup_held=0.6),          # late, lost the job: full
+            dict(base, exp=0.0, e_x_cur_games=np.nan, e_x_rookie_backup_held=np.nan),   # a rookie himself: never
+            dict(base, pos="WR", e_x_cur_games=np.nan, e_x_rookie_backup_held=np.nan)]
+    x = F.characteristics(pd.DataFrame(rows))["rookie_backup"]
+    assert np.allclose(x, [1.0, 1.5, 1.0, 0.0, 1.0, 0.0, 0.0])
+
+
+def test_ypc_bad_starts_in_the_third_season():
+    base = dict(pos="RB", age=25.0, injury="", e_x_ypc_2y=3.7)
+    x = F.characteristics(pd.DataFrame([dict(base, exp=e) for e in (1.0, 2.0, 3.0)]))["ypc_bad"]
+    assert np.allclose(x, [0.0, 1.0, 1.0])
+
+
 def test_current_usage_fades_in_over_four_games():
     """a TE's usage for the TE line moves from last season's to this season's a quarter per game, not all at once at 4"""
     base = dict(pos="TE", exp=5.0, age=28.0, e_x_l0_xfp_pg=8.0, e_x_l1_xfp_pg=8.0, e_x_cur_xfp_pg=14.0, injury="")
