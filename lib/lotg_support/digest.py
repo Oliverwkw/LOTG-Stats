@@ -2271,6 +2271,7 @@ _ROOKIE_ROW_PLAYER = {"player_additions": "Player", "add_drops": "Player Added"}
 LOCKED_AT_MOVE: Dict[str, frozenset] = {
     "trades": frozenset({
         "KTC value difference at deal time", "Pick value received",
+        "FAAB Value difference at deal time", "Pick FAAB Value received",
         "Avg PPG of received players in 5 games before trade",
         "Avg PPG of received players in 5 games before trade adjusted by position",
         "Asset difference in average age", "Number of assets received",
@@ -2280,14 +2281,16 @@ LOCKED_AT_MOVE: Dict[str, frozenset] = {
         "Faab", "Total FAAB bid", "FAAB difference over second place", "FAAB premium %",
         "Number of bids", "KTC value of player added at deal time",
         "KTC value of player dropped at deal time", "Net KTC value at deal time",
+        "FAAB Value of player added at deal time", "FAAB Value of player dropped at deal time",
+        "Net FAAB Value at deal time",
         "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
         "Age difference", "Tanking"}),
     "player_additions": frozenset({
-        "Price paid (FAAB)", "KTC at pickup", "Age at pickup",
+        "Price paid (FAAB)", "KTC at pickup", "FAAB Value at pickup", "Age at pickup",
         "PPG of 5 games before pickup", "PPG of 5 games before pickup adjusted by position",
         "Tanking"}),
-    "rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
-    "non_rookie_picks": frozenset({"KTC on draft day", "Age when drafted", "Tanking"}),
+    "rookie_picks": frozenset({"KTC on draft day", "FAAB Value on draft day", "Age when drafted", "Tanking"}),
+    "non_rookie_picks": frozenset({"KTC on draft day", "FAAB Value on draft day", "Age when drafted", "Tanking"}),
 }
 GATE_META_KEY = "gate_rules"
 

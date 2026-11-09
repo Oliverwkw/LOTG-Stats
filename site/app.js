@@ -281,6 +281,7 @@ function tradeCard(t, meta) {
     return `<div class="side"><h4>${teamLink(s.team)} ${k ? `<span class="grade ${k[1] >= 0 ? "pos" : "neg"}" title="KTC value difference, latest available (${esc(k[0])})">${signed(F["KTC value difference at deal time"], k[1])} KTC</span>` : ""}</h4>
       <div class="small muted">Got</div><ul>${s.got.map((a) => `<li>${assetLink(a)}</li>`).join("") || '<li class="muted">nothing</li>'}</ul>
       <div class="ktc">${meta.ktc.map(([lab, c]) => `<span>${esc(lab)}: <b class="${(s[c] ?? 0) > 0 ? "pos" : (s[c] ?? 0) < 0 ? "neg" : ""}">${s[c] === null || s[c] === undefined ? "—" : signed(F[c], s[c])}</b></span>`).join("")}</div>
+      ${meta.faab ? `<div class="ktc" title="FAAB Value difference: the same received − sent gap in the league's FAAB dollars (FAAB value system)"><span class="muted">FAAB $</span>${meta.faab.map(([lab, c]) => `<span>${esc(lab)}: <b class="${(s[c] ?? 0) > 0 ? "pos" : (s[c] ?? 0) < 0 ? "neg" : ""}">${s[c] === null || s[c] === undefined ? "—" : signed(F[c], s[c])}</b></span>`).join("")}</div>` : ""}
       <div class="ktc">${["Trade impact score", "Wins added", "Net points", "O-Score"].map((c) => `<span title="${esc(L[c])}">${esc(L[c])}: <b>${fmt(F[c], s[c])}</b></span>`).join("")}</div>
     </div>`;
   }).join("");
@@ -360,7 +361,7 @@ async function player(key, _q, live) {
   $app.innerHTML = `
     <h1>${esc(p.name)}</h1>
     <p class="muted">${[p.pos, p.nfl, ((t) => t ? "on " + teamLink(t) : "not on a roster now")(live && /^\d+$/.test(key) ? live.owner[key] : p.team)].filter(Boolean).join(" · ")} ${live ? liveNote(live) : ""}
-      ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}` : ""}</p>
+      ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}${typeof d.faab === "number" ? ` (FAAB value on draft day ${money(d.faab)})` : ""}` : ""}</p>
     ${fv ? `<div class="card"><b>FAAB value ${money(fv.value)}</b> <span class="muted">· #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span> · <a href="#/faab">board</a> · <a href="rate/">rate it</a></div>` : ""}
     ${tiles(p.summary, p.summary_labels, p.summary_fmt)}
     <p class="small">Every row: <a href="#/data/player_week?c=Player&v=${enc}&y=all">weeks</a> · <a href="#/data/player_year?c=Player&v=${enc}">seasons</a> · <a href="#/data/player_all_time?c=Player&v=${enc}">career</a> · <a href="#/data/player_additions?c=Player&v=${enc}">acquisitions</a> · <a href="#/data/add_drops?q=${enc}">add/drops</a></p>
@@ -503,7 +504,7 @@ async function trades(id, query) {
   if (id) {
     const t = tr.trades.find((x) => String(x.id) === String(id));
     $app.innerHTML = `<p><a href="#/trades">← All trades</a></p>${t ? tradeCard(t, tr.meta) : "<p>Not found.</p>"}
-      <p class="muted small">KTC value difference = value received minus value sent on KeepTradeCut (superflex), at the deal and later. Trade impact score, wins added and net points come from the trades sheet.</p>`;
+      <p class="muted small">KTC value difference = value received minus value sent on KeepTradeCut (superflex), at the deal and later; the FAAB $ row is the same gap in the league's FAAB dollars (the FAAB value system, from 2021). Trade impact score, wins added and net points come from the trades sheet.</p>`;
     return;
   }
   const params = new URLSearchParams(query || "");
@@ -526,7 +527,7 @@ async function trades(id, query) {
       <select id="fo"><option value="date">Newest first</option><option value="ktc">Biggest KTC swing</option><option value="impact">Biggest impact score</option></select>
       <input class="f" id="fq" type="search" placeholder="Player or pick">
     </div>
-    <p class="muted small">Each side shows the KTC value difference (received − sent) at the deal, at season end, 1 and 2 years later; the badge is the latest one available. Trades from this season have only the deal-time value so far.</p>
+    <p class="muted small">Each side shows the KTC value difference (received − sent) at the deal, at season end, 1 and 2 years later, and the same gap in FAAB dollars (from 2021); the badge is the latest KTC one available. Trades from this season have only the deal-time value so far.</p>
     <div id="tl"></div>`;
   document.getElementById("ft").onchange = (e) => { team = e.target.value; draw(); };
   document.getElementById("fs").onchange = (e) => { season = e.target.value; draw(); };

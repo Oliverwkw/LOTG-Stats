@@ -201,7 +201,10 @@ def _prominence(column: str, family: str) -> float:
     low = str(column).lower()
     if any(m in low for m in _DERIVED_MARKERS):
         return 0.45
-    if family.lower() in _PROMINENT:
+    # The FAAB Value twins of the KTC columns are KTC-like dated checkpoints in
+    # FAAB dollars: their family reads "FAAB", which must not make them as
+    # prominent as a real FAAB bid.
+    if family.lower() in _PROMINENT and "faab value" not in low:
         return 1.5
     # A long, heavily qualified name is its own signal that the column is a
     # measurement rather than a headline.

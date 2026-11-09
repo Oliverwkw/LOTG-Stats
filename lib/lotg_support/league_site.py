@@ -365,13 +365,16 @@ STINT_COLUMNS = [
     "Team", "Addition type", "Date", "Season", "Date dropped/traded", "Tenure (NFL weeks)",
     "Games played on team", "Total weeks as team starter (all stints)", "Avg PPG on team",
     "Points added", "Price paid (FAAB)", "Player addition value", "KTC at pickup",
-    "KTC change 1 year after pickup",
+    "KTC change 1 year after pickup", "FAAB Value at pickup", "FAAB Value change 1 year after pickup",
 ]
 TRADE_SIDE_COLUMNS = [
     "Pick value received", "Trade impact score", "Wins added", "Net points", "Avg net points",
     "Trade addition value", "O-Score", "Asset difference in average age", "Tanking",
     "KTC value difference at deal time", "KTC value difference at end of season",
     "KTC value difference 1 year later", "KTC value difference 2 years later",
+    "Pick FAAB Value received",
+    "FAAB Value difference at deal time", "FAAB Value difference at end of season",
+    "FAAB Value difference 1 year later", "FAAB Value difference 2 years later",
 ]
 KTC_TIMELINE = [
     ("Deal", "KTC value difference at deal time"),
@@ -379,12 +382,18 @@ KTC_TIMELINE = [
     ("+1 yr", "KTC value difference 1 year later"),
     ("+2 yr", "KTC value difference 2 years later"),
 ]
+# The same timeline in the league's FAAB dollars (the FAAB value system: lotg_support.faab_history).
+FAAB_TIMELINE = [(lab, c.replace("KTC value difference", "FAAB Value difference")) for lab, c in KTC_TIMELINE]
 DRAFT_COLUMNS = [
     "Year", "Number", "Player Picked", "Team", "Original Team", "Age when drafted",
     "KTC on draft day", "KTC at end of rookie year", "KTC 1 year after draft day",
     "KTC 2 years after draft day", "KTC 3 years after draft day",
     "Pick-adjusted Difference in KTC on draft day",
     "Pick-adjusted Difference in KTC 1 year after draft day",
+    "FAAB Value on draft day", "FAAB Value at end of rookie year", "FAAB Value 1 year after draft day",
+    "FAAB Value 2 years after draft day", "FAAB Value 3 years after draft day",
+    "Pick-adjusted Difference in FAAB Value on draft day",
+    "Pick-adjusted Difference in FAAB Value 1 year after draft day",
     "Avg PPG on team", "Points added", "Player addition value",
     "Pick-adjusted Difference in Player addition value", "O-Score",
     "% of starts made while rostered by drafting team", "Number of trades",
@@ -1051,7 +1060,7 @@ class Site:
     def trade_meta(self) -> Dict[str, object]:
         return {"fmt": {c: column_format(c) for c in TRADE_SIDE_COLUMNS},
                 "labels": {c: _display(c, "trades") for c in TRADE_SIDE_COLUMNS},
-                "ktc": KTC_TIMELINE}
+                "ktc": KTC_TIMELINE, "faab": FAAB_TIMELINE}
 
     # -- draft
     def draft(self) -> Dict[str, object]:
@@ -1230,7 +1239,9 @@ class Site:
                 "history": hist.get(name),
                 "draft": None if d is None else {
                     "year": _clean(d.Year), "pick": _clean(d.Number), "team": d.Team,
-                    "ktc": _clean(pd.to_numeric(d["KTC on draft day"], errors="coerce"), 2)},
+                    "ktc": _clean(pd.to_numeric(d["KTC on draft day"], errors="coerce"), 2),
+                    "faab": (_clean(pd.to_numeric(d["FAAB Value on draft day"], errors="coerce"), 1)
+                             if "FAAB Value on draft day" in d else None)},
             }
         return out
 

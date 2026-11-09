@@ -1,5 +1,6 @@
 """The FAAB value pipeline, end to end: downloads -> features -> walk-forward base -> formula on every grid date ->
-the rule layer's committed inputs (data/faab_value/inputs.csv, evidence.json).
+the rule layer's committed inputs (data/faab_value/inputs.csv, evidence.json) and the build's dated values
+(data/faab_value/history.csv, pick_prices.csv: lotg_support.faab_history).
 
   rebuild(full=False)   everything; a finished quarterly snapshot's block is reused from the cache unless full=True
                         (blocks of finished snapshots never change: their models were fit on data before them)
@@ -350,4 +351,32 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     tr, cut = evidence_rows(R, TR, pa, picks, drops)
     n = export(R, tr, cut, out or V.DATA, pa=pa)
     log(f"exported {n} input rows, {len(tr)} trades, {len(cut)} cuts as of {R.date.max().date()} ({time.time() - t0:.0f}s)")
+    write_history(R, pa, picks, out or V.DATA, log=log)
     return R
+
+
+def write_history(R, pa, picks, out=V.DATA, log=print):
+    """the build's dated FAAB values (lotg_support.faab_history): every grid row valued with the committed params.
+    A failure here never blocks the inputs: the previous history stays committed."""
+    from . import faab_history as FH
+    t1 = time.time()
+    try:
+        H = FH.finished_values(R, pa, V.load_params())
+        n = FH.write(H, FH.pick_price_table(picks), out)
+        log(f"history: {n} player-date values, {H.date.nunique()} dates, {H.sid.nunique()} players ({time.time() - t1:.0f}s)")
+        return n
+    except Exception as e:      # noqa: BLE001 - logged, the inputs are already written
+        log(f"history NOT written ({type(e).__name__}: {e})")
+        return None
+
+
+def history_only(out=None, log=print):
+    """refresh the dated FAAB values from the cached grid frame (after a params.json change; no refit, no fetch)"""
+    p = WORK / "raw.parquet"
+    if not p.exists():
+        log(f"no cached grid frame at {p}: run the full rebuild first")
+        return None
+    X.load_store()
+    pa = I.player_additions_sid(); picks = I.Picks(pa)
+    R = pd.read_parquet(p)
+    return write_history(R, pa, picks, out or V.DATA, log=log)
