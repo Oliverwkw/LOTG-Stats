@@ -53,8 +53,11 @@ def trial(ev, obj, p, q, cs=None, seed=1, boot=2000):
     """q: the changed params (p with overrides), cs: faab_value constants changed with them. Returns a dict of the
     bar's numbers (q against p)."""
     a = score(ev, obj, p); V0 = ev.values(p)
+    cache = getattr(obj, "cache", None)
     with constants(cs):
+        if cs and cache is not None: cache.clear()      # characteristics() reads some constants (e.g. SUMMER_TO_DRAFT)
         b = score(ev, obj, q); V1 = ev.values(q)
+    if cs and cache is not None: cache.clear()
     dates = np.array([str(t[0])[:10] for t in ev.trades]); split = sorted(dates)[len(dates) // 2]
     ea, eb = np.abs(a["r"]), np.abs(b["r"]); d = eb - ea
     rng = np.random.default_rng(seed); n = len(d)

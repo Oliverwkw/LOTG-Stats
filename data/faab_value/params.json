@@ -111,5 +111,13 @@
  "qb_inj": -0.1,
  "qb_band": -0.1,
  "wr_backup": -0.1,
- "wr_clean_old": -0.1
+ "wr_clean_old": -0.1,
+ "tgt_lead": 0.5,
+ "young_boom": 0.0,
+ "rb_touch": -0.4,
+ "te_slide": -0.1,
+ "qb_tough": 0.2,
+ "qb_ypg": -0.1,
+ "snap_cap": 1.0,
+ "rb_hold": 0.6
 }

@@ -232,6 +232,52 @@ only when it misses by under 1% (3% random noise on the board flipped about 8 pa
 capped at 0.5 (log units), so no single call outweighs the trades. The Rice call is ">= $800" (Oliver; Boston's
 call unchanged).
 
+## Round 5: Oliver's notes on the failing calls (2026-11-09)
+
+Calls changed (`faab_calls`): McConkey is a low first / top-2 second ($453-1,200, was a low first), Coker at least
+a mid second (>= $222; his breakout call is folded into it), Kraft's "stays near the reviewed" call centres on $800
+(was $918), Henderson's low-first call is dropped (it was Oliver's, not the league's; his league-chat call stays), and
+the replacement-level bubble is a mid-late second to an early third, $93-222 (2.05 to 3.03 on the pick board; was
+$50-300). Prices are the 2026 pick board's slots.
+
+New rules, all in `final_terms`, each the smallest strength that fixed its call. Their inputs are computed at
+export from the game log (`faab_features.round5_columns`, `faab_pipeline.qb_base`), so they are off until a rebuild
+writes the columns. None moves trades by more than the noise bar, so they are judgment rules held on Oliver's notes.
+
+| Rule | Strength | What it does | Call it fixes |
+|---|---|---|---|
+| `tgt_lead` | +0.5 | A WR/TE (base $50-1,000) who led his team in season-to-date targets (18%+ of them, 4+ games in) and has since lost the lead, fading over his next 17 games, with a team QB of base $600+ | McConkey, Kraft. A current leader is left out (his usage already prices him; with leaders in, Golden / Egbuka / Parker Washington calls broke) |
+| `rb_touch` | -0.4 | An RB in his 2nd or 3rd season with fewer than 3 career games over 20 touches (2 = 1/3 off, 0 = full) | Tuten (1 such game). Oliver's "by snap count" read as touches: Tuten had 8 games over 20 snaps but 1 over 20 touches. Every season: trades +0.008; with a snap-share gate: no better |
+| `te_slide` | -0.1 | A TE whose last two seasons both finished outside the top 7 by total PPR (x2 if the last was outside the top 20), who had a top-7 season before them, unless 3 of his last 4 games were top-5 TE weeks | LaPorta. The OC change Oliver named is not in the data, so the earlier-top-7 gate stands in for it: without it the rule also hits Kraft (never top 7) and breaks his and Loveland's calls |
+| `qb_tough` | +0.2 | A QB whose last 2+ complete seasons were each either top 5 in PPR a game (6+ games) or hurt (under 12 games), with at least one of each (4 = full) | Burrow > Mendoza. Without the "one of each" condition it lifted Allen (top 5 every year) and broke the top-3 calls |
+| `snap_cap` | on | A QB with under 2 career games on half the snaps is worth at most his league rookie-draft price | Burrow > Mendoza (Mendoza $2,062 -> $1,235). At every position: trades +0.005 |
+| `qb_ypg` | -0.1 | A QB worth $1,000+ with low passing volume: passing yards a game (this season from 4 games, else last) under 230, full 40 below | Hurts < Caleb, Hurts <= $1,800 (186.6 a game). Time to throw (Hurts 98th percentile in 2024) also docked Allen, Lamar and Purdy and broke their calls |
+| `young_boom` | 0 | A 2nd-3rd season RB/WR/TE under $1,000 with 12+ PPR a game and a 30+ game in his last 3 healthy games (half the snaps) | Built, held at 0: Coker's call passes without it and trades were slightly worse with it |
+
+On inputs with these columns computed from the committed game logs (the QB gate approximated from the nearest
+board): calls 112 -> 119 of 119, trades +0.002 (10 better / 13 worse, both halves down), far-off trades 50 -> 50.
+
+### Round 5b: the Aug 2025 Conner trade and the summer shift (Oliver 2026-11-09)
+
+The 2025-08-02 trade (Conner $54, Pollard $46, Dobbins $24 for $292 of picks/FAAB) was 2.1x off. Most of the gap is
+the summer level shift (x0.43 on every player from June 1 to 3 days before kickoff, a date-only flag): with it off the
+side is $247. No rule reads whether a player was traded; every value is the player's on the day before.
+
+| Rule | Strength | What it does | Result |
+|---|---|---|---|
+| `rb_hold` | +0.6 | An RB who was a top-15 RB (total PPR) last season, whose team added no proven RB (13+ PPR a game over 6+ games in either of the two seasons before, joining that offseason) and no rounds 1-2 rookie; base $400-1,000 (fading over the 25% past each end), only while his value at that stage is under $600 (fading from $450) | Conner $54 -> $98, the trade 2.1x -> 1.6x. Uncapped it lifted Henry and broke both his calls (trades +0.009) |
+| `draft_comp` new-arrival cut | `DRAFT_COMP_NEW` 0.5 | draft_comp is halved for a player who joined the team that offseason (`e_x_moved_off` / `e_x_new_team`), unless the rookie is a first-rounder | Dobbins (RJ Harvey, round 2) $24 -> $28 with rb_hold |
+
+Together: trades -0.0019 (early -0.0021, late -0.0018; 4 better / 3 worse), far-off 50 -> 49, calls 119 of 119.
+Under the -0.007 bar; in on Oliver's call. Today rb_hold reaches Henry (x1.38, his calls pass) and Etienne (x1.02).
+
+Tried and left off: ending the summer shift at the league rookie draft (`SUMMER_TO_DRAFT`, column
+`e_x_league_draft_done`): trades +0.075 and far-off 49 -> 55; with its own strength after the draft the trades still
+want -0.75 to -0.83, so the shift does not end with the draft. Raising picks and FAAB in summer instead of cutting
+players (best x1.4): trade error 0.883 vs 0.819, far-off 54 vs 49, because the shift acts before the final-stage
+rules (vet floor, bands, the $25 pad), so cheap players drop only to ~x0.77. try-rule now clears its cached
+characteristics for `F.` constants (it reported trades +0.0000 for SUMMER_TO_DRAFT before).
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

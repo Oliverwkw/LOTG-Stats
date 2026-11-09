@@ -484,6 +484,50 @@ def test_wr_backup_skips_rookie_wrs_and_small_spends():
     assert np.isclose(t[0], -0.1) and (t[1:] == 0).all()
 
 
+def test_round5_rules_reach_only_their_players():
+    b = dict(age=25.0, exp=2.0, injury="")
+    rows = [dict(b, pos="WR", V_raw=335.0, e_x_tgt_lead_w=0.53, e_x_qb_base=629.0),       # McConkey: lead lost, good QB
+            dict(b, pos="WR", V_raw=900.0, e_x_tgt_lead_w=1.0, e_x_qb_base=900.0),        # still leading: usage prices him
+            dict(b, pos="WR", V_raw=335.0, e_x_tgt_lead_w=0.53, e_x_qb_base=300.0),       # weak QB
+            dict(b, pos="RB", exp=1.0, e_x_touch20=1.0), dict(b, pos="RB", exp=1.0, e_x_touch20=4.0), dict(b, pos="RB", exp=0.0, e_x_touch20=0.0),
+            dict(b, pos="RB", exp=1.0),
+            dict(b, pos="TE", e_x_te_slide=2.0, e_x_te_was_top=1.0), dict(b, pos="TE", e_x_te_slide=2.0, e_x_te_was_top=0.0),
+            dict(b, pos="TE", e_x_te_slide=2.0, e_x_te_was_top=1.0, e_x_te_recovered=1.0),
+            dict(b, pos="QB", e_x_qb_hurt_top=4.0), dict(b, pos="QB", e_x_qb_hurt_top=1.0),
+            dict(b, pos="QB", e_x_pass_ypg=186.6), dict(b, pos="QB", e_x_pass_ypg=260.0),
+            dict(b, pos="QB", exp=0.0, e_x_big_games=0.0, e_x_league_draft_price=1234.7), dict(b, pos="QB", e_x_big_games=5.0, e_x_league_draft_price=1234.7)]
+    T = _final(rows, [800, 800, 800, 800, 800, 800, 800, 1300, 1300, 1300, 2000, 2000, 2000, 2000, 2000, 2000],
+               tgt_lead=0.5, rb_touch=-0.4, te_slide=-0.1, qb_tough=0.2, qb_ypg=-0.1, snap_cap=1.0)
+    assert np.isclose(T["tgt_lead"][0], 0.5 * 0.53) and T["tgt_lead"][1] == 0 and T["tgt_lead"][2] == 0
+    assert np.isclose(T["rb_touch"][3], -0.4 * 2 / 3) and (T["rb_touch"][4:7] == 0).all()      # no game log (row 6): off
+    assert np.isclose(T["te_slide"][7], -0.2) and T["te_slide"][8] == 0 and T["te_slide"][9] == 0
+    assert np.isclose(T["qb_tough"][10], 0.2) and T["qb_tough"][11] == 0
+    assert np.isclose(T["qb_ypg"][12], -0.1 * (230 - 186.6) / 40) and T["qb_ypg"][13] == 0
+    assert np.isclose(np.exp(T["snap_cap"][14]) * 2000, 1234.7) and T["snap_cap"][15] == 0
+
+
+def test_rb_hold_and_the_new_arrival_draft_comp_cut():
+    b = dict(pos="RB", age=30.0, exp=8.0, injury="", V_raw=667.0, e_x_rb_prev_rank=11.0, e_x_rb_comp=0.0)
+    rows = [b, dict(b, e_x_rb_comp=1.0), dict(b, e_x_rb_prev_rank=21.0), dict(b, V_raw=200.0), b, dict(b, pos="WR"), dict(pos="RB", age=30.0, exp=8.0, injury="", V_raw=667.0)]
+    t = _final(rows, [48, 48, 48, 48, 900, 48, 48], rb_hold=0.6)["rb_hold"]
+    assert np.isclose(t[0], 0.6) and (t[1:4] == 0).all() and t[4] == 0 and t[5] == 0 and t[6] == 0   # value $900: over the $600 cap
+    d = dict(pos="RB", age=26.6, exp=5.0, injury="", V_raw=422.0, e_x_draft_comp=1.0, e_x_draft_comp_r1=0.0)
+    R = pd.DataFrame([d, dict(d, e_x_moved_off=1.0), dict(d, e_x_moved_off=1.0, e_x_draft_comp_r1=1.0)])
+    _, terms, _ = F.apply_rules(R, dict(F.load_params()), explain=True)
+    dc = terms["draft_comp"]
+    assert dc[0] < 0 and np.isclose(dc[1], dc[0] * (1 - F.DRAFT_COMP_NEW)) and np.isclose(dc[2], dc[0])
+
+
+def test_summer_can_end_at_the_league_draft():
+    R = pd.DataFrame([dict(pos="WR", age=25.0, exp=2.0, injury="", e_x_offseason=1.0, e_x_league_draft_done=d) for d in (0.0, 1.0, np.nan)])
+    old = F.SUMMER_TO_DRAFT
+    try:
+        F.SUMMER_TO_DRAFT = 1.0; assert list(F.characteristics(R)["summer"]) == [1, 0, 1]
+        F.SUMMER_TO_DRAFT = 0.0; assert list(F.characteristics(R)["summer"]) == [1, 1, 1]
+    finally:
+        F.SUMMER_TO_DRAFT = old
+
+
 def test_final_stage_is_in_the_explain_breakdown():
     R = F.load_inputs(); p = F.load_params()
     T = R[R.date == R.date.max()].drop_duplicates("name").head(50).reset_index(drop=True)
