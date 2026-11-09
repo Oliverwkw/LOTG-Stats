@@ -975,6 +975,45 @@ def round5_columns(rows, gl, pos_of, adds):
     return out
 
 
+def rb_room(rows, gl, roster, dp, pos_of, top=15, proven_ppg=None, min_games=6):
+    """(prev_rank, comp) for RBs (Oliver 2026-11-09, the Aug 2025 Conner trade): prev_rank = his RB rank by total PPR in
+    his last complete season (NaN if unranked); comp = how many RBs his team (on the date) added for the season after it:
+    rookies the NFL took in rounds 1-2 (counted from the draft) plus veterans who joined it that offseason with a proven
+    season (DEPARTED_PPG+ PPR a game over 6+ games in either of the two seasons before). The joiners use the team's first
+    roster week (the small hindsight the move flags use)."""
+    N = len(rows); rank = np.full(N, np.nan); comp = np.zeros(N)
+    if gl is None or roster is None or not len(gl): return rank, comp
+    _, _, l0 = season_keys(rows.date); l0 = np.asarray(l0).astype(int)
+    gs = np.asarray(rows.gsis).astype(str); is_rb = np.asarray(rows.pos) == "RB"
+    rk = season_ranks(gl, pos_of, "RB"); rank = np.where(is_rb, rk.reindex(pd.MultiIndex.from_arrays([gs, l0])).values, np.nan)
+    rook = nfl_draft_comp(rows.assign(pos=np.where(is_rb, "RB", "_")), dp, roster, max_round=2)   # no `gone`: a rookie competes either way
+    thr = (proven_ppg or DEPARTED_PPG)["RB"]
+    g = gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"]).ppr.agg(["mean", "count"])
+    proven = set(i for i, q in g.iterrows() if q["count"] >= min_games and q["mean"] >= thr)
+    r = roster.dropna(subset=["gsis", "team"]).assign(gsis=lambda x: x.gsis.astype(str)).sort_values(["season", "week"])
+    first = r.groupby(["gsis", "season"]).team.first(); last = r.groupby(["gsis", "season"]).team.last()
+    joins = {}                                                  # (team, season) -> RBs who joined it that offseason with a proven season
+    for (p_, y), t in first.items():
+        if pos_of.get(p_) != "RB" or last.get((p_, y - 1)) == t: continue
+        if (p_, y - 1) in proven or (p_, y - 2) in proven: joins.setdefault((t, int(y)), set()).add(p_)
+    team = team_on(gs, pd.to_datetime(rows.date).values, roster)
+    for i in np.where(is_rb)[0]:
+        j = joins.get((team[i], int(l0[i]) + 1), set()) - {gs[i]}
+        comp[i] = rook[i] + len(j)
+    return rank, comp
+
+
+def league_draft_done(rows, adds):
+    """1 on dates after that calendar year's league rookie draft (its Draft additions' day), 0 before or on it, NaN in a
+    year with no Draft rows (the summer rule then runs to kickoff - 3 days, as before): Oliver 2026-11-09, the summer
+    level shift ends with the draft"""
+    a = adds[adds.type == "Draft"].dropna(subset=["date"])
+    day = pd.to_datetime(a.date).dt.normalize().groupby(pd.to_datetime(a.date).dt.year).max()
+    dv = pd.to_datetime(pd.Series(np.asarray(rows.date))).dt.normalize()
+    d = dv.dt.year.map(day)
+    return np.where(d.isna(), np.nan, (dv > d).astype(float))
+
+
 def league_draft_price(rows, adds):
     """what the league paid for the player in its rookie draft (the latest Draft addition on or before the date, in
     league FAAB); NaN if he was never drafted in it"""

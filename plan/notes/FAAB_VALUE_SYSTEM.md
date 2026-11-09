@@ -257,6 +257,27 @@ writes the columns. None moves trades by more than the noise bar, so they are ju
 On inputs with these columns computed from the committed game logs (the QB gate approximated from the nearest
 board): calls 112 -> 119 of 119, trades +0.002 (10 better / 13 worse, both halves down), far-off trades 50 -> 50.
 
+### Round 5b: the Aug 2025 Conner trade and the summer shift (Oliver 2026-11-09)
+
+The 2025-08-02 trade (Conner $54, Pollard $46, Dobbins $24 for $292 of picks/FAAB) was 2.1x off. Most of the gap is
+the summer level shift (x0.43 on every player from June 1 to 3 days before kickoff, a date-only flag): with it off the
+side is $247. No rule reads whether a player was traded; every value is the player's on the day before.
+
+| Rule | Strength | What it does | Result |
+|---|---|---|---|
+| `rb_hold` | +0.6 | An RB who was a top-15 RB (total PPR) last season, whose team added no proven RB (13+ PPR a game over 6+ games in either of the two seasons before, joining that offseason) and no rounds 1-2 rookie; base $400-1,000 (fading over the 25% past each end), only while his value at that stage is under $600 (fading from $450) | Conner $54 -> $98, the trade 2.1x -> 1.6x. Uncapped it lifted Henry and broke both his calls (trades +0.009) |
+| `draft_comp` new-arrival cut | `DRAFT_COMP_NEW` 0.5 | draft_comp is halved for a player who joined the team that offseason (`e_x_moved_off` / `e_x_new_team`), unless the rookie is a first-rounder | Dobbins (RJ Harvey, round 2) $24 -> $28 with rb_hold |
+
+Together: trades -0.0019 (early -0.0021, late -0.0018; 4 better / 3 worse), far-off 50 -> 49, calls 119 of 119.
+Under the -0.007 bar; in on Oliver's call. Today rb_hold reaches Henry (x1.38, his calls pass) and Etienne (x1.02).
+
+Tried and left off: ending the summer shift at the league rookie draft (`SUMMER_TO_DRAFT`, column
+`e_x_league_draft_done`): trades +0.075 and far-off 49 -> 55; with its own strength after the draft the trades still
+want -0.75 to -0.83, so the shift does not end with the draft. Raising picks and FAAB in summer instead of cutting
+players (best x1.4): trade error 0.883 vs 0.819, far-off 54 vs 49, because the shift acts before the final-stage
+rules (vet floor, bands, the $25 pad), so cheap players drop only to ~x0.77. try-rule now clears its cached
+characteristics for `F.` constants (it reported trades +0.0000 for SUMMER_TO_DRAFT before).
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

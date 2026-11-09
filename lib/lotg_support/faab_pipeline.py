@@ -262,11 +262,14 @@ def backup_columns(E, gsis, pa):
     dc1 = X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
     E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc, e_x_draft_comp_r1=dc1)
     E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
+    E = E.assign(e_x_league_draft_done=X.league_draft_done(rows, adds))
     if X.GL is not None:
         E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
                      e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5), e_x_te_top3=X.te_top3(rows, X.GL, pos=dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position))
         pos_of = dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position
         E = E.assign(**{k: (np.round(v, 5) if np.asarray(v).dtype.kind == "f" else v) for k, v in X.round5_columns(rows, X.GL, pos_of, adds).items()})
+        rk, cp = X.rb_room(rows, X.GL, X.RW, dp, pos_of)
+        E = E.assign(e_x_rb_prev_rank=rk, e_x_rb_comp=cp)
     try:
         from . import contracts as CT
         E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))

@@ -324,6 +324,28 @@ def _gl(rows):
     return d
 
 
+def test_rb_room_ranks_last_season_and_counts_added_competition():
+    # 2024: a (team T), b (team S), k (team W) and v (team U, 15 PPR a game) are RBs; in 2025 v joins T and W drafts rookie n in round 1
+    gl = pd.DataFrame([(g, 2024, w, ppr) for g, ppr in (("a", 18.0), ("b", 16.0), ("k", 14.0), ("v", 15.0)) for w in range(1, 9)],
+                      columns=["gsis", "season", "week", "ppr"])
+    ro = pd.DataFrame([(g, y, 1, t, None) for g, y, t in (("a", 2024, "T"), ("b", 2024, "S"), ("k", 2024, "W"), ("v", 2024, "U"),
+                                                          ("a", 2025, "T"), ("b", 2025, "S"), ("k", 2025, "W"), ("v", 2025, "T"))]
+                      + [("n", 2025, 1, "W", "W")], columns=["gsis", "season", "week", "team", "draft_club"])
+    dp = pd.DataFrame(dict(gsis_id=["n"], position=["RB"], draft_year=[2025], draft_round=[1]))
+    pos_of = pd.Series({g: "RB" for g in ("a", "b", "k", "v", "n")})
+    rows = pd.DataFrame(dict(gsis=["a", "b", "k", "v"], date=[pd.Timestamp("2025-08-01")] * 4, pos=["RB"] * 4))
+    rk, cp = X.rb_room(rows, gl, ro, dp, pos_of)
+    assert list(rk) == [1, 2, 4, 3]
+    assert list(cp) == [1, 0, 1, 0]          # a: v joined T; b: nobody; k: W's first-round rookie; v himself is not his own competition
+
+
+def test_league_draft_done_is_the_day_after_the_draft():
+    adds = pd.DataFrame(dict(type=["Draft", "Draft", "Waiver"], date=pd.to_datetime(["2025-07-20", "2025-07-20", "2025-08-01"])))
+    rows = pd.DataFrame(dict(date=pd.to_datetime(["2025-07-19", "2025-07-20", "2025-07-21", "2024-07-30"])))
+    d = X.league_draft_done(rows, adds)
+    assert list(d[:3]) == [0, 0, 1] and np.isnan(d[3])        # no 2024 draft rows: unknown
+
+
 def test_target_lead_fades_over_17_games_after_the_lead_is_lost():
     # a leads team T in targets weeks 1-5 (4+ games in), b takes over from week 6
     gl = _gl([("a", 2025, w, "T", 9 if w <= 5 else 1, 10, 0.8, 0, 5, 0) for w in range(1, 11)] +

@@ -118,5 +118,6 @@
  "te_slide": -0.1,
  "qb_tough": 0.2,
  "qb_ypg": -0.1,
- "snap_cap": 1.0
+ "snap_cap": 1.0,
+ "rb_hold": 0.6
 }
