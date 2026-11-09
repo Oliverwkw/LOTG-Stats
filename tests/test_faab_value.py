@@ -350,12 +350,6 @@ TESTS = [test_sign_locks_hold_for_bounds_and_params, test_board_reproduces_and_b
          test_one_submission_gives_pair_and_two_price_signals,
          test_normalise_reads_form_headers, test_match_names_finds_near_misses]
 
-if __name__ == "__main__":
-    for fn in TESTS:
-        print(f"{fn.__name__}:")
-        fn()
-        print("  ok")
-    print("\nall faab value checks passed")
 
 
 def test_each_call_group_is_judged_on_the_board_of_its_day():
@@ -434,3 +428,84 @@ def test_a_second_year_rbs_rookie_year_is_a_lighter_usage_prior():
     rows = [base, dict(base, exp=2.0), dict(base, pos="WR")]
     u = F.characteristics(pd.DataFrame(rows))["usage"]
     assert u[0] > u[1] and u[2] < u[0] and F.ROOKIE_PRIOR["RB"] < 1.0
+
+
+def _final(rows, v, **p):
+    R = pd.DataFrame(rows); X = F.characteristics(R)
+    return {k: np.asarray(x, dtype=float) for k, x in F.final_terms(R, np.asarray(v, dtype=float), dict(F.P0, **p), X).items()}
+
+
+def test_vet_floor_lifts_cheap_veteran_starters_who_score():
+    base = dict(pos="WR", age=29.0, exp=6.0, injury="", e_x_cur_off_pct=0.8, e_x_l0_off_pct=0.8, e_x_gp_cur=5.0, e_x_ppg_cur=10.0)
+    rows = [base, dict(base, e_x_ppg_cur=6.0), dict(base, exp=2.0), dict(base, e_x_cur_off_pct=0.3, e_x_l0_off_pct=0.4), base,
+            dict(base, pos="TE"), dict(base, e_x_gp_cur=1.0, e_x_ppg_cur=20.0, e_x_ppg_l0=9.5)]
+    t = _final(rows, [5, 5, 5, 5, 60, 5, 5], vet_floor=0.8)["vet_floor"]
+    assert t[0] > 0 and t[5] > 0 and t[6] > 0           # a starter at 10 PPR; a TE who scores; under 3 games: last season's 9.5
+    assert (t[[1, 2, 3, 4]] == 0).all()                  # under 9 PPR, a young player, no starter's snaps, already over $40
+    assert abs(np.exp(t[0]) * 5 - 5 ** 0.2 * 40 ** 0.8) < 1e-6    # closes 0.8 of the log gap to $40
+    assert "vet_floor" in F.RAISE_ONLY
+
+
+def test_value_bands_reach_only_their_position_and_price():
+    rows = [dict(pos="WR", age=25.0, exp=3.0, injury="")] * 4 + [dict(pos="QB", age=27.0, exp=5.0, injury=""), dict(pos="RB", age=24.0, exp=2.0, injury=""),
+                                                                  dict(pos="RB", age=24.0, exp=2.0, injury=""), dict(pos="TE", age=25.0, exp=3.0, injury="")]
+    t = _final(rows, [1800, 900, 3000, 1100, 1800, 60, 200, 1800], wr_band=-0.25, qb_band=-0.1, rb_band=0.2)
+    assert np.isclose(t["wr_band"][0], -0.25) and t["wr_band"][1] == 0 and t["wr_band"][2] == 0 and -0.25 < t["wr_band"][3] < 0
+    assert np.isclose(t["qb_band"][4], -0.1) and np.isclose(t["rb_band"][5], 0.2) and t["rb_band"][6] == 0
+    assert t["wr_band"][7] == 0 and t["qb_band"][7] == 0
+    v = np.exp(np.linspace(np.log(500), np.log(4000), 200)); R = pd.DataFrame([dict(pos="WR", age=25.0, exp=3.0, injury="")] * 200)
+    out = v * np.exp(F.final_terms(R, v, dict(F.P0, wr_band=-0.25), F.characteristics(R))["wr_band"])
+    assert (np.diff(out) > 0).all()                       # a band never reorders players of one position
+
+
+def test_rb_injuries_spare_an_rb_scoring_like_a_star_since_his_return():
+    base = dict(pos="RB", age=27.0, exp=5.0, injury="", e_x_bodyparts_3y=3.0, e_x_gp_since_inj=4.0, e_x_ppg_since_inj=12.0)
+    rows = [base, dict(base, age=24.0), dict(base, e_x_ppg_since_inj=19.5), dict(base, e_x_gp_since_inj=23.0, e_x_ppg_since_inj=14.8),
+            dict(base, e_x_gp_since_inj=2.0, e_x_ppg_since_inj=30.0), dict(base, pos="WR")]
+    t = _final(rows, [1000] * 6, rb_inj=-0.2)["rb_inj"]
+    assert np.isclose(t[0], -0.3) and t[4] < 0                # 3 body parts (capped at 1.5); 2 games back is not enough
+    assert t[1] == 0 and t[2] == 0 and t[3] == 0 and t[5] == 0  # young; 19.5 over 4 games; 14.8 over 23 (Walker 2026); a WR
+
+
+def test_preseason_rb_duds_vet_rb_spike_qb_injuries():
+    rb = dict(pos="RB", age=27.0, exp=5.0, injury="", e_x_duds_2y=4.0, e_x_gp_cur=1.0, e_x_cur_games=1.0)
+    rows = [rb, dict(rb, e_x_gp_cur=4.0, e_x_cur_games=4.0), dict(rb, pos="WR"),
+            dict(pos="QB", age=29.0, exp=7.0, injury="", e_x_inj_rate_2y=0.25), dict(pos="QB", age=29.0, exp=7.0, injury="", e_x_inj_rate_2y=0.0)]
+    t = _final(rows, [500] * 5, rb_duds=-0.2, qb_inj=-0.1, spike_vet_rb=-0.2)
+    assert np.isclose(t["rb_duds"][0], -0.3) and t["rb_duds"][1] == 0 and t["rb_duds"][2] == 0
+    assert np.isclose(t["qb_inj"][3], -0.1) and t["qb_inj"][4] == 0 and (t["qb_inj"][:3] == 0).all()
+    assert (t["spike_vet_rb"][1:] == 0).all()             # only RBs, before their 3rd game
+
+
+def test_wr_backup_skips_rookie_wrs_and_small_spends():
+    base = dict(pos="WR", age=27.0, exp=4.0, injury="", e_x_rookie_backup=250.0)
+    rows = [base, dict(base, exp=0.0), dict(base, e_x_rookie_backup=60.0), dict(base, pos="RB")]
+    t = _final(rows, [1000] * 4, wr_backup=-0.1)["wr_backup"]
+    assert np.isclose(t[0], -0.1) and (t[1:] == 0).all()
+
+
+def test_final_stage_is_in_the_explain_breakdown():
+    R = F.load_inputs(); p = F.load_params()
+    T = R[R.date == R.date.max()].drop_duplicates("name").head(50).reset_index(drop=True)
+    out, terms, st = F.apply_rules(T, p, explain=True)
+    assert "vet_floor" in terms and "top" in st
+    assert np.allclose(out, st["top"] * np.exp(sum(terms[k] for k in F.final_terms(T, st["top"], p, F.characteristics(T)))))
+
+
+def test_try_rule_scores_a_change_against_the_current_params():
+    from lotg_support import faab_trials as FT
+    ev = F.Evidence.load(); p = F.load_params()
+    obj = F.objective(ev, pd.read_csv(REF).set_index("name").V)
+    same = FT.trial(ev, obj, p, dict(p), boot=50)
+    assert same["total"] == 0 and same["trades"] == 0 and same["rows_moved"] == 0 and not FT.passes(same)
+    off = FT.trial(ev, obj, p, dict(p, wr_band=0.0), boot=50)
+    assert off["rows_moved"] > 0 and off["far25"][0] == same["far25"][1]
+    assert FT.parse_overrides(["vet_floor=0.8", "F.VET_FLOOR_PPG=9"]) == ({"vet_floor": 0.8}, {"VET_FLOOR_PPG": 9.0})
+
+
+if __name__ == "__main__":
+    for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
+        print(f"{fn.__name__}:")
+        fn()
+        print("  ok")
+    print("\nall faab value checks passed")

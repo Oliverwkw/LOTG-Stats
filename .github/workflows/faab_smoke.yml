@@ -25,18 +25,27 @@ jobs:
           python-version: "3.11"
       - name: Install deps
         run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests pyyaml pytest
-      - name: Pipeline smoke (2021-01-01 .. 2021-03-15, 1 bag)
+      - name: Pipeline smoke (2021-01-01 .. 2021-10-25, 1 bag)
         env:
           FAAB_BAGS: "1"
         run: |
           set -euo pipefail
           mkdir -p /tmp/faab_smoke
-          python scripts/faab_rebuild.py --end 2021-03-15 --out /tmp/faab_smoke
+          python scripts/faab_rebuild.py --end 2021-10-25 --out /tmp/faab_smoke
           python - <<'PY'
           import json, pandas as pd
           e = json.load(open("/tmp/faab_smoke/evidence.json")); x = pd.read_csv("/tmp/faab_smoke/inputs.csv")
           assert len(x) > 200 and x.V_raw.notna().mean() > 0.95, (len(x), x.V_raw.notna().mean())
-          assert len(e["trades"]) > 20 and len(e["cuts"]) > 100, (len(e["trades"]), len(e["cuts"]))
+          # the window holds the October 2021 trades (8th, 20th, 24th; the 2021-08-29 draft-day trades are of rookies
+          # not yet on the day-before board, and of picks with no price history) and the fall cuts; each is read on a board
+          # on or before its own day, never more than a week earlier (before 2026-11-09 every later trade was valued
+          # on the window's last board, which is what the old "> 20 trades" counted)
+          assert len(e["trades"]) >= 2 and len(e["cuts"]) >= 30, (len(e["trades"]), len(e["cuts"]))
+          for t in e["trades"]:
+              for s in t["sides"]:
+                  for _, d in s["players"]:
+                      gap = (pd.Timestamp(t["date"]) - pd.Timestamp(d)).days
+                      assert 0 <= gap <= 8, (t["date"], d)
           print("smoke ok:", len(x), "rows,", len(e["trades"]), "trades,", len(e["cuts"]), "cuts")
           PY
       - name: FAAB tests

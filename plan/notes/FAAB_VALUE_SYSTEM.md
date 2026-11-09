@@ -185,8 +185,8 @@ use only what was known that day, the way the league values players. A 1.05 rook
 
    | Term | Weight |
    |---|---|
-   | Completed trades (both sides valued the day before) | 3 |
-   | Cuts (worth under ~$100 the day before) | 3 |
+   | Completed trades (both sides on the trade day's own board; see "Evidence timing") | 3 |
+   | Cuts (worth under ~$100 on the cut day's board) | 3 |
    | The league's calls (`faab_calls.py`, tests on the 2026-10-24 board) | 1 |
    | Rating-page votes, capped (below) | ≤ 1.5 |
    | Pull of every strength toward 0 | small |
@@ -202,6 +202,74 @@ Results on 2026-10-24:
 The remaining misses are mostly young mid-tier receivers the league likes more than the stats do: Ladd,
 P. Washington, Coker, J. Price. Addison and Jamo are also on the list.
 
+## Round 4 rules: the final stage (2026-11-09)
+
+Ten rules act on the value the other rules produce, after the usage anchor and top compression
+(`faab_value.final_terms`; `explain` lists them with the rest, and its stages now include `top`, the value before
+them). Each one passed the noise bar below on the committed inputs, or was kept on Oliver's call where marked, and
+each has its reason in the code beside it.
+
+| Rule | Strength | What it does | Why |
+|---|---|---|---|
+| `vet_floor` | 0.8 | A QB/RB/WR/TE in his 5th season or later, 60%+ of the snaps and 9+ PPR a game (this season from 3 games, else last season), is pulled 0.8 of the way (in log) toward $40 | A team starting a scoring veteran would not cut him for a waiver body. The PPR floor keeps out a blocking TE who plays the snaps without the points. Tested without TEs (trades -0.048) and with them (-0.055), and PPR floors 0-12: 9 is best |
+| `rb_duds` | -0.2 | An RB's full-role games under 5 PPR in the last two seasons, before his 3rd game | A low floor the league prices in until this season shows otherwise (the WR/TE `duds` rule's RB side) |
+| `wr_band` | -0.25 | WRs valued $1,300-2,300, fading out to $900 / $3,000 | How the league values WRs (Oliver): it pays less for that tier than the base does |
+| `qb_band` | -0.1 | The same band for QBs | Fixes the Nix / Dak / Love "low first" calls; -0.1 keeps Purdy's call (-0.15 loses it) |
+| `rb_band` | +0.2 | RBs valued $45-90, fading out to $25 / $160 | A cheap RB with a path is worth a bit more than the base gives |
+| `rb_inj` | -0.2 | An RB 26+ with injuries to several body parts (3 seasons; 2 = full), unless he has averaged 19+ PPR a game over 3+ games since his last week out (0.25 less per game past 3, down to 14) | Wear the league discounts; a back who has played like a star since he returned has answered it (Oliver: Walker 2026, 14.8 over 23 games) |
+| `spike_vet_rb` | -0.2 | A 4th-season-on RB's big-week spike bonus, before his 3rd game | A veteran's big weeks are last season's, already in his price |
+| `qb_inj` | -0.1 | A QB's out-or-doubtful share of his weeks (2 seasons; 25% = full) | Superflex needs the QB every week (Oliver: Lamar's injuries) |
+| `wr_backup` | -0.1 | A non-rookie WR whose team's league owner spent $100+ of FAAB on a same-team rookie WR ($250 = full, cap 2) | The league expects the rookie's role to come out of his. **Kept on Oliver's call: it fails the late-half bar** (late -0.0006) |
+| `wr_clean_old` | -0.1 | A WR 26+: the clean-record boost (`avail_up`) is trimmed | Consistent on trades (16 better / 5 worse, 5/5 folds) and keeps CeeDee > Kyren and Jefferson top 12, Oliver's condition |
+
+All ten together on the committed inputs: trade error 0.953 -> 0.816 (early half -0.061, late -0.042; 86 trades
+better, 30 worse; 5/5 folds; bootstrap P(worse) < 0.001), far-off trades 61 -> 50 (+$25 per side) and 26 -> 23
+(+$100), calls 108 -> 110 of 121 (under the tolerances below). Not done: the late-season WR discount (Oliver: noise),
+exempting held rules from the strength pull (Oliver: cheating), the starter-seasons and separation rules.
+
+**The calls' tolerances** (`faab_calls`): a range call passes within 5% of its bounds and a player-over-player call
+only when it misses by under 1% (3% random noise on the board flipped about 8 passing calls). One call's loss is
+capped at 0.5 (log units), so no single call outweighs the trades. The Rice call is ">= $800" (Oliver; Boston's
+call unchanged).
+
+## The noise bar, and every rule needs a reason
+
+`python scripts/faab_value.py try-rule "name=value ..."` (`lotg_support.faab_trials`) scores a change against the
+current params in about 3 seconds: the objective's parts, the calls lost and gained, trade error in each half of the
+trades (split at the median date), trades better / worse, far-off trades, 5 folds and a paired bootstrap.
+`F.NAME=value` changes a rule's fixed shape (`F.VET_FLOOR_PPG=9`); `--base` applies changes to both sides (testing a
+rule on top of others); `--data DIR` reads another inputs folder. Put its output in the rule's PR.
+
+A rule passes when trade error drops by 0.007+, each half by 0.003+, more trades get better than worse, and the total
+drops. In a shuffled-feature null run (1,372 random features, 2026-11-08) 0 passed this bar; about 1 in 40 passed
+the old one (trade error and total down).
+
+**Every rule needs a logical football or league reason as well (Oliver, 2026-11-09).** Passing the bar shows the
+evidence supports a rule; it does not explain it. A rule with no reason is not added; ask Oliver for one.
+
+**Rules that only calls or votes support** (they touch 0-1 trade or cut rows, so trades cannot test them; they are
+judgment rules, held on Oliver's calls): `boom_week`, `peak_share` (0 rows); `qb_opening`, `two_way`, `qb_paid`,
+`fresh_start`, `wr_pair`, `te_one_off`, `severe`, `inj_ir` (1 each). `overtaken` touches 19 rows with trades
+neutral (2 better, 1 worse). Counts from 2026-11-08 on the committed inputs.
+
+## Evidence timing (2026-11-09)
+
+A trade is valued on its own day's board (`faab_pipeline.board_day`). Every board reads only what was known before
+its day: league prices strictly before it, KTC the day before, weekly stats from the Tuesday after the games. Two
+same-day events are counted by date only, so a trade made earlier that day could see them: the NFL draft (a trade
+before that day's round starts, from the exact trade time: Thursday 8pm, Friday 7pm, Saturday noon ET, reads the day
+before's board) and the league's rookie draft (its picks have no time, so a trade that day reads the day before's).
+Cuts follow the same rule by day. Offseason trade days that are not Tuesdays are added to the grid as full boards
+(`evidence_dates`); in a cached snapshot the model's output for those rows is carried from each player's latest
+earlier row (`refresh_block`), and the rows are smoothed after the regular grid so no other day's value moves.
+A player missing from the chosen board is read from the latest board up to 7 days before it. Before this, every
+row was the latest board strictly before the trade: 86 of 214 trades were 2-7 days stale.
+
+**Cached blocks re-read the stats** (`refresh_block`). Before 2026-11-09 a cached snapshot block kept the `e_x_*`
+columns of the run that fit it, so a column added since was empty on every cached row: the 2026-11-08 rebuild lost
+14 game-log columns (`e_x_ppg_l0`, `e_x_duds_2y`, `e_x_rostered_recent`, ...) on every pre-2026 row and its trade
+error went 0.95 -> 1.12. The rebuild now refreshes every cached block's `e_x_*` columns from today's features.
+
 ## Commands
 
 ```bash
@@ -210,6 +278,7 @@ python scripts/faab_value.py value "bucky irving" "Jaxon Dart"         # current
 python scripts/faab_value.py explain "Bucky Irving" "Bhayshul Tuten"   # every rule's multiplier (exact names; suggests close ones)
 python scripts/faab_value.py calls
 python scripts/faab_value.py votes                                     # votes vs the board
+python scripts/faab_value.py try-rule "vet_floor=0.8" "wr_band=-0.25"  # a change vs the current params: the noise bar's numbers
 python scripts/faab_value.py fit --out data/faab_value/params.json     # deliberate refit, reviewed in a PR
 python scripts/faab_value.py publish                                   # rewrite the page's board/questions
 ```

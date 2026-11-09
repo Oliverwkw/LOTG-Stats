@@ -9,6 +9,7 @@ Read-only unless a command says it writes. Nothing here touches exports/ or the 
     python scripts/faab_value.py votes                          # votes vs the board: agreement, and the rules behind each disagreement
     python scripts/faab_value.py publish                        # WRITES docs/rate/board.json + questions.json (the rating page)
     python scripts/faab_value.py fit --out data/faab_value/params.json   # WRITES refitted rule strengths (votes included, capped)
+    python scripts/faab_value.py try-rule "vet_floor=0.8" "vet_floor=0.8 F.VET_FLOOR_PPG=8"   # each change vs the current params: the noise bar's numbers
     python scripts/faab_value.py pull-votes URL                 # WRITES data/votes/responses.csv from the form's published CSV
 
 Votes are a signal for the fit's general rules, never a per-player edit; `fit` is run deliberately and its
@@ -82,6 +83,22 @@ def cmd_calls(a):
     for n, x in sorted(bad, key=lambda z: -z[1]): print(f"  MISS {x:.3f}  {n}")
 
 
+def cmd_try(a):
+    """each argument is one change (space-separated name=value; F.NAME=value sets a faab_value constant), scored
+    against the current params on the committed inputs: the numbers a rule PR shows (lotg_support.faab_trials)"""
+    from lotg_support import faab_trials as FT
+    p = F.load_params(a.params); ev = F.Evidence.load(a.data) if a.data else F.Evidence.load()
+    ref = pd.read_csv(REF).set_index("name").V; obj = F.objective(ev, ref, _vote_term(ev))
+    base_p, base_c = FT.parse_overrides(a.base.split()) if a.base else ({}, {})
+    with FT.constants(base_c):
+        p = dict(p, **base_p)
+        for ch in a.changes:
+            ps, cs = FT.parse_overrides(ch.split())
+            unknown = [k for k in ps if k not in F.P0]
+            if unknown: print(f"unknown params (not in P0): {unknown}"); continue
+            print(FT.report(FT.trial(ev, obj, p, dict(p, **ps), cs), ch))
+
+
 def _vote_term(ev):
     return FV.VoteTerm(FV.read_responses(FV.RESPONSES) if FV.RESPONSES.exists() else FV.read_responses(""), ev.as_of, ev.vote_dates)
 
@@ -148,6 +165,8 @@ def main(argv=None):
     s = sub.add_parser("publish"); s.set_defaults(f=cmd_publish)
     s = sub.add_parser("fit"); s.add_argument("--out", required=True); s.add_argument("--quick", action="store_true")
     s.add_argument("--no-votes", action="store_true"); s.set_defaults(f=cmd_fit)
+    s = sub.add_parser("try-rule"); s.add_argument("changes", nargs="+"); s.add_argument("--base", default="", help="overrides applied to both sides first")
+    s.add_argument("--data", help="an inputs folder other than data/faab_value"); s.set_defaults(f=cmd_try)
     s = sub.add_parser("pull-votes"); s.add_argument("url"); s.set_defaults(f=cmd_pull)
     a = ap.parse_args(argv); a.f(a)
 
