@@ -12082,6 +12082,25 @@ def build_all(repo_root: Path) -> None:
                     _pv = [_x for _x in _pv if _x is not None]
                     if _pv:
                         row["Pick FAAB Value received"] = round(sum(_pv), 1)
+                    # Side output: every asset's FAAB value at the deal, for the
+                    # FAAB version of Price paid (faab_derived; never a column).
+                    def _fd_side(_ids, _pks, _f):
+                        _o = [(("p", str(_x)), _fidx.player(_x, trade_date)) for _x in _ids]
+                        _o += [(("k", str(_l)), _fh.pick_value(_fidx, _l, _dk, trade_date)) for _l, _dk in _pks]
+                        if _f > 0:
+                            _o.append((("f", ""), float(_f)))
+                        return _o
+                    row["_fd_recv"] = _fd_side(r_ids, r_pk, r_f)
+                    row["_fd_sent"] = _fd_side(s_ids, s_pk, s_f)
+                    # ... and each pick's valuation label + drafted player, so
+                    # faab_derived re-values picks exactly as this pass does
+                    # (the slot and drafted player come from snapshot metadata
+                    # the export text does not always show).
+                    def _fd_pk_spec(_pks):
+                        return json.dumps([[str(_l), ([str(_dk[0]), str(_dk[1])[:10]] if _dk and _dk[0] else None)]
+                                           for _l, _dk in _pks])
+                    row["_fd_pk_recv"] = _fd_pk_spec(r_pk)
+                    row["_fd_pk_sent"] = _fd_pk_spec(s_pk)
                     # 'Change in pick FAAB Value at draft time': the drafted
                     # player's value the day after Labor Day of the pick's
                     # year minus the pick's price at the deal.
@@ -13949,6 +13968,32 @@ def build_all(repo_root: Path) -> None:
                     for _i, _row in enumerate(trades_rows):
                         _row[_wa_col] = _wa_tr[_wa_col].iloc[_i]
                     add_drops_df[_wa_col] = _wa_ad[_wa_col].values
+                # Side output (exports/raw/faab_derived/, never a sheet column): the
+                # same Wins added with each later trade's lineage share in FAAB
+                # values instead of KTC (lotg_support.faab_derived).
+                if _fidx is not None:
+                    try:
+                        def _wa_fv(_asset, _day):
+                            try:
+                                _d = date.fromisoformat(str(_day)[:10])
+                                if _asset.is_pick:
+                                    _dk = ((str(_asset.pid), date.fromisoformat(str(_asset.draft_day)[:10]))
+                                           if _asset.pid and _asset.draft_day else None)
+                                    return _fh.pick_value(_fidx, _wa._ktc_pick_label(_asset.label), _dk, _d)
+                                return _fidx.player(str(_asset.pid), _d) if _asset.pid else None
+                            except Exception:
+                                return None
+                        _fd_tr, _fd_ad = _wa.compute(_tr_in, _ad_in, _wa_league, [_ph_in], _wa_fv, _wa.Report())
+                        for _i, _row in enumerate(trades_rows):
+                            _row["_fd_wins"] = _fd_tr[_wa.COLUMN].iloc[_i]
+                            _row["_fd_wins_rate"] = _fd_tr[_wa.RATE_COLUMN].iloc[_i]
+                        add_drops_df["_fd_wins"] = _fd_ad[_wa.COLUMN].values
+                        add_drops_df["_fd_wins_rate"] = _fd_ad[_wa.RATE_COLUMN].values
+                        _log(debug, f"[{_now_iso()}] INFO wins added (FAAB values, side output): "
+                                    f"{int((_fd_tr[_wa.COLUMN] != _wa_tr[_wa.COLUMN]).sum())} trades and "
+                                    f"{int((_fd_ad[_wa.COLUMN] != _wa_ad[_wa.COLUMN]).sum())} add/drops differ from KTC")
+                    except Exception as _e_fd:
+                        _log_exc(debug, "wins_added_faab_side", _e_fd)
                 _log(debug, f"[{_now_iso()}] INFO wins added: {_wa_report.rows} rows over "
                             f"{len(_wa_league.order)} weeks; {_wa_report.optimised_weeks} lineups searched; "
                             f"{len(_wa_report.unproven_blocked)} entries blocked as unproven (<3 prior games); "
@@ -14018,6 +14063,30 @@ def build_all(repo_root: Path) -> None:
                 # and the full ranking (and thus the O-Score percentile that
                 # consumes this) are unchanged.
                 _r["Trade impact score"] = round(0.6 * _score, 1)
+            # Side output: the same score with its two KTC-derived terms in FAAB
+            # values (Wins added's lineage shares, Pick FAAB Value received).
+            if any("_fd_wins" in _r for _r in trades_rows):
+                _fd_swap = {"Wins added": "_fd_wins", "Pick value received": "Pick FAAB Value received"}
+                _fd_specs = [(_fd_swap.get(_c, _c), _w, _f0) for _c, _w, _f0 in _tpi_specs]
+                _fd_stats = {}
+                for _col, _w, _fill0 in _fd_specs:
+                    _vals = [(_tpi_f(_r.get(_col)) if _tpi_f(_r.get(_col)) is not None else (0.0 if _fill0 else None))
+                             for _r in trades_rows]
+                    _vals = [_x for _x in _vals if _x is not None]
+                    _mu = sum(_vals) / len(_vals) if _vals else 0.0
+                    _sd = ((sum((x - _mu) ** 2 for x in _vals) / len(_vals)) ** 0.5 or 1.0) if _vals else 1.0
+                    _fd_stats[_col] = (_mu, _sd)
+                for _r in trades_rows:
+                    _score = 0.0
+                    for _col, _w, _fill0 in _fd_specs:
+                        _fv = _tpi_f(_r.get(_col))
+                        if _fv is None:
+                            if not _fill0:
+                                continue
+                            _fv = 0.0
+                        _mu, _sd = _fd_stats[_col]
+                        _score += _w * ((_fv - _mu) / _sd)
+                    _r["_fd_tis"] = round(0.6 * _score, 1)
         except Exception as e:
             _log_exc(debug, "team_perf_improvement_item3", e)
 
@@ -22529,6 +22598,118 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "manager_skill", e)
 
+    # ----- Side output: the O-Score family in FAAB values (never a sheet column) -----
+    # The same O-Scores, pure-drop scores, pick pools, non-rookie de-trend and
+    # manager skills, re-run through the closures above on copies whose KTC
+    # inputs are their FAAB Value twins (and Trade impact score its FAAB
+    # version). Written to exports/raw/faab_derived/ with every component the
+    # scores read, so lotg_support.faab_derived can recompute them offline
+    # (the one-transform search). Nothing here touches a frame the export uses.
+    _fd_out: Dict[str, pd.DataFrame] = {}
+    try:
+        from formula_equations import faab_twin as _fd_twin
+        if _fidx is not None and isinstance(tr, pd.DataFrame) and "_fd_tis" in tr.columns:
+            _fd_pick_ktc = [_fd_twin(_c) for _c in _pick_oscore_ktc]
+            _phf = ph.copy()
+            _phf["O-Score"] = np.nan
+            _add_oscore(_phf, _pick_oscore_stats, _fd_pick_ktc, exclude_mask=_nr_osc,
+                        droppable=("Pick-adjusted Difference in Player addition value",),
+                        pool_mask=(~_nr_osc) if _nr_osc is not None else None)
+            if _nr_osc is not None and bool(_nr_osc.any()):
+                _add_oscore(_phf, _pick_oscore_stats, _fd_pick_ktc, exclude_mask=~_nr_osc,
+                            droppable=("Pick-adjusted Difference in Player addition value",), pool_mask=_nr_osc)
+            _withhold_early_rookie_oscore(
+                _phf, _nr_osc, current_season_for_rookies,
+                _weeks_completed_by_season.get(int(current_season_for_rookies), 0))
+            if _nr_osc is not None and bool(_nr_osc.any()):
+                pick_history.detrend_non_rookie_oscore(_phf, _nr_osc)
+            _adf = add_drops_df.copy()
+            _add_oscore(_adf, ["Avg net points adjusted by position", "Player addition value",
+                               "__MOST_RECENT_KTC__", "% of starts made while rostered"],
+                        [_fd_twin(_c) for _c in ["KTC value of player added 2 years later",
+                                                 "KTC value of player added 1 year later",
+                                                 "KTC value of player added at end of season",
+                                                 "KTC value of player added at deal time"]],
+                        droppable=("% of starts made while rostered",))
+            if _tx_pure is not None and bool(_tx_pure.any()):
+                _mrf = pd.Series(np.nan, index=_adf.index)
+                for _c in ["Net FAAB Value 2 years later", "Net FAAB Value 1 year later",
+                           "Net FAAB Value at end of season", "Net FAAB Value at deal time"]:
+                    _mrf = _mrf.where(_mrf.notna(), pd.to_numeric(_adf.get(_c), errors="coerce"))
+                _cps = [_mrf.fillna(0.0), -pd.to_numeric(_adf.get("Dropped avg points"), errors="coerce"),
+                        -pd.to_numeric(_adf.get("Dropped total points"), errors="coerce"),
+                        pd.to_numeric(_adf.get("Player addition value"), errors="coerce")]
+                _pp = pd.concat([(_x.where(_tx_pure)).rank(pct=True, method="average") * 100.0 for _x in _cps], axis=1)
+                _adf.loc[_tx_pure, "O-Score"] = (_pp.mean(axis=1) / 2.0).round(1)[_tx_pure]
+            _trf = tr.copy()
+            _trf["Trade impact score"] = _trf["_fd_tis"]
+            _add_oscore(_trf, ["Avg net points adjusted by position", "Trade addition value",
+                               "__MOST_RECENT_KTC__", "Trade impact score"],
+                        [_fd_twin(_c) for _c in ["KTC value difference 2 years later", "KTC value difference 1 year later",
+                                                 "KTC value difference at end of season",
+                                                 "KTC value difference at deal time"]])
+            _V = " (FAAB values)"
+
+            def _fd_frame(_src, _fd, _keys, _cols):
+                _o = pd.DataFrame({_k: _src[_k].values for _k in _keys if _k in _src.columns})
+                for _c in _cols:
+                    if _c in _src.columns:
+                        _o[_c] = pd.to_numeric(_src[_c], errors="coerce").values
+                    if _fd is not None and _c in _fd:
+                        _o[_c + _V] = pd.to_numeric(_fd[_c], errors="coerce").values
+                return _o
+
+            _fd_out["trades"] = _fd_frame(
+                tr, {"Wins added": tr.get("_fd_wins"), "Wins added per season": tr.get("_fd_wins_rate"),
+                     "Trade impact score": tr["_fd_tis"], "O-Score": _trf["O-Score"]},
+                ["Team", "Date", "Season", "Assets received", "Assets sent", "Player IDs received", "Player IDs sent",
+                 "_fd_pk_recv", "_fd_pk_sent"],
+                ["Wins added", "Wins added per season", "Trade impact score", "O-Score",
+                 "Avg net points adjusted by position", "Trade addition value", "Avg net points",
+                 "Asset difference in average age", "Pick value received", "Pick FAAB Value received"]
+                + [_c for _b in ("KTC value difference", "FAAB Value difference")
+                   for _c in (f"{_b} at deal time", f"{_b} at end of season", f"{_b} 1 year later",
+                              f"{_b} 2 years later")])
+            _fd_out["add_drops"] = _fd_frame(
+                add_drops_df, {"Wins added": add_drops_df.get("_fd_wins"),
+                               "Wins added per season": add_drops_df.get("_fd_wins_rate"), "O-Score": _adf["O-Score"]},
+                ["Team", "Date", "Season", "Player Added", "Player Dropped", "_added_pid", "_dropped_pid"],
+                ["Wins added", "Wins added per season", "O-Score", "Avg net points adjusted by position",
+                 "Player addition value", "% of starts made while rostered", "Dropped avg points",
+                 "Dropped total points"]
+                + [f"{_b} {_l}" for _b in ("KTC value of player added", "FAAB Value of player added",
+                                           "Net KTC value", "Net FAAB Value")
+                   for _l in ("at deal time", "at end of season", "1 year later", "2 years later")])
+            if _tx_pure is not None:
+                _fd_out["add_drops"]["Pure drop"] = _tx_pure.reindex(add_drops_df.index).fillna(False).values
+            _fd_pk = _fd_frame(ph, {"O-Score": _phf["O-Score"]},
+                               ["Year", "Number", "Final Team", "Player Picked", "_player_id", "_is_startup"],
+                               ["O-Score"] + [_c for _c in _pick_oscore_stats if not _c.startswith("__")]
+                               + _pick_oscore_ktc + _fd_pick_ktc)
+            _fd_pk["Non-rookie"] = (_nr_osc.reindex(ph.index).fillna(False).values
+                                    if _nr_osc is not None else False)
+            _fd_out["picks"] = _fd_pk
+            # Manager skills off the FAAB O-Scores (same weights, same shrinkage).
+            _ty_fd = team_year[["Team", "Year"]].copy() if not team_year.empty else pd.DataFrame()
+            _ta_fd = team_all[["Team"]].copy() if not team_all.empty else pd.DataFrame()
+            for _name, _df, _tc, _yc, _wts in [("Drafting skill", _phf, "Final Team", "Year", _pick_wt),
+                                               ("Trading skill", _trf, "Team", "Season", None),
+                                               ("Add/Drop skill", _adf, "Team", "Season", _tx_wt)]:
+                _ym, _am = _skill_maps(_df, _tc, _yc, _wts)
+                if not _ty_fd.empty:
+                    _ty_fd[_name] = team_year[_name].values if _name in team_year.columns else None
+                    _yrs = pd.to_numeric(_ty_fd["Year"], errors="coerce")
+                    _ty_fd[_name + _V] = [(_ym.get((str(t), int(y))) if pd.notna(y) else None)
+                                          for t, y in zip(_ty_fd["Team"], _yrs)]
+                if not _ta_fd.empty:
+                    _ta_fd[_name] = team_all[_name].values if _name in team_all.columns else None
+                    _ta_fd[_name + _V] = [_am.get(str(t)) for t in _ta_fd["Team"]]
+            _fd_out["team_year"], _fd_out["team_all_time"] = _ty_fd, _ta_fd
+            _log(debug, f"[{_now_iso()}] INFO FAAB-derived side output: O-Scores and skills for "
+                        f"{', '.join(f'{k} {len(v)}' for k, v in _fd_out.items())}")
+    except Exception as e:
+        _log_exc(debug, "faab_derived_side_oscore", e)
+
     # ----- PR B: All-play win % + Losses from hardship (team_year + all_time) -----
     # All-play = score the team vs EVERY other team each week (schedule-luck-free):
     # win % = (Σ teams with strictly lower PF) / (Σ other teams). Losses from
@@ -23863,6 +24044,60 @@ def build_all(repo_root: Path) -> None:
                                                held=_held, cf=_cf, noff=_noff,
                                                s0=(_pae_cal[_k0][0] if _k0 < len(_pae_cal) else None)))
             _pae_out = _acq.points_above_expectation(_pae_adds)
+            # Side output: Price paid and points above expectation with every
+            # traded asset at its FAAB value (the dollars of everything sent split
+            # by the received assets' FAAB values; FAAB at $1), a rookie pick at
+            # the FAAB system's slot price; the model refit on those prices.
+            try:
+                if _fidx is not None and "_fd_recv" in tr.columns:
+                    _fd_tp: Dict[Tuple[Any, str], Optional[float]] = {}
+                    for _ti in tr.index:
+                        _rv, _sv = tr.at[_ti, "_fd_recv"], tr.at[_ti, "_fd_sent"]
+                        if not isinstance(_rv, list) or not isinstance(_sv, list):
+                            continue
+                        if any(_v is None for _k, _v in _sv):
+                            continue
+                        _sent = sum(float(_v) for _k, _v in _sv)
+                        _sh = _acq.value_shares([_v for _k, _v in _rv])
+                        for _j, (_key, _v) in enumerate(_rv):
+                            if _key[0] == "p":
+                                _fd_tp[(_ti, _key[1])] = float(_sent) * _sh[_j] if _sh is not None else None
+                    _fd_adds, _fd_price = [], {}
+                    for _n, (_r, _a) in enumerate(zip(_pa_rows, _pae_adds)):
+                        _src = _r.get("_pae_src") or (None,)
+                        _fp, _p = _pae_price.get(_n), _a.p
+                        if _src[0] == "tr":
+                            _fp = _fd_tp.get((_src[1], str(_r.get("_pae_pid") or "")))
+                            _p = _acq.price_feature("trade", trade_faab=_fp) if _a.ch == "trade" else _a.p
+                        elif _src[0] == "ph":
+                            _fp = None
+                            if _a.ch == "rookie":
+                                try:
+                                    _yr = int(re.match(r"\s*(\d{4})", str(ph.at[_src[1], "Year"])).group(1))
+                                    _num_s = str(ph.at[_src[1], "Number"]).strip()
+                                    _dd = _pa_to_date(str(_r.get("Date") or "")[:10])
+                                    _fp = (_acq.ROUND5_PICK_FAAB if _num_s.startswith("5.")
+                                           else _fidx.pick(f"{_yr} {_num_s}", _dd))
+                                except Exception:
+                                    _fp = None
+                        _fd_price[_n] = round(_fp, 1) if _fp is not None else None
+                        _fd_adds.append(_acq.Addition(key=_a.key, ch=_a.ch, p=_p, pos=_a.pos, held=_a.held,
+                                                      cf=_a.cf, noff=_a.noff, s0=_a.s0))
+                    _fd_pae = _acq.points_above_expectation(_fd_adds)
+                    _fd_out["player_additions"] = pd.DataFrame([{
+                        "Team": _r.get("Team"), "Date": _r.get("Date"), "Player": _r.get("Player"),
+                        "Player ID": _r.get("_pae_pid"), "Addition type": _r.get("Addition type"),
+                        "Season": _r.get("Season"), "Channel": _a.ch,
+                        _acq.PRICE_COLUMN: _pae_price.get(_n), _acq.PRICE_COLUMN + " (FAAB values)": _fd_price.get(_n),
+                        _acq.TOTAL_COLUMN: (_pae_out.get(_n) or {}).get(_acq.TOTAL_COLUMN),
+                        _acq.TOTAL_COLUMN + " (FAAB values)": (_fd_pae.get(_n) or {}).get(_acq.TOTAL_COLUMN),
+                        _acq.RATE_COLUMN: (_pae_out.get(_n) or {}).get(_acq.RATE_COLUMN),
+                        _acq.RATE_COLUMN + " (FAAB values)": (_fd_pae.get(_n) or {}).get(_acq.RATE_COLUMN),
+                    } for _n, (_r, _a) in enumerate(zip(_pa_rows, _pae_adds))])
+                    _log(debug, f"[{_now_iso()}] INFO FAAB-derived side output: {len(_fd_adds)} additions repriced, "
+                                f"{sum(1 for _v in _fd_price.values() if _v is not None)} with a FAAB-values price")
+            except Exception as _e_fd:
+                _log_exc(debug, "faab_derived_side_pae", _e_fd)
             # The model's inputs, for the yearly re-check (scripts/pae_recheck.py).
             # Artifact only: .gitignore keeps it out of the committed exports.
             try:
@@ -23916,6 +24151,21 @@ def build_all(repo_root: Path) -> None:
                     f"{sum(1 for r in _pa_rows if r['Addition type'] in ('Waiver','Free agency','Commissioner'))} add/drop)")
     except Exception as e:
         _log_exc(debug, "player_additions", e)
+
+    # The FAAB-derived side output (see above): CSVs under exports/raw/faab_derived/,
+    # an artifact only (.gitignore), read by lotg_support.faab_derived / its CLI.
+    try:
+        if _fd_out:
+            _fd_dir = repo_root / "exports" / "raw" / "faab_derived"
+            _fd_dir.mkdir(parents=True, exist_ok=True)
+            for _k, _v in _fd_out.items():
+                if _k in ("trades", "add_drops") and "Date" in _v.columns:
+                    _v = _v.copy()
+                    _v["Date"] = _to_eastern_display(_v["Date"])      # as the sheets show it (join key)
+                _v.to_csv(_fd_dir / f"{_k}.csv", index=False)
+            _log(debug, f"[{_now_iso()}] INFO FAAB-derived side output written: {sorted(_fd_out)}")
+    except Exception as e:
+        _log_exc(debug, "faab_derived_side_write", e)
 
     # KTC PROVENANCE. Where every resolved value came from, one row per lookup:
     # a quote published on the target date itself (`mirror`), an absence on a day

@@ -234,6 +234,9 @@ call unchanged).
 
 ## The noise bar, and every rule needs a reason
 
+FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
+`plan/MASTER_TODO.md` (Oliver, 2026-11-09). This section is their check instead: keep editing the formula this way.
+
 `python scripts/faab_value.py try-rule "name=value ..."` (`lotg_support.faab_trials`) scores a change against the
 current params in about 3 seconds: the objective's parts, the calls lost and gained, trade error in each half of the
 trades (split at the median date), trades better / worse, far-off trades, 5 folds and a paired bootstrap.
@@ -320,7 +323,23 @@ draft day). `lotg_support.faab_history.FaabIndex` reads them for the build: ever
 "FAAB Value" twin beside it (53 on add_drops, trades, both pick sheets and player_additions), same dates, same
 depth tax, FAAB moved at $1 = $1, a pick at its FAAB pick price until its draft and then the drafted player.
 Blank before 2021. A merged refit re-values the history with `scripts/faab_rebuild.py --history-only` (the
-workflow runs it on a push that changes `params.json`; a manual dispatch can too).
+workflow runs it on a push that changes `params.json`; a manual dispatch can too). A draftee's first value lands on
+the grid date after the league draft, so the draft-day columns take it (`FaabIndex.player_entering`).
+
+**FAAB versions of the KTC-derived columns, off the build** (2026-11-09, Oliver: keep them out of the sheets): the
+build writes `exports/raw/faab_derived/` (artifact only, `.gitignore`): O-Score on trades / add_drops / picks (pure
+drops, both pick pools, the non-rookie de-trend), Trade impact score, the three manager skills, Wins added with the
+lineage shares in FAAB values, Price paid (every traded asset at its FAAB value; a rookie pick at the FAAB slot
+price) and Points above expectation refit on those prices. Each file holds the KTC column, its `(FAAB values)`
+version and every component the scores read. `scripts/faab_derived.py check` recomputes all of them from those
+components (0 differing rows = the offline recompute is exact); `compare` sets each column against its FAAB
+version. `lotg_support.faab_derived.Search` recomputes the FAAB versions under one global transform of every FAAB
+value (v -> a * v ** b) for the transform search; Wins added keeps its identity lineage there. `scripts/faab_derived.py search --dir <artifact>/raw/faab_derived
+--today <build date>` runs it (the side output's `_fd_pk_recv` / `_fd_pk_sent` give each pick's label and drafted
+player, so a no-transform run reproduces the build exactly). Finding (2026-11-09, report only, nothing adopted): a power
+of about 0.25 (v -> 50 * (v / 50) ** 0.25) brings trades, picks and the per-season drafting / trading skills 27-43%
+closer to today's KTC columns, leaves add/drop unchanged, and moves Price paid / Points above expectation further away
+(they sit beside waiver bids in real dollars). log KTC on log FAAB over player-days has slope 0.27-0.29.
 
 **Committed data the pipeline reads:**
 
