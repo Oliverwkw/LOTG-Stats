@@ -114,6 +114,8 @@ ENTRIES = [
     (RAW, "gd(team,y,w)", "Game date (ET) of the NFL team's week-w game; none = bye.", "nflverse schedules games.csv → gameday", _fn("gd") + _bare("gd")),
     (RAW, "K(a,d)", "KeepTradeCut superflex value of asset a (player or pick) on date d.",
      "keeptradecut.com history (playerSuperflex / sf_trade_value), mirrored by dynasty-daddy.com from 2021-04-16", _fn("K")),
+    (RAW, "FV(a,d)", "FAAB value of asset a on date d, in the league's FAAB dollars: a player = the FAAB value system's value (stats only, every rule applied) on the last grid date on or before d (daily Sept 1 - Feb 15, Tuesdays otherwise; 0 once he is off its board, none before 2021); a pick = its FAAB pick price (the slot's median price in the league's earlier drafts, its round's average until the slot is set, 5% off a year further out) until its draft, then the drafted player.",
+     "data/faab_value/history.csv + pick_prices.csv (lotg_support.faab_history), written by the FAAB rebuild", _fn("FV")),
     (RAW, "ID bridge", "sleeper_id ↔ gsis_id ↔ KTC id crosswalk (a join key, not a stat).",
      "DynastyProcess db_playerids.csv, nflverse players.csv", ALWAYS),
     (RAW, "SUSP(p,y,w)", "Hand-curated suspension weeks.", "data/suspensions.csv", _fn("SUSP")),
@@ -174,6 +176,7 @@ ENTRIES = [
     (OPS, "z_wk", "Week standardiser.", "clip((v − mean_{y,w} v) / sd_{y,w} v, ±2.5) / 2.5 within each league week.", _fn("z_wk")),
     (OPS, "z_all", "Standardiser.", "(v − mean v) / sd v over all rows.", _fn("z_all")),
     (OPS, "DT(X,d)", "Depth-taxed KTC.", "Σ_i 0.6^(i−1)·K(X_(i), d), assets sorted by K descending; a FAAB amount valued at κ·amount.", _fn("DT")),
+    (OPS, "DTF(X,d)", "Depth-taxed FAAB value.", "Σ_i 0.6^(i−1)·FV(X_(i), d), assets sorted by FV descending; a FAAB amount valued at its dollars.", _fn("DTF")),
     (OPS, "κ", "KTC per FAAB $.", "100 (a locked league rule).", _bare("κ")),
     (OPS, "sd", "Standard deviation.", "Sample standard deviation (n − 1).", (r"(?<![\w$])sd[({_]",)),
     (OPS, "median", "Median.", "The middle value (mean of the two middle values for an even count).", _bare("median") + (r"median_",)),
@@ -1649,3 +1652,50 @@ EQUATIONS = {
     ('Playoff minus regular-season PPG starter adjusted by position', 'player_all_time'):
         'Σ_{PO : st} pts·F / Σ_{PO} st − Σ_{REG : st} pts·F / Σ_{REG} st',
 }
+
+
+# FAAB Value twins: every column in KTC value units has a "FAAB Value" twin (same
+# dates, same rules, FV for K, DTF for DT, FAAB moved at $1).
+_KTC_TWIN_NAMES = (("Pick value received", "Pick FAAB Value received"),
+                   ("Change in pick value at draft time", "Change in pick FAAB Value at draft time"))
+
+
+def faab_twin(col):
+    """The FAAB Value twin's name of a column in KTC value units, else None."""
+    for a, b in _KTC_TWIN_NAMES:
+        if col == a:
+            return b
+    for a, b in (("Pick-adjusted Difference in KTC ", "Pick-adjusted Difference in FAAB Value "),
+                 ("KTC value of ", "FAAB Value of "), ("Net KTC value ", "Net FAAB Value "),
+                 ("KTC value difference ", "FAAB Value difference "), ("KTC ", "FAAB Value ")):
+        if col.startswith(a):
+            return b + col[len(a):]
+    return None
+
+
+# The Formulas rows (Stat, Sheet) whose columns are in KTC value units: each gets a twin row.
+KTC_UNIT_STATS = (
+    [(f"{w} {t}", "add_drops") for w in ("KTC value of player added", "KTC value of player dropped", "Net KTC value")
+     for t in ("at deal time", "at end of season", "1 year later", "2 years later")]
+    + [("Pick value received", "trades"), ("Change in pick value at draft time", "trades")]
+    + [(f"KTC value difference {t}", "trades") for t in ("at deal time", "at end of season", "1 year later", "2 years later")]
+    + [(p + c, "non_rookie_picks / rookie_picks") for c in ("KTC on draft day", "KTC at end of rookie year",
+                                                           "KTC 1 year after draft day", "KTC 2 years after draft day",
+                                                           "KTC 3 years after draft day", "KTC 4 years after draft day")
+       for p in ("", "Pick-adjusted Difference in ")]
+    + [(c, "player_additions") for c in ("KTC at pickup", "KTC at end of season", "KTC 1 year after pickup",
+                                         "KTC change by end of season")]
+)
+
+
+def _faab_eq(eq):
+    eq = _re.sub(r"(?<![\w$])DT\(", "DTF(", eq)
+    eq = _re.sub(r"(?<![\w$])K\(", "FV(", eq)
+    eq = _re.sub(r"⟨([^⟩]+)⟩", lambda m: "⟨" + (faab_twin(m.group(1)) or m.group(1)) + "⟩", eq)
+    return eq.replace("κ·", "")
+
+
+for _k in KTC_UNIT_STATS:
+    EQUATIONS[(faab_twin(_k[0]), _k[1])] = _faab_eq(EQUATIONS[_k])
+EQUATIONS[("FAAB Value difference at deal time", "trades")] = (
+    "DTF(A, d0) − DTF(B, d0); an asset with no FV on d0 is left out of its side, a side with assets but no FV is blank")

@@ -1192,11 +1192,26 @@ from lotg_support.number_format import EXTRA_COUNT_PREFIXES as _EXTRA_COUNT_PREF
 from lotg_support.team_variance import TOPIC_NAMES as _TV_TOPIC_NAMES  # noqa: E402
 
 
+def _faab_twin_base(col: str) -> str:
+    """A "FAAB Value" twin column's KTC column (lower case), so the twin takes the
+    same type, N/A rule and header topic as the column it sits beside; any
+    other column comes back lower-cased unchanged."""
+    n = str(col or "").strip().lower()
+    if "faab value" not in n:
+        return n
+    n = re.sub(r"\s+", " ", n)
+    for a, b in (("pick faab value", "pick value"), ("faab value of", "ktc value of"),
+                 ("net faab value", "net ktc value"), ("faab value difference", "ktc value difference"),
+                 ("faab value", "ktc")):
+        n = n.replace(a, b)
+    return n
+
+
 def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     """Topic group for header color-banding — mirrors the 11C-1 reorder classifier.
     A name no rule recognises gets `default` (`_header_topics` passes None so
     it can take its block's topic instead)."""
-    n = re.sub(r"\s+", " ", str(col).strip().lower())
+    n = re.sub(r"\s+", " ", _faab_twin_base(col))
     # A multi-team trade's 2nd+ counterparty sits at the far right of trades
     # (`_append_traded_with_columns`), so it has a band of its own.
     if re.fullmatch(r"team's traded with ([2-9]|\d\d+)", n):
@@ -1752,7 +1767,7 @@ def _append_traded_with_columns(frame: pd.DataFrame, cols: List[str]) -> List[st
 
 def _column_kind(col: str) -> str:
     """Infer expected output type for a plan column: text | boolean | numeric."""
-    col_l = str(col or "").strip().lower()
+    col_l = _faab_twin_base(col)
 
     # Explicit text columns first (some contain words like "week"/"year" but are labels).
     text_exact = {
@@ -2093,7 +2108,7 @@ def _preserve_na(col: str) -> bool:
     and should render as 'N/A' instead of being filled with 0.0. Most of
     these describe a *change* relative to a prior period — for the first
     week/season the comparison literally doesn't exist."""
-    col_l = str(col or "").strip().lower()
+    col_l = _faab_twin_base(col)
     # A position-adjusted twin is blank exactly where its base is: it renders
     # N/A when the base does, and takes the base's 0-fill otherwise.
     if col_l.endswith(" adjusted by position"):
@@ -11392,6 +11407,28 @@ def build_all(repo_root: Path) -> None:
     #
     # Per transaction row: KTC of added, dropped, and net at deal time.
     # --------------------------
+    # FAAB Value twins: every column in KTC units gets a "FAAB Value" twin read
+    # from the FAAB value system's committed dated history (data/faab_value/
+    # history.csv + pick_prices.csv, written by the FAAB rebuild; see
+    # lotg_support.faab_history). Same dates and rules as its KTC column; FAAB
+    # moved in a trade counts $1 = $1; blank before 2021 (the history's start).
+    _fidx = None
+    try:
+        from lotg_support import faab_history as _fh
+        _fidx = _fh.FaabIndex.load(repo_root / "data" / "faab_value")
+        if _fidx is None:
+            _log(debug, f"[{_now_iso()}] WARN FAAB history missing: FAAB Value columns stay N/A")
+        else:
+            _log(debug, f"[{_now_iso()}] INFO FAAB history: {len(_fidx._p)} players, {len(_fidx.grid)} dates "
+                        f"{_fidx.first} .. {_fidx.last}, {len(_fidx.draft_days)} pick-price draft days")
+            # Which history this build read (audit_weekly.FaabAttribution: a new
+            # rebuild re-values the FAAB Value columns of completed seasons).
+            _fraw = repo_root / "exports" / "raw"
+            _fraw.mkdir(parents=True, exist_ok=True)
+            (_fraw / "faab_history.json").write_text(json.dumps(_fh.version(repo_root / "data" / "faab_value"), indent=1) + "\n")
+    except Exception as e:
+        _fidx = None
+        _log_exc(debug, "faab_history_load", e)
     _ktc_idx = None
     try:
         from lotg_support.ktc import build_index, asset_value_at, KTC_FLOOR
@@ -11993,6 +12030,112 @@ def build_all(repo_root: Path) -> None:
                     tx_row[f"KTC value of player dropped {label}"] = round(v_d, 1)
                 if v_net is not None:
                     tx_row[f"Net KTC value {label}"] = v_net
+        # --- FAAB Value twins of the trades / add_drops KTC columns ---
+        try:
+            if _fidx is not None:
+                def _fv_picks(_metas, _on):
+                    """[(label, drafted)] for a side's picks: the KTC pass's
+                    valuation label (future-pick rule) + the drafted player."""
+                    _out = []
+                    for _m in (_metas or []):
+                        _lbl = _pick_val_label(_m, _on)
+                        if not _lbl:
+                            continue
+                        try:
+                            _dk = _pick_drafted_ktc.get((int(_m[0]), int(_m[1]), _norm_team_name(str(_m[2]))))
+                        except Exception:
+                            _dk = None
+                        _out.append((_lbl, _dk))
+                    return _out
+
+                _n_fv = 0
+                for row in trades_rows:
+                    try:
+                        trade_date = datetime.fromisoformat(str(row.get("Date")).replace("Z", "+00:00")).date()
+                    except Exception:
+                        continue
+                    try:
+                        season_i = int(row.get("Season")) if row.get("Season") is not None else None
+                    except Exception:
+                        season_i = None
+                    r_ids = list(row.get("_recv_player_ids") or [])
+                    s_ids = list(row.get("_drop_player_ids") or [])
+                    r_pk = _fv_picks(row.get("_recv_pick_meta"), trade_date)
+                    s_pk = _fv_picks(row.get("_drop_pick_meta"), trade_date)
+                    r_f = float(row.get("_recv_faab") or 0.0)
+                    s_f = float(row.get("_drop_faab") or 0.0)
+                    _refs = [("FAAB Value difference at deal time", trade_date)]
+                    if season_i is not None:
+                        _refs += [("FAAB Value difference at end of season", max(_championship_monday(season_i), trade_date)),
+                                  ("FAAB Value difference 1 year later", _plus_years(trade_date, 1)),
+                                  ("FAAB Value difference 2 years later", _plus_years(trade_date, 2))]
+                    for _cn, _rd in _refs:
+                        _v = _fh.trade_diff(_fidx, _rd, today, r_ids, s_ids, r_pk, s_pk, r_f, s_f)
+                        if _v is not None:
+                            row[_cn] = _v
+                            _n_fv += 1
+                    if trade_date > today:
+                        continue
+                    # 'Pick FAAB Value received': the received picks' FAAB
+                    # prices at the deal.
+                    _pv = [_fh.pick_value(_fidx, _l, _dk, trade_date) for _l, _dk in r_pk]
+                    _pv = [_x for _x in _pv if _x is not None]
+                    if _pv:
+                        row["Pick FAAB Value received"] = round(sum(_pv), 1)
+                    # 'Change in pick FAAB Value at draft time': the drafted
+                    # player's value the day after Labor Day of the pick's
+                    # year minus the pick's price at the deal.
+                    _chg, _hits = 0.0, 0
+                    for _l, _dk in r_pk:
+                        try:
+                            _py = int(str(_l).split()[0])
+                        except Exception:
+                            continue
+                        _post = _season_start(_py)
+                        if _post > today:
+                            continue
+                        _b = _fh.pick_value(_fidx, _l, _dk, trade_date)
+                        _a = _fh.pick_value(_fidx, _l, _dk, _post)
+                        if _b is None or _a is None:
+                            continue
+                        _chg += _a - _b
+                        _hits += 1
+                    if _hits:
+                        row["Change in pick FAAB Value at draft time"] = round(_chg, 1)
+
+                for tx_row in add_drop_rows:
+                    try:
+                        tx_date = datetime.fromisoformat(str(tx_row.get("Date")).replace("Z", "+00:00")).date()
+                    except Exception:
+                        continue
+                    try:
+                        season_i = int(tx_row.get("Season")) if tx_row.get("Season") is not None else None
+                    except Exception:
+                        season_i = None
+                    _a_pid, _d_pid = tx_row.get("_added_pid"), tx_row.get("_dropped_pid")
+                    for label, tag in tx_ref_points:
+                        if tag == "deal":
+                            ref = tx_date
+                        elif tag == "end":
+                            if season_i is None:
+                                continue
+                            ref = max(_championship_monday(season_i), tx_date)
+                        else:
+                            ref = _plus_years(tx_date, 1 if tag == "y1" else 2)
+                        if ref > today:
+                            continue
+                        _va = _fidx.player(_a_pid, ref) if _a_pid else None
+                        _vd = _fidx.player(_d_pid, ref) if _d_pid else None
+                        if _va is not None:
+                            tx_row[f"FAAB Value of player added {label}"] = round(_va, 1)
+                        if _vd is not None:
+                            tx_row[f"FAAB Value of player dropped {label}"] = round(_vd, 1)
+                        _vn = _fh.net(_va, _vd)
+                        if _vn is not None:
+                            tx_row[f"Net FAAB Value {label}"] = _vn
+                _log(debug, f"[{_now_iso()}] INFO FAAB Value trade differences filled: {_n_fv}")
+        except Exception as e:
+            _log_exc(debug, "faab_value_trades_txns", e)
     except Exception as e:
         _log_exc(debug, "ktc_value_diff", e)
     # Surface any dynasty-daddy fetch failures so a silent partial
@@ -12831,6 +12974,41 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "picks_ktc_8d", e)
 
+        # --- FAAB Value twins of the six pick checkpoints (same dates) ---
+        _pick_faab_cols = [_c.replace("KTC", "FAAB Value", 1) for _c in _pick_ktc_cols]
+        try:
+            if not ph.empty and {"Year", "Player Picked"}.issubset(set(ph.columns)):
+                for _c in _pick_faab_cols:
+                    ph[_c] = "N/A"
+                    ph[_c] = ph[_c].astype(object)
+                _fv_today = datetime.utcnow().date()
+                for _i, _pr in (ph.iterrows() if _fidx is not None else []):
+                    _ply = str(_pr.get("Player Picked") or "").strip()
+                    if not _ply or _ply.lower() in ("unknown", "nan", "n/a", ""):
+                        continue
+                    _ym = re.match(r"\s*(\d{4})", str(_pr.get("Year") or ""))
+                    _sid = _pr.get("_player_id") or name_to_sid_local2.get(_ply)
+                    if not (_ym and _sid):
+                        continue
+                    _yr = int(_ym.group(1))
+                    _anchor = _draft_anchor(_yr)
+
+                    def _fv_plus(_d: date, _n: int) -> date:
+                        try:
+                            return _d.replace(year=_d.year + _n)
+                        except ValueError:
+                            return _d.replace(year=_d.year + _n, day=28)
+
+                    _targets = [_anchor, date(_yr + 1, 2, 1)] + [_fv_plus(_anchor, _n) for _n in (1, 2, 3, 4)]
+                    for _col, _tgt in zip(_pick_faab_cols, _targets):
+                        if _tgt > _fv_today:
+                            continue
+                        _v = _fidx.player(str(_sid), _tgt)
+                        if _v is not None:
+                            ph.at[_i, _col] = round(_v, 1)
+        except Exception as e:
+            _log_exc(debug, "picks_faab_value", e)
+
         # --- Phase 8E: draft/usage cluster on picks ---
         # Characterise the drafted player's usage on the drafting team over the
         # post-draft tenure (draft ≈ Aug 28 → next exit), mirroring the
@@ -12976,6 +13154,9 @@ def build_all(repo_root: Path) -> None:
             "KTC on draft day", "KTC at end of rookie year",
             "KTC 1 year after draft day", "KTC 2 years after draft day",
             "KTC 3 years after draft day", "KTC 4 years after draft day",
+            "FAAB Value on draft day", "FAAB Value at end of rookie year",
+            "FAAB Value 1 year after draft day", "FAAB Value 2 years after draft day",
+            "FAAB Value 3 years after draft day", "FAAB Value 4 years after draft day",
         ]
         try:
             if not ph.empty and {"Year", "Number"}.issubset(set(ph.columns)):
@@ -22993,6 +23174,21 @@ def build_all(repo_root: Path) -> None:
                 if _later is None or _base is None:
                     return None
                 return round(float(_later) - float(_base), 0)
+
+            # FAAB Value twins (same checkpoints, never pulled forward).
+            def _pa_fv(_on):
+                if _fidx is None or pid is None or _on is None or _on > _pa_today:
+                    return None
+                _v = _fidx.player(pid, _on)
+                return None if _v is None else round(float(_v), 1)
+            fv_pick = _pa_fv(pickup_dt)
+            fv_end = _pa_fv(_date_pa(season + 1, 2, 1)) if (pickup_dt and season) else None
+            fv_n = [_pa_fv(_pa_plus_years(pickup_dt, _n)) if pickup_dt else None for _n in (1, 2, 3, 4)]
+
+            def _fvdiff(_later, _base):
+                if _later is None or _base is None:
+                    return None
+                return round(float(_later) - float(_base), 1)
             row = {
                 "Player": name,
                 "Player ID": _src or _player_ids.clean_id(pid),
@@ -23041,6 +23237,17 @@ def build_all(repo_root: Path) -> None:
                 "KTC change 2 years after pickup": _kdiff(ktc_2, ktc_pick),
                 "KTC change 3 years after pickup": _kdiff(ktc_3, ktc_pick),
                 "KTC change 4 years after pickup": _kdiff(ktc_4, ktc_pick),
+                "FAAB Value at pickup": fv_pick,
+                "FAAB Value at end of season": fv_end,
+                "FAAB Value 1 year after pickup": fv_n[0],
+                "FAAB Value 2 years after pickup": fv_n[1],
+                "FAAB Value 3 years after pickup": fv_n[2],
+                "FAAB Value 4 years after pickup": fv_n[3],
+                "FAAB Value change by end of season": _fvdiff(fv_end, fv_pick),
+                "FAAB Value change 1 year after pickup": _fvdiff(fv_n[0], fv_pick),
+                "FAAB Value change 2 years after pickup": _fvdiff(fv_n[1], fv_pick),
+                "FAAB Value change 3 years after pickup": _fvdiff(fv_n[2], fv_pick),
+                "FAAB Value change 4 years after pickup": _fvdiff(fv_n[3], fv_pick),
                 "Weeks between pickup and start": sc.get("_weeks_before_start"),
                 "Link to next transaction": next_link,
                 # Inputs to the price / points-above-expectation pass below;

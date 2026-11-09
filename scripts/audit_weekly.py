@@ -312,6 +312,8 @@ class KtcAttribution:
         if baseline_dir is not None:
             self._load(Path(baseline_dir), players)
         self.active = bool(self.assets)
+        # set by the caller when the FAAB history changed too (FaabAttribution)
+        self.faab_moved = False
 
     def _load(self, baseline_dir: Path, players: Optional[dict]) -> None:
         path = baseline_dir / "raw" / "ktc_provenance.csv"
@@ -348,6 +350,8 @@ class KtcAttribution:
             return None
         players: Optional[Set[str]] = None
         for col in moved:
+            if self.faab_moved and _matches(col, _FAAB_COLUMNS):
+                continue
             if _matches(col, _KTC_COLUMNS):
                 if players is None:
                     players = _row_names(sheet, dict(zip(idcols, key)), row)
@@ -370,6 +374,40 @@ class KtcAttribution:
                 continue
             return None
         return "pool"
+
+
+# FAAB VALUE COLUMNS: the "FAAB Value" twins of the KTC columns, read from the FAAB
+# value system's committed history (data/faab_value/history.csv). The weekly FAAB
+# rebuild (Wednesdays) and a merged refit rewrite it, which re-values completed
+# seasons' FAAB Value columns without our build changing.
+_FAAB_COLUMNS = ("faab value",)
+
+
+class FaabAttribution:
+    """Rows whose only moved columns are FAAB Value columns, when the two builds
+    read different FAAB histories (exports/raw/faab_history.json differs).
+    Reported with the KTC re-pricing tally: both are a market re-reading dated
+    checkpoints, not a regression."""
+
+    def __init__(self, baseline_dir: Optional[Path], current_dir: Optional[Path]):
+        def _stamp(d):
+            try:
+                import json as _json
+                return _json.loads((Path(d) / "raw" / "faab_history.json").read_text())
+            except Exception:
+                return None
+        a = _stamp(baseline_dir) if baseline_dir is not None else None
+        b = _stamp(current_dir) if current_dir is not None else None
+        self.active = bool(a and b and a != b)
+
+    def covers(self, sheet: str, idcols: List[str], key: tuple, row: Dict[str, str]) -> bool:
+        return False
+
+    def covers_columns(self, sheet: str, idcols: List[str], key: tuple,
+                       row: Dict[str, str], moved: Sequence[str]) -> Optional[str]:
+        if not self.active or not moved:
+            return None
+        return "pool" if all(_matches(c, _FAAB_COLUMNS) for c in moved) else None
 
 
 def _row_names(sheet: str, kv: Dict[str, str], row: Dict[str, str]) -> Set[str]:
@@ -817,9 +855,11 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     # build that carried a value forward, so it is the one that declared the value
     # provisional.
     ktc_attrib = KtcAttribution(baseline_dir, _sleeper_players(current_dir))
+    faab_attrib = FaabAttribution(baseline_dir, current_dir)
+    ktc_attrib.faab_moved = faab_attrib.active
     code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
     attributed = audit_diffs(cur, base, season, rep, attrib, code_changes,
-                             ktc_attrib=ktc_attrib)
+                             ktc_attrib=ktc_attrib, faab_attrib=faab_attrib)
     rep.drift, rep.nflverse_attributed = drift, attributed
     # The volume threshold is judged on the DIRECT attributions only: pooled
     # fan-out scales with how league-relative our stats are, not with how much
@@ -1386,7 +1426,8 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
                 current_season: Optional[int], rep: Report,
                 attrib: Optional[NflverseAttribution] = None,
                 code_changes: Sequence[Tuple[str, str]] = (),
-                ktc_attrib: "Optional[KtcAttribution]" = None) -> int:
+                ktc_attrib: "Optional[KtcAttribution]" = None,
+                faab_attrib: "Optional[FaabAttribution]" = None) -> int:
     """Report past-season rows that moved. Returns the number of rows withheld
     from the flags because an NFLverse revision accounts for them.
 
@@ -1506,7 +1547,7 @@ def audit_diffs(cur: Dict[str, pd.DataFrame], base: Dict[str, pd.DataFrame],
         # so the ORDER is explicit: NFLverse first, because a row it can explain
         # directly should be counted against the upstream volume check rather
         # than absorbed as KTC fan-out.
-        for _src, _bucket in ((attrib, None), (ktc_attrib, "ktc")):
+        for _src, _bucket in ((attrib, None), (ktc_attrib, "ktc"), (faab_attrib, "ktc")):
             if _src is None or not _src.active or not changed:
                 continue
             kept, taken = [], []

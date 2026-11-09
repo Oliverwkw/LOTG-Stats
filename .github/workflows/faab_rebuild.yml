@@ -18,10 +18,19 @@ name: Rebuild FAAB values
 on:
   schedule:
     - cron: "23 13 * * 3"
+  # A merged refit (params.json) re-values the dated history the build's "FAAB Value" columns read
+  # (history.csv) from the cached grid frame: no fetch, no model refit (~10 min).
+  push:
+    branches: [main]
+    paths: ["data/faab_value/params.json"]
   workflow_dispatch:
     inputs:
       full:
         description: "Refit every quarterly snapshot (ignore the block cache)"
+        type: boolean
+        default: false
+      history_only:
+        description: "Only rewrite the dated values (history.csv, pick_prices.csv) from the cached grid frame"
         type: boolean
         default: false
 
@@ -67,6 +76,9 @@ jobs:
           # full: drop the cached blocks once; the run (and any resumed runs) then refit every snapshot
           if [ "${FULL:-}" = "true" ]; then rm -f .cache/faab/pipeline/blk_*.parquet; fi
           CMD=(python scripts/faab_rebuild.py --max-minutes 270)
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event.inputs.history_only }}" = "true" ]; then
+            CMD=(python scripts/faab_rebuild.py --history-only)
+          fi
           # Actions runs bash with -e: catch the exit code instead of letting exit 3 end the step
           rc=0; "${CMD[@]}" || rc=$?
           if [ "$rc" = "3" ]; then
@@ -101,7 +113,7 @@ jobs:
         run: |
           git config user.name "lotg-faab-bot"
           git config user.email "noreply@anthropic.com"
-          git add data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json data/votes/report.md
+          git add data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/awards.csv data/faab_value/history.csv data/faab_value/pick_prices.csv docs/rate/board.json docs/rate/questions.json data/votes/report.md
           if git diff --cached --quiet; then
             echo "No change"
             exit 0

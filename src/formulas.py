@@ -1986,6 +1986,28 @@ for _base, _sheet, _how, _note in _POS_TWINS:
     })
 
 
+# FAAB Value twins of the columns in KTC value units (formula_equations.KTC_UNIT_STATS).
+_FAAB_TWIN_TEXT = ("The same as '{k}' with every asset at its FAAB value (the league's FAAB dollars from the FAAB value "
+                   "system: stats only, every rule applied, on the last grid date on or before the checkpoint) instead "
+                   "of its KTC; a pick is its FAAB pick price (the slot's median price in the league's earlier drafts) "
+                   "until its draft, then the drafted player; FAAB moved in a trade counts its own dollars.")
+_FAAB_TWIN_NOTE = ("Blank where the KTC column is blank for a future checkpoint, before 2021 (the FAAB history starts "
+                   "then), for a player the history never valued, and for a pick before the league's first rookie draft "
+                   "(no earlier draft prices). Values move when the weekly FAAB rebuild or a refit changes the history. "
+                   "The FAAB values are trained on the KTC scale and pick prices come from KTC-priced drafts, so they are "
+                   "not fully independent of KTC.")
+_by_key = {(r["Stat"], r["Sheet"]): r for r in _ROWS}
+for _k in formula_equations.KTC_UNIT_STATS:
+    _r = _by_key[_k]
+    _cols = _r.get("Columns") or [_r["Stat"]]
+    _ROWS.append({
+        "Stat": formula_equations.faab_twin(_k[0]), "Sheet": _k[1],
+        "Columns": [formula_equations.faab_twin(c) for c in _cols],
+        "Formula": _FAAB_TWIN_TEXT.format(k=_k[0]),
+        "Notes": _FAAB_TWIN_NOTE,
+    })
+
+
 # Output columns of the Formulas sheet (in order). "Columns" is INTERNAL
 # coverage metadata (the exact column names an entry documents, used by
 # the coverage check below + tests/test_formulas_coverage.py) and is NOT emitted.

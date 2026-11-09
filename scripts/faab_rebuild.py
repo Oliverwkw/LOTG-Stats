@@ -5,8 +5,10 @@
     python scripts/faab_rebuild.py --no-fetch      # use the cached downloads
     python scripts/faab_rebuild.py --end 2021-03-15 --out /tmp/x   # a short window, written elsewhere (smoke test)
     python scripts/faab_rebuild.py --max-minutes 270   # stop fitting new snapshots after 270 min (exit 3; resume next run)
+    python scripts/faab_rebuild.py --history-only      # rewrite history.csv / pick_prices.csv from the cached grid
+                                                       # frame with the committed params.json (after a refit)
 
-Writes data/faab_value/inputs.csv and evidence.json (and awards.csv when a fresh parse finds at least as many
+Writes data/faab_value/inputs.csv, evidence.json, history.csv and pick_prices.csv (and awards.csv when a fresh parse finds at least as many
 awards). Needs scikit-learn, scipy and pyarrow besides the build's requirements. Rule strengths are not refit.
 """
 from __future__ import annotations
@@ -28,7 +30,11 @@ def main(argv=None):
     ap.add_argument("--end")
     ap.add_argument("--out")
     ap.add_argument("--max-minutes", type=float, help="stop fitting new snapshots after this long (cached blocks resume next run)")
+    ap.add_argument("--history-only", action="store_true", help="only rewrite the dated values from the cached grid frame")
     a = ap.parse_args(argv)
+    if a.history_only:
+        n = P.history_only(out=Path(a.out) if a.out else None, log=lambda m: print(m, flush=True))
+        sys.exit(0 if n else 4)
     R = P.rebuild(full=a.full, fetch=not a.no_fetch, end=a.end, out=Path(a.out) if a.out else None, max_minutes=a.max_minutes,
                   log=lambda m: print(m, flush=True))
     if R is None:

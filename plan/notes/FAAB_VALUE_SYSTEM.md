@@ -313,6 +313,15 @@ reproduction):
 
 Points over expected also count only the best game's excess at half, the definition the rules already used.
 
+**The build's FAAB Value columns** (2026-11-09): the rebuild also writes `history.csv` (every rostered player on
+every grid date, valued with every rule and the committed `params.json`, sorted by date so git stores each week as
+a small delta) and `pick_prices.csv` (the slot medians `faab_inputs.Picks` prices picks with, one block per league
+draft day). `lotg_support.faab_history.FaabIndex` reads them for the build: every column in KTC value units has a
+"FAAB Value" twin beside it (53 on add_drops, trades, both pick sheets and player_additions), same dates, same
+depth tax, FAAB moved at $1 = $1, a pick at its FAAB pick price until its draft and then the drafted player.
+Blank before 2021. A merged refit re-values the history with `scripts/faab_rebuild.py --history-only` (the
+workflow runs it on a push that changes `params.json`; a manual dispatch can too).
+
 **Committed data the pipeline reads:**
 
 - `chat_evidence.csv`: the league chat's valuations (player, date, log price, weight, kind), with no names or text;
