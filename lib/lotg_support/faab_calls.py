@@ -22,6 +22,13 @@ LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton",
 UNDER_FIRST = ["George Kittle", "Matthew Stafford", "Baker Mayfield", "Jadarian Price"]   # Etienne: left to the system (2026-10-25)
 MID_TE = ["Sam LaPorta", "Colston Loveland", "Isaiah Likely", "George Kittle", "Tyler Warren", "Kenyon Sadiq", "Tucker Kraft", "Harold Fannin"]
 TOP3 = ["Josh Allen", "Jahmyr Gibbs", "Bijan Robinson"]
+# Tolerances (round 4, Oliver 2026-11-09): with 3% random noise on every board value about 8 passing calls flip, so a
+# call that misses by a hair is not evidence. A range call ("about $1,000", ">= $900") passes within 5% of its bounds;
+# a player-over-player call only when extremely close (within 1%). A call's loss is capped (CALL_CAP, log units: a
+# miss by about 65%), so no single call can outweigh the trades (Coker + McConkey were 29% of the objective).
+RANGE_TOL = float(np.log(1.05))
+PAIR_TOL = float(np.log(1.01))
+CALL_CAP = 0.5
 
 def calls(v, ref=None, qbs=()):
     """v: Series name -> value (one board for every call), or {call date: Series} (each group on the board of the
@@ -30,33 +37,34 @@ def calls(v, ref=None, qbs=()):
     on = lambda d: v if not isinstance(v, dict) else v[max([k for k in v if k <= d] or [min(v)])]
     B = on(CALL_DATES[0])
     g = lambda n: float(B.get(n, np.nan))
-    def gt(a, b, m=0.03): return max(0.0, np.log(g(b)) - np.log(g(a)) + m) if not (np.isnan(g(a)) or np.isnan(g(b))) else 0.0
-    def rng(n, lo, hi): x = g(n); return 0.0 if np.isnan(x) else max(0.0, np.log(lo) - np.log(x)) + max(0.0, np.log(x) - np.log(hi))
+    def gt(a, b, m=0.03): return max(0.0, np.log(g(b)) - np.log(g(a)) + m - PAIR_TOL) if not (np.isnan(g(a)) or np.isnan(g(b))) else 0.0
+    def h(x, tol): return max(0.0, x - tol)          # a hinge with its dead zone
+    def rng(n, lo, hi): x = g(n); return 0.0 if np.isnan(x) else max(0.0, np.log(lo) - np.log(x) - RANGE_TOL) + max(0.0, np.log(x) - np.log(hi) - RANGE_TOL)
     t = []
     rest = B.drop([n for n in TOP3 if n in B.index]).max()
-    t += [(f"{n} above everyone outside the top 3", max(0.0, np.log(rest) - np.log(g(n)) + 0.02)) for n in TOP3]
+    t += [(f"{n} above everyone outside the top 3", h(np.log(rest) - np.log(g(n)) + 0.02, PAIR_TOL)) for n in TOP3]
     hi_, lo_ = max(g(n) for n in TOP3), min(g(n) for n in TOP3)
-    t += [("top 3 within 15%", max(0.0, np.log(hi_ / lo_) - np.log(1.15))), ("top 3 at most about $4,300 (5 firsts is an overpay; top end lower than the reviewed board)", rng("Josh Allen", 3700, 4300) + rng("Jahmyr Gibbs", 3700, 4300))]
+    t += [("top 3 within 15%", h(np.log(hi_ / lo_) - np.log(1.15), RANGE_TOL)), ("top 3 at most about $4,300 (5 firsts is an overpay; top end lower than the reviewed board)", rng("Josh Allen", 3700, 4300) + rng("Jahmyr Gibbs", 3700, 4300))]
     q = B[[n for n in B.index if n in set(qbs)]].sort_values(ascending=False)
     if len(q) > 10:
-        t += [("Allen QB1", max(0.0, np.log(q.drop("Josh Allen").max()) - np.log(g("Josh Allen")) + 0.02)),
-              ("Lamar QB2", max(0.0, np.log(q.drop(["Josh Allen", "Lamar Jackson"]).max()) - np.log(g("Lamar Jackson")) + 0.02)),
-              ("Hurts QB4 (out for the year)", max(0.0, np.log(g("Jalen Hurts")) - np.log(q.drop("Jalen Hurts").iloc[2]))),
-              ("Daniels outside the top 10 QBs", max(0.0, np.log(g("Jayden Daniels")) - np.log(q.drop("Jayden Daniels").iloc[9])))]
+        t += [("Allen QB1", h(np.log(q.drop("Josh Allen").max()) - np.log(g("Josh Allen")) + 0.02, PAIR_TOL)),
+              ("Lamar QB2", h(np.log(q.drop(["Josh Allen", "Lamar Jackson"]).max()) - np.log(g("Lamar Jackson")) + 0.02, PAIR_TOL)),
+              ("Hurts QB4 (out for the year)", h(np.log(g("Jalen Hurts")) - np.log(q.drop("Jalen Hurts").iloc[2]), PAIR_TOL)),
+              ("Daniels outside the top 10 QBs", h(np.log(g("Jayden Daniels")) - np.log(q.drop("Jayden Daniels").iloc[9]), PAIR_TOL))]
     t += [("Burrow > Mendoza", gt("Joe Burrow", "Fernando Mendoza")), ("Burrow > Tyson", gt("Joe Burrow", "Jordyn Tyson")),
-          ("Lamar - Burrow < Tet", max(0.0, (g("Lamar Jackson") - g("Joe Burrow")) / g("Tetairoa McMillan") - 1.0)),
+          ("Lamar - Burrow < Tet", h((g("Lamar Jackson") - g("Joe Burrow")) / g("Tetairoa McMillan") - 1.0, RANGE_TOL)),
           ("Herbert > Stafford", gt("Justin Herbert", "Matthew Stafford"))]
     for a in ["Puka Nacua", "Ja'Marr Chase", "Amon-Ra St. Brown"]:
         t += [(f"{a} > CeeDee", gt(a, "CeeDee Lamb")), (f"{a} > Nabers", gt(a, "Malik Nabers"))]
     jj = B.drop("Justin Jefferson").nlargest(12).iloc[-1]
-    t += [("Jefferson top 12", max(0.0, np.log(jj) - np.log(g("Justin Jefferson"))))]
+    t += [("Jefferson top 12", h(np.log(jj) - np.log(g("Justin Jefferson")), PAIR_TOL))]
     t += [("Walker >= Tet", gt("Kenneth Walker", "Tetairoa McMillan", 0.0)), ("Bijan > Tet", gt("Bijan Robinson", "Tetairoa McMillan")),
           ("Bijan > Jeanty", gt("Bijan Robinson", "Ashton Jeanty")), ("Tate > Tyson", gt("Carnell Tate", "Jordyn Tyson")),
           ("Tate > LaPorta", gt("Carnell Tate", "Sam LaPorta")), ("AJ Brown > Ladd", gt("A.J. Brown", "Ladd McConkey")),
           ("Egbuka > Singleton", gt("Emeka Egbuka", "Nicholas Singleton")), ("Likely > Stowers", gt("Isaiah Likely", "Eli Stowers")),
-          ("Loveland > 1.4x Kittle", max(0.0, np.log(1.4 * g("George Kittle")) - np.log(g("Colston Loveland")))),
+          ("Loveland > 1.4x Kittle", h(np.log(1.4 * g("George Kittle")) - np.log(g("Colston Loveland")), RANGE_TOL)),
           ("Jamo > Hunter", gt("Jameson Williams", "Travis Hunter")), ("Hunter > Addison", gt("Travis Hunter", "Jordan Addison"))]
-    t += [("Odunze near Addison", max(0.0, np.log(0.8 * g("Jordan Addison")) - np.log(g("Rome Odunze")))),
+    t += [("Odunze near Addison", h(np.log(0.8 * g("Jordan Addison")) - np.log(g("Rome Odunze")), RANGE_TOL)),
           ("BTJ below Addison (fell off)", gt("Jordan Addison", "Brian Thomas", 0.0)), ("MHJ below Addison (fell off)", gt("Jordan Addison", "Marvin Harrison", 0.0))]
     t += [("Henry about a first", rng("Derrick Henry", 850, 1250)), ("Golden about $1,000", rng("Matthew Golden", 850, 1250)),
           ("KC about $1,000", rng("KC Concepcion", 850, 1250)),
@@ -77,7 +85,7 @@ def calls(v, ref=None, qbs=()):
           ("Zay > AJ Brown", gt("Zay Flowers", "A.J. Brown")), ("Zay > Golden", gt("Zay Flowers", "Matthew Golden")),
           ("Nico up (>= $1,300)", rng("Nico Collins", 1300, 99999)), ("Zay up (>= $1,300)", rng("Zay Flowers", 1300, 99999)),
           ("Jefferson up (>= $2,500)", rng("Justin Jefferson", 2500, 99999)), ("Hurts down (<= $1,800)", rng("Jalen Hurts", 1, 1800)),
-          ("Rice up (>= $900)", rng("Rashee Rice", 900, 99999)), ("Michael Wilson up (>= $400)", rng("Michael Wilson", 400, 99999)),
+          ("Rice up (>= $800)", rng("Rashee Rice", 800, 99999)), ("Michael Wilson up (>= $400)", rng("Michael Wilson", 400, 99999)),
           ("Ollie Gordon down (<= $350)", rng("Ollie Gordon", 1, 350)), ("Etienne down (<= $450)", rng("Travis Etienne", 1, 450)),
           ("Antonio Williams down (<= $300)", rng("Antonio Williams", 1, 300)),
           ("CeeDee > Kyren", gt("CeeDee Lamb", "Kyren Williams")), ("Nabers > London", gt("Malik Nabers", "Drake London")),
@@ -85,7 +93,7 @@ def calls(v, ref=None, qbs=()):
           ("Addison at best a second (<= $350)", rng("Jordan Addison", 1, 350)), ("Bucky > Tuten", gt("Bucky Irving", "Bhayshul Tuten")),
           ("Jamo down (<= $1,200)", rng("Jameson Williams", 1, 1200)),
           ("Rice down (<= $1,250)", rng("Rashee Rice", 1, 1250)), ("Nico > Rice", gt("Nico Collins", "Rashee Rice")), ("Zay > Rice", gt("Zay Flowers", "Rashee Rice")),
-          ("Mahomes > Goff", gt("Patrick Mahomes", "Jared Goff")), ("Mahomes near Lamar (>= 90%)", max(0.0, np.log(0.9 * g("Lamar Jackson")) - np.log(g("Patrick Mahomes")))),
+          ("Mahomes > Goff", gt("Patrick Mahomes", "Jared Goff")), ("Mahomes near Lamar (>= 90%)", h(np.log(0.9 * g("Lamar Jackson")) - np.log(g("Patrick Mahomes")), RANGE_TOL)),
           ("Hurts < Mahomes", gt("Patrick Mahomes", "Jalen Hurts")), ("Hurts < Maye", gt("Drake Maye", "Jalen Hurts")), ("Hurts < Caleb", gt("Caleb Williams", "Jalen Hurts")),
           ("Coker like a breakout (>= $700)", rng("Jalen Coker", 700, 99999)), ("Parker Washington like a breakout (>= $700)", rng("Parker Washington", 700, 99999))]
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
@@ -97,7 +105,7 @@ def calls(v, ref=None, qbs=()):
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"
             if n in ref.index: t += [(f"{n} stays near the reviewed ${ref[n]:,.0f}", rng(n, 0.75 * ref[n], 1.3 * ref[n]))]
-    return t
+    return [(n, min(x, CALL_CAP)) for n, x in t]
 
 def vet_bubble(v, exp):
     """'very few guys between $50 and $300 who are not in their first 1-3 years' (replacement level)"""

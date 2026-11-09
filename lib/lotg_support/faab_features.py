@@ -180,6 +180,7 @@ def build_week(X, FC, OUT, years):
     C.to_parquet(f"{OUT}/xf_week.parquet"); bp.reset_index().to_parquet(f"{OUT}/xf_bodyparts.parquet")
     gl_cols = [c for c in ["gsis", "season", "week", "known", "ppr", "off_pct", "rush_car", "rush_yds", "gl_tgt"] if c in W]
     W.loc[W.played.astype(bool), gl_cols].to_parquet(f"{OUT}/xf_gamelog.parquet")      # one row per game played (game_form)
+    W.loc[W.inj_out.fillna(False).astype(bool), ["gsis", "season", "week", "known"]].to_parquet(f"{OUT}/xf_injweeks.parquet")   # weeks out / on IR (since_injury)
     print("weekly", C.shape, "players", C.gsis.nunique())
 
     # ---------------------------------------------------------------- roster presence: first week on any NFL roster each season, last season on one
@@ -358,7 +359,7 @@ def build_finish(FC, OUT, last):
 # ------------------------------------------------------------------ as known on a date (xjoin)
 def load_store(XF=None):
     """read the feature store built by build_store() into this module (add_x reads it)"""
-    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, RT, LS, SUSP, OFF, AW, GL, RW
+    global C, FIN, BP, ST, TM, TMF, FN, GT, GT_SEAS, RF, RT, LS, SUSP, OFF, AW, GL, RW, IW
     XF = str(XF or XF_DIR)
     C = pd.read_parquet(f"{XF}/xf_week.parquet"); C["known"] = pd.to_datetime(C.known); C["gsis"] = C.gsis.astype(str)
     FIN = C.sort_values("week").groupby(["gsis", "season"]).tail(1).set_index(["gsis", "season"])     # each season's final state
@@ -375,6 +376,8 @@ def load_store(XF=None):
     RW = pd.read_parquet(f"{XF}/xf_roster_team.parquet") if Path(f"{XF}/xf_roster_team.parquet").exists() else None
     GL = pd.read_parquet(f"{XF}/xf_gamelog.parquet") if Path(f"{XF}/xf_gamelog.parquet").exists() else None
     if GL is not None: GL["gsis"] = GL.gsis.astype(str); GL["known"] = pd.to_datetime(GL.known)
+    IW = pd.read_parquet(f"{XF}/xf_injweeks.parquet") if Path(f"{XF}/xf_injweeks.parquet").exists() else None
+    if IW is not None: IW["gsis"] = IW.gsis.astype(str); IW["known"] = pd.to_datetime(IW.known)
     SUSP = pd.read_csv(ROOT / "data" / "suspensions.csv")
     OFF = pd.read_csv(DATA / "offfield_events.csv", parse_dates=["start", "end"])
     AW = (pd.read_parquet(f"{XF}/xf_awards.parquet") if Path(f"{XF}/xf_awards.parquet").exists() else pd.read_csv(DATA / "awards.csv")); AW["known"] = pd.to_datetime(AW.known); AW["gsis"] = AW.gsis.astype(str)
@@ -752,6 +755,32 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
     return out
 
 
+def since_injury(gl, iw, gsis, date_v):
+    """(PPR per game, games) in the games he played after his last week out or on IR (an Out / Doubtful report, IR or
+    PUP), both known by the date; NaN when no such week is known (a player with no injury on record). The week he was
+    out is left out even if he played in it. `gl`: games played (gsis, season, week, known, ppr); `iw`: the weeks out
+    (gsis, season, week, known)."""
+    gsis = np.asarray(gsis).astype(str); date_v = np.asarray(date_v, dtype="datetime64[ns]"); N = len(gsis)
+    ppg, gp = np.full(N, np.nan), np.full(N, np.nan)
+    if gl is None or iw is None or not len(gl) or not len(iw): return ppg, gp
+    g = gl.dropna(subset=["ppr"]).assign(gsis=lambda x: x.gsis.astype(str), k=lambda x: x.season.astype(int) * 100 + x.week.astype(int)).sort_values("known")
+    w = iw.assign(gsis=lambda x: x.gsis.astype(str), k=lambda x: x.season.astype(int) * 100 + x.week.astype(int)).sort_values("known")
+    G = {a: (v.known.values.astype("datetime64[ns]"), v.k.values, v.ppr.values.astype(float)) for a, v in g.groupby("gsis")}
+    I_ = {a: (v.known.values.astype("datetime64[ns]"), np.maximum.accumulate(v.k.values)) for a, v in w.groupby("gsis")}
+    for i in range(N):
+        t = I_.get(gsis[i])
+        if t is None: continue
+        j = int(np.searchsorted(t[0], date_v[i], side="right"))
+        if j == 0: continue
+        last = t[1][j - 1]; ppg_, gp_ = np.nan, 0
+        u = G.get(gsis[i])
+        if u is not None:
+            k = int(np.searchsorted(u[0], date_v[i], side="right")); m = u[1][:k] > last
+            gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
+        ppg[i], gp[i] = ppg_, gp_
+    return ppg, gp
+
+
 def offseason_flags(date_v, fw, ko_up, jun1, career_over):
     """(unsigned, offseason) for each row. `fw` = the player's first regular-season roster week of the upcoming season
     (NaN = never on one), `ko_up` its kickoff, `jun1` its June 1.
@@ -858,6 +887,7 @@ def add_x(df):
         out["e_x_coach_follow"] = coach_follow(up_s, RT.first_team.reindex(pd.MultiIndex.from_arrays([g_, up_s])).values,
                                                RT.last_team.reindex(pd.MultiIndex.from_arrays([g_, up_s - 1])).values, GT)
     for k_, v_ in gf.items(): out[f"e_x_{k_}"] = v_
+    out["e_x_ppg_since_inj"], out["e_x_gp_since_inj"] = since_injury(GL, globals().get("IW"), g_, date_v)
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
         ko = KO.get(int(r.season)); a = np.datetime64(ko - pd.Timedelta(days=30)); b = np.datetime64(ko + pd.Timedelta(days=7 * int(r.week_end)))

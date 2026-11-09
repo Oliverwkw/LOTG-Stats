@@ -171,10 +171,13 @@ def grid_dates(start="2021-01-01", end=None):
     return days[((days.month >= 9) | (days.month == 1) | ((days.month == 2) & (days.day <= 15))) | (days.dayofweek == 1)]
 
 
-def grid_frame(pa, extra, start="2021-01-01", end=None):
-    """every player the league has rostered, on every grid date and every evidence date"""
+def grid_frame(pa, extra, start="2021-01-01", end=None, dates=()):
+    """every player the league has rostered, on every grid date and every board day the evidence is read on (`dates`,
+    faab_pipeline.evidence_dates), plus `extra`'s own (sid, date) rows"""
     sids = sorted(set(pa.sid.dropna().astype(str)))
-    G = pd.DataFrame([(s, d) for s in sids for d in grid_dates(start, end)], columns=["sid", "date"])
+    gd = grid_dates(start, end); hi = gd.max() if len(gd) else pd.Timestamp(start)
+    gd = gd.union(pd.DatetimeIndex([pd.Timestamp(x) for x in dates if pd.Timestamp(start) <= pd.Timestamp(x) <= hi]))
+    G = pd.DataFrame([(s, d) for s in sids for d in gd], columns=["sid", "date"])
     G = pd.concat([G, extra[["sid", "date"]].assign(date=lambda x: pd.to_datetime(x.date))]).drop_duplicates().reset_index(drop=True)
     G = G[G.date >= start]
     F = kp.build(G.assign(ktc=np.nan)); F["date"] = F.date.astype("datetime64[ns]")

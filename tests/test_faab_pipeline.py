@@ -109,13 +109,6 @@ def test_lag_rows_find_the_row_four_weeks_earlier():
     assert list(P.lag_rows(R, np.array([3, 2, 5, 0]))) == [0, 1]
 
 
-if __name__ == "__main__":
-    for fn in TESTS:
-        print(f"{fn.__name__}:")
-        fn()
-        print("  ok")
-    print("\nall faab pipeline checks passed")
-
 
 def test_game_form_counts_full_role_duds_and_crosses_seasons():
     # 2024: 4 full-role games (2 under 5 PPR) and a cameo under 5 (not a dud); 2025: 16 full games, 10 PPR then 20
@@ -262,3 +255,71 @@ def test_te_top3_reads_last_two_seasons_top_three_tes():
     rows = pd.DataFrame(dict(gsis=["c", "d", "d", "a"], date=pd.to_datetime(["2022-11-30", "2022-11-30", "2021-11-30", "2022-11-30"]), pos=["TE", "TE", "TE", "WR"]))
     # c: TE3 in 2021 (the WR doesn't count); d: TE4 in 2021, TE1 in 2020 (two back = 0.5); d a season earlier: TE1 last season; a WR row: 0
     assert np.allclose(X.te_top3(rows, gl, pos=pos), [1.0, 0.5, 1.0, 0.0])
+
+
+def test_board_day_is_the_trade_day_unless_a_same_day_event_could_follow_it():
+    dd = {pd.Timestamp("2025-05-03")}                                  # a league rookie-draft day
+    assert P.board_day("2025-07-14 13:20:37", dd) == pd.Timestamp("2025-07-14")          # an ordinary day: its own board
+    assert P.board_day("2025-05-03 21:00:00", dd) == pd.Timestamp("2025-05-02")          # league draft day: the day before
+    assert P.board_day("2025-04-24 19:59:00", dd) == pd.Timestamp("2025-04-23")          # NFL draft Thursday, before round 1
+    assert P.board_day("2025-04-24 20:30:00", dd) == pd.Timestamp("2025-04-24")          # ... after it started
+    assert P.board_day("2025-04-25 18:00:00", dd) == pd.Timestamp("2025-04-24")          # Friday before rounds 2-3
+    assert P.board_day("2025-04-26 11:00:00", dd) == pd.Timestamp("2025-04-25")          # Saturday before rounds 4-7
+    assert P.board_day("2025-04-26", dd) == pd.Timestamp("2025-04-25")                   # a cut (no time) on a draft day
+    assert P.board_day("2025-04-27 09:00:00", dd) == pd.Timestamp("2025-04-27")          # the day after the draft
+
+
+def test_evidence_rows_use_the_trade_days_board_and_fall_back_a_week():
+    R = pd.DataFrame({"sid": ["1", "2", "1", "2", "1"],
+                      "date": pd.to_datetime(["2025-07-08", "2025-07-08", "2025-07-14", "2025-07-14", "2025-07-15"])})
+    pa = pd.DataFrame({"sid": ["1", "2"], "Addition type": ["Trade", "Trade"], "Date": ["2025-07-14", "2025-07-14"]})
+    TR = {"2025-07-14 13:20:37": {"a": [("player", 0, "x")], "b": [("faab", 50.0, None)]},
+          "2025-07-15 10:00:00": {"a": [("player", 1, "y")], "b": [("faab", 20.0, None)]}}     # 2 has no 07-15 row
+    drops = pd.DataFrame({"sid": ["1"], "date": pd.to_datetime(["2025-07-16"])})
+    tr, cut = P.evidence_rows(R, TR, pa, None, drops, draft_days=set())
+    assert tr[0][1][0][1] == [2]                    # player 1 on the trade day's own board (07-14), not 07-08
+    assert tr[1][1][0][1] == [3]                    # player 2 missing on 07-15: the latest board before it (07-14)
+    assert list(cut) == [4]                         # the cut on 07-16 reads the latest board on or before it (07-15)
+
+
+def test_evidence_dates_add_offseason_trade_days_only_once():
+    pa = pd.DataFrame({"sid": ["1"], "Addition type": ["Draft"], "Date": ["2025-05-03"]})
+    TR = {"2025-07-17 10:00:00": {"a": [], "b": []}, "2025-07-17 15:00:00": {"a": [], "b": []},
+          "2025-05-03 12:00:00": {"a": [], "b": []}, "2025-06-01 12:00:00": {"a": []}}
+    assert P.evidence_dates(TR, pa) == [pd.Timestamp("2025-05-02"), pd.Timestamp("2025-07-17")]
+
+
+def test_cached_block_rereads_stats_and_carries_the_model_to_new_rows():
+    b = pd.DataFrame({"sid": ["1", "1", "2"], "date": pd.to_datetime(["2025-07-08", "2025-07-15", "2025-07-08"]),
+                      "L": [5.0, 6.0, 3.0], "S": [1.0, 2.0, 0.5], "pos": ["WR", "WR", "RB"], "e_x_old": [1.0, 1.0, 1.0]})
+    F = pd.DataFrame({"sid": ["1", "1", "1", "2", "2", "3"],
+                      "date": pd.to_datetime(["2025-07-08", "2025-07-15", "2025-07-17", "2025-07-08", "2025-07-17", "2025-07-17"]),
+                      "pos": ["WR", "WR", "WR", "RB", "RB", "TE"], "e_x_old": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0], "e_x_new": [7.0, 8.0, 9.0, 4.0, 5.0, 1.0]})
+    out, k = P.refresh_block(b, F, pd.Timestamp("2025-07-01"), pd.Timestamp("2025-10-01"))
+    o = out.set_index(["sid", "date"])
+    assert k == 2                                                            # 1 and 2 on 07-17; 3 has no earlier row: left out
+    assert o.loc[("1", pd.Timestamp("2025-07-15")), "e_x_new"] == 8.0         # a column added since the block was fit
+    assert (o.e_x_old == 2.0).all()                                          # every stat re-read from today's frame
+    assert o.loc[("1", pd.Timestamp("2025-07-17")), "L"] == 6.0               # the model's output from his latest earlier row
+    assert o.loc[("2", pd.Timestamp("2025-07-17")), "S"] == 0.5 and o.loc[("2", pd.Timestamp("2025-07-17")), "e_x_new"] == 5.0
+    assert ("3", pd.Timestamp("2025-07-17")) not in o.index
+
+
+def test_since_injury_counts_games_after_the_last_week_out():
+    ko = pd.Timestamp("2025-09-04"); kn = lambda w: ko + pd.Timedelta(days=7 * (w - 1) + 5)
+    gl = pd.DataFrame([("a", 2025, w, kn(w), p_) for w, p_ in [(1, 10.0), (2, 12.0), (4, 30.0), (5, 20.0), (6, 25.0)]] + [("b", 2025, 1, kn(1), 9.0)],
+                      columns=["gsis", "season", "week", "known", "ppr"])
+    iw = pd.DataFrame([("a", 2025, 3, kn(3)), ("a", 2024, 9, kn(9) - pd.Timedelta(days=365))], columns=["gsis", "season", "week", "known"])
+    ppg, gp = X.since_injury(gl, iw, ["a", "a", "a", "b"], [kn(6), kn(4), kn(2), kn(6)])
+    assert gp[0] == 3 and abs(ppg[0] - 25.0) < 1e-9        # weeks 4-6 after the week-3 absence
+    assert gp[1] == 1 and ppg[1] == 30.0                    # only what was known by then
+    assert gp[2] == 2 and abs(ppg[2] - 11.0) < 1e-9         # before week 3: since last season's absence
+    assert np.isnan(ppg[3]) and np.isnan(gp[3])            # no absence on record
+
+
+if __name__ == "__main__":
+    for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
+        print(f"{fn.__name__}:")
+        fn()
+        print("  ok")
+    print("\nall faab pipeline checks passed")

@@ -101,5 +101,15 @@
  "young_elite": 1.0,
  "te_top3": 0.5,
  "rookie_r1": -1.5,
- "r1_wr": -0.3
+ "r1_wr": -0.3,
+ "vet_floor": 0.8,
+ "rb_duds": -0.2,
+ "wr_band": -0.25,
+ "rb_band": 0.2,
+ "rb_inj": -0.2,
+ "spike_vet_rb": -0.2,
+ "qb_inj": -0.1,
+ "qb_band": -0.1,
+ "wr_backup": -0.1,
+ "wr_clean_old": -0.1
 }

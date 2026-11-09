@@ -64,15 +64,59 @@ def latest_status(R, players):
     return R
 
 
-def evidence_rows(R, TR, pa, picks, drops):
-    """trades (both sides' players valued the day before; FAAB + picks at their price that day) and cuts (day before),
-    as row positions in R"""
+# Same-day events a board reads by DATE only, so a trade earlier that day could see them before they happened: the
+# NFL draft's rounds (rounds 1-2 rookies count from the Thursday, e_x_draft_comp; day-3 picks price rookies) and the
+# league's own rookie draft (draft prices and rookies count from the day of the pick, faab_formula). Anything else a
+# board reads was known before its day: league prices strictly before it (smooth_route), KTC the day before
+# (add_anchor), weekly stats from the Tuesday after the games (add_x).
+NFL_DRAFT_ROUNDS_ET = {0: 20, 1: 19, 2: 12}       # hour (US Eastern) each NFL draft day starts: Thu 8pm, Fri 7pm, Sat noon
+
+
+def league_draft_days(pa):
+    """every day the league made a rookie-draft pick (player_additions 'Draft' rows)"""
+    d = pa[pa["Addition type"] == "Draft"].Date.astype(str).str[:10]
+    return {pd.Timestamp(x) for x in d.unique()}
+
+
+def board_day(ts, draft_days=frozenset()):
+    """the board a trade or cut at `ts` is valued on: its own day's board (every board reads only what was known
+    before its day, see above), else the day before when a same-day event the board counts by date could have come
+    after it. `ts`: 'YYYY-MM-DD HH:MM:SS' in US Eastern (exports' trade times; a bare date = time unknown). The NFL
+    draft: before that day's round starts (NFL_DRAFT_ROUNDS_ET); the league's rookie-draft days: always the day before
+    (the picks have no time)."""
+    t = pd.Timestamp(str(ts)); day = t.normalize(); timed = len(str(ts)) > 10
+    nd = X.NFL_DRAFT.get(day.year)
+    if nd is not None:
+        k = (day - pd.Timestamp(nd)).days
+        if k in NFL_DRAFT_ROUNDS_ET and (not timed or t.hour < NFL_DRAFT_ROUNDS_ET[k]):
+            return day - pd.Timedelta(days=1)
+    if day in draft_days: return day - pd.Timedelta(days=1)
+    return day
+
+
+EVIDENCE_SLACK = 7         # a player missing from the chosen board is read from the latest board up to 7 days before it
+
+
+def evidence_rows(R, TR, pa, picks, drops, draft_days=None):
+    """trades (both sides' players on the trade's own board, `board_day`: the trade day's unless a same-day event
+    could post-date it; FAAB + picks at their price that day) and cuts (same rule, by day), as row positions in R.
+    Before 2026-11-09 every row was the latest board strictly before the day: up to 7 days stale in the offseason."""
     dates = np.array(sorted(R.date.unique()), dtype="datetime64[ns]")
     key = {(s, d): i for i, (s, d) in enumerate(zip(R.sid.values, R.date.values.astype("datetime64[ns]")))}
+    dd = league_draft_days(pa) if draft_days is None else draft_days
+
+    def row(sid, day):
+        g = dates[dates <= np.datetime64(day)]
+        for x in g[::-1]:
+            if x < np.datetime64(day) - np.timedelta64(EVIDENCE_SLACK, "D"): break
+            i = key.get((sid, x))
+            if i is not None: return i
+        return None
     tr = []
     for k, sides in TR.items():
-        d = np.datetime64(pd.Timestamp(str(k)[:10])); g = dates[dates < d]
-        if not len(g) or len(sides) != 2: continue
+        if len(sides) != 2: continue
+        day = board_day(k, dd)
+        if not len(dates[dates <= np.datetime64(day)]): continue
         ok, S_ = True, []
         for tm, side in sides.items():
             if not side: ok = False
@@ -82,7 +126,7 @@ def evidence_rows(R, TR, pa, picks, drops):
                 elif kind == "pick":
                     v = picks.value(lab, pd.Timestamp(str(k)[:10])); ok &= not np.isnan(v); pk += np.nan_to_num(v)
                 elif kind == "player":
-                    i = key.get((str(pa.loc[x, "sid"]), g[-1]))
+                    i = row(str(pa.loc[x, "sid"]), day)
                     if i is None: ok = False
                     else: idx.append(i)
                 else: ok = False
@@ -90,11 +134,45 @@ def evidence_rows(R, TR, pa, picks, drops):
         if ok and (S_[0][1] or S_[1][1]): tr.append((pd.Timestamp(str(k)[:10]), S_))
     cut = []
     for r in drops.itertuples():
-        g = dates[dates < np.datetime64(r.date)]
-        if len(g):
-            i = key.get((r.sid, g[-1]))
-            if i is not None: cut.append(i)
+        i = row(r.sid, board_day(pd.Timestamp(r.date).strftime("%Y-%m-%d"), dd))
+        if i is not None: cut.append(i)
     return tr, np.array(cut, dtype=int)
+
+
+def evidence_dates(TR, pa):
+    """the boards the evidence is read on that the grid does not have (offseason days other than Tuesdays): each
+    trade's board day (see board_day), added to the grid for every player so a trade is valued on its own day"""
+    dd = league_draft_days(pa)
+    return sorted({board_day(k, dd) for k, s in TR.items() if len(s) == 2})
+
+
+MODEL_COLS = ("L", "S")
+
+
+def refresh_block(b, F_all, R0, R1):
+    """a cached snapshot block brought up to the current features: its models never change (fit on data before R0),
+    but the stats a rule reads (e_x_*) are re-read from today's feature frame, and grid rows the block lacks (a new
+    evidence date) are added with the model's output carried from the player's latest earlier row in the block.
+    Returns (block, rows added). Before 2026-11-09 a cached block kept the e_x_* columns of the run that fit it, so a
+    column added since was empty on every cached row (14 game-log columns in the 2026-11-08 rebuild)."""
+    F = F_all[(F_all.date >= R0) & (F_all.date < R1)].copy(); F["date"] = F.date.astype("datetime64[ns]")
+    b = b.copy(); b["date"] = b.date.astype("datetime64[ns]")
+    ex = [c for c in F.columns if c.startswith("e_x_")]
+    keys = F[["sid", "date"] + ex].drop_duplicates(["sid", "date"])
+    have = pd.MultiIndex.from_frame(b[["sid", "date"]]); new = keys[~pd.MultiIndex.from_frame(keys[["sid", "date"]]).isin(have)]
+    m = b[["sid", "date"]].merge(keys.assign(_in=True), on=["sid", "date"], how="left")
+    hit = m._in.fillna(False).values.astype(bool)
+    for c in ex:                 # today's stats where the frame has the row; a row it lacks keeps what it had
+        old = b[c].values if c in b else np.full(len(b), np.nan)
+        b[c] = np.where(hit, m[c].values, old)
+    if not len(new): return b, 0
+    model = [c for c in b.columns if c not in F.columns or c in MODEL_COLS]
+    src = b[["sid", "date"] + [c for c in model if c not in ("sid", "date")]].sort_values("date")
+    n = F.merge(new[["sid", "date"]], on=["sid", "date"]).drop_duplicates(["sid", "date"])
+    n = pd.merge_asof(n.drop(columns=[c for c in model if c in n.columns and c not in ("sid", "date")]).sort_values("date"),
+                      src.rename(columns={"date": "_from"}).assign(date=lambda x: x._from).sort_values("date"),
+                      on="date", by="sid", direction="backward").dropna(subset=["_from"]).drop(columns="_from")
+    return pd.concat([b, n.reindex(columns=b.columns)], ignore_index=True), len(n)
 
 
 def rule_columns():
@@ -218,7 +296,8 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     o0 = X.add_x(I.league_frame(pa)); LR = B.league_rows(o0, pa)
     E = I.evidence(LR)
     Fd = X.add_x(I.ktc_panel())
-    F_all = X.add_x(I.grid_frame(pa, E, end=end))
+    ED = evidence_dates(TR, pa)
+    F_all = X.add_x(I.grid_frame(pa, E, end=end, dates=ED))
     log(f"frames: league {len(o0)}, KTC panel {len(Fd)}, grid {len(F_all)} ({time.time() - t0:.0f}s)")
     FC = list(dict.fromkeys([c for c in B.feats(Fd) if not c.startswith("e_x_")] + B.PVF + [c for c in Fd.columns if c.startswith("e_x_")]))
     seasons = B.load_seasons(last)
@@ -234,12 +313,24 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
         if done:
             b = pd.read_parquet(p)
             if int(b["bags"].iloc[0] if "bags" in b else 1) == B.BAGS:   # refit if cached under another bag count
+                b, k = refresh_block(b, F_all, R0, R1)
+                if k: log(f"snapshot {R0.date()}: cached block, {k} new evidence-date rows carried from earlier rows")
                 blocks.append(b); continue
         fb = B.Football(seasons).fit(B.season_done(R0))
         b = B.bagged_block(FC, fb, R0, R1, F_all, LR, Fd, log=log)
         b.to_parquet(p); blocks.append(b)
     Bk = pd.concat(blocks, ignore_index=True)
-    tl = B.smooth_route(Bk[["sid", "date", "L"]].copy(), LR[["sid", "date", "y"]])
+    # rows that exist only for an evidence date's full board are smoothed after the others, so adding them changes no
+    # other row's value (each is smoothed with the rows before it)
+    old = set(zip(E.sid.astype(str), pd.to_datetime(E.date).values.astype("datetime64[ns]")))
+    gd = set(I.grid_dates(end=end).values.astype("datetime64[ns]"))
+    bd = Bk.date.values.astype("datetime64[ns]")
+    xtra = np.array([(d not in gd) and ((s_, d) not in old) for s_, d in zip(Bk.sid.astype(str).values, bd)], dtype=bool)
+    tl = B.smooth_route(Bk.loc[~xtra, ["sid", "date", "L"]].copy(), LR[["sid", "date", "y"]])
+    if xtra.any():
+        t2 = B.smooth_route(Bk[["sid", "date", "L"]].copy(), LR[["sid", "date", "y"]])
+        k2 = set(zip(Bk.sid.astype(str).values[xtra], bd[xtra]))
+        tl = pd.concat([tl, t2[[(a, d) in k2 for a, d in zip(t2.sid.astype(str).values, t2.date.values.astype("datetime64[ns]"))]]], ignore_index=True)
     TL = Bk.merge(tl[["sid", "date", "Ls", "Lf", "a_y", "a_date"]], on=["sid", "date"], how="left")
     log(f"base: {len(TL)} rows ({time.time() - t0:.0f}s)")
     PW = pd.read_csv(ROOT / "exports" / "player_week.csv", usecols=["Player", "Year", "Week", "Injury?"], low_memory=False)
