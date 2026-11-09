@@ -677,6 +677,7 @@ jobs:
             exports/LOTG_Exports.zip
             exports/*.csv
             exports/raw/*
+            exports/raw/faab_derived/*
 
       - name: Upload the SQL query database
         # Its own artifact: upload-artifact roots a multi-path upload at the

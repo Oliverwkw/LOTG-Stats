@@ -320,7 +320,18 @@ draft day). `lotg_support.faab_history.FaabIndex` reads them for the build: ever
 "FAAB Value" twin beside it (53 on add_drops, trades, both pick sheets and player_additions), same dates, same
 depth tax, FAAB moved at $1 = $1, a pick at its FAAB pick price until its draft and then the drafted player.
 Blank before 2021. A merged refit re-values the history with `scripts/faab_rebuild.py --history-only` (the
-workflow runs it on a push that changes `params.json`; a manual dispatch can too).
+workflow runs it on a push that changes `params.json`; a manual dispatch can too). A draftee's first value lands on
+the grid date after the league draft, so the draft-day columns take it (`FaabIndex.player_entering`).
+
+**FAAB versions of the KTC-derived columns, off the build** (2026-11-09, Oliver: keep them out of the sheets): the
+build writes `exports/raw/faab_derived/` (artifact only, `.gitignore`): O-Score on trades / add_drops / picks (pure
+drops, both pick pools, the non-rookie de-trend), Trade impact score, the three manager skills, Wins added with the
+lineage shares in FAAB values, Price paid (every traded asset at its FAAB value; a rookie pick at the FAAB slot
+price) and Points above expectation refit on those prices. Each file holds the KTC column, its `(FAAB values)`
+version and every component the scores read. `scripts/faab_derived.py check` recomputes all of them from those
+components (0 differing rows = the offline recompute is exact); `compare` sets each column against its FAAB
+version. `lotg_support.faab_derived.Search` recomputes the FAAB versions under one global transform of every FAAB
+value (v -> a * v ** b) for the transform search; Wins added keeps its identity lineage there.
 
 **Committed data the pipeline reads:**
 
