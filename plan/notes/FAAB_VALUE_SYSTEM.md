@@ -334,7 +334,12 @@ price) and Points above expectation refit on those prices. Each file holds the K
 version and every component the scores read. `scripts/faab_derived.py check` recomputes all of them from those
 components (0 differing rows = the offline recompute is exact); `compare` sets each column against its FAAB
 version. `lotg_support.faab_derived.Search` recomputes the FAAB versions under one global transform of every FAAB
-value (v -> a * v ** b) for the transform search; Wins added keeps its identity lineage there.
+value (v -> a * v ** b) for the transform search; Wins added keeps its identity lineage there. `scripts/faab_derived.py search --dir <artifact>/raw/faab_derived
+--today <build date>` runs it (the side output's `_fd_pk_recv` / `_fd_pk_sent` give each pick's label and drafted
+player, so a no-transform run reproduces the build exactly). Finding (2026-11-09, report only, nothing adopted): a power
+of about 0.25 (v -> 50 * (v / 50) ** 0.25) brings trades, picks and the per-season drafting / trading skills 27-43%
+closer to today's KTC columns, leaves add/drop unchanged, and moves Price paid / Points above expectation further away
+(they sit beside waiver bids in real dollars). log KTC on log FAAB over player-days has slope 0.27-0.29.
 
 **Committed data the pipeline reads:**
 
