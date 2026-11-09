@@ -9,6 +9,12 @@
 
 **3-part audit (MANDATORY after every PR):**
 
+> **Exemption — FAAB formula changes (Oliver, 2026-11-09):** tweaks to the FAAB value formula
+> (`lotg_support.faab_value` rules / params and the values they produce) are build changes and still go in a
+> PR, but they skip this 3-part audit. They follow the FAAB workflow in `plan/notes/FAAB_VALUE_SYSTEM.md`
+> (try-rule and the noise bar, a reason for every rule, Oliver's OK before a refit). Other build code that
+> uses FAAB values (e.g. the FAAB Value twins in `src/lotg.py`) is not exempt.
+
 > **Build source (MANDATORY — do NOT get this wrong):** the audit ALWAYS uses the
 > real **GitHub Actions build artifacts** — the `LOTG_outputs` artifact from the
 > post-merge build run vs. the artifact from the specified baseline run (e.g.

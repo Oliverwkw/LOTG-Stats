@@ -234,6 +234,9 @@ call unchanged).
 
 ## The noise bar, and every rule needs a reason
 
+FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
+`plan/MASTER_TODO.md` (Oliver, 2026-11-09). This section is their check instead: keep editing the formula this way.
+
 `python scripts/faab_value.py try-rule "name=value ..."` (`lotg_support.faab_trials`) scores a change against the
 current params in about 3 seconds: the objective's parts, the calls lost and gained, trade error in each half of the
 trades (split at the median date), trades better / worse, far-off trades, 5 folds and a paired bootstrap.
