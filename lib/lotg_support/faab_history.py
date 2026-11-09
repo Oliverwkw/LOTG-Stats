@@ -13,6 +13,8 @@ prices, and reads them back for the build:
   player(sid, d)   the value on the last grid date on or before d (at most MAX_GAP days back; past the history's
                    last date it carries the last value up to CARRY days). 0 when the player was valued before and
                    is no longer on the board that day; None when he has no value yet (or d is before the history).
+  player_entering(sid, d)  the same, but a player with no value yet takes his first one within MAX_GAP days
+                   (the draft-day columns: a draftee joins the board on the next grid date)
   pick(label, d)   the FAAB system's own pick price (faab_inputs.Picks.value), from the exported slot table.
                    None after the pick's draft (the caller values the drafted player instead) or before any draft.
 
@@ -144,6 +146,24 @@ class FaabIndex:
         if i < 0:
             return None                 # not valued yet (e.g. before his NFL draft)
         return float(vs[i]) if ds[i] == g else 0.0      # valued before, not on the board that day
+
+    def player_entering(self, sid, d) -> Optional[float]:
+        """player(sid, d), or, when he has no value yet on d, his first value within MAX_GAP days after it.
+        For the day a player ENTERS the league (a rookie on his draft day): the board values rostered players
+        only, so a draftee's first value lands on the next grid date (1-3 days after the draft in 2021-26)."""
+        v = self.player(sid, d)
+        if v is not None or sid is None:
+            return v
+        s = str(sid).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        if s not in self._p:
+            return None
+        ds, vs = self._p[s]
+        t = np.datetime64(_d(d), "D")
+        if ds[0] >= t and (ds[0] - t).astype(int) <= MAX_GAP:     # never valued before d: his first value
+            return float(vs[0])
+        return None
 
     def slot_values(self, d) -> Dict[str, float]:
         t = _d(d); out: Dict[str, float] = {}

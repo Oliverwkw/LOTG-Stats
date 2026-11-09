@@ -42,6 +42,11 @@ def test_player_lookup_rules():
     assert f.player("2", "2025-10-01") is None                       # past the carry window
     assert f.player("99", "2025-09-02") is None                      # never valued
     assert f.player("1.0", "2025-06-03") == 1000.0                   # float-ish ids from a CSV
+    # a draftee joins the board on the next grid date: the draft-day columns take that first value
+    assert f.player_entering("2", "2025-06-05") == 300.0             # first value 5 days later
+    assert f.player_entering("2", "2025-05-30") is None              # more than MAX_GAP days before it
+    assert f.player_entering("1", "2025-07-15") is None              # valued before: a gap stays a gap
+    assert f.player_entering("1", "2025-09-03") == 0.0               # valued before, off the board: as player()
 
 
 def test_pick_price_rules():
@@ -129,6 +134,22 @@ def test_committed_pick_table_matches_faab_inputs():
             assert abs(a - b) < 1e-6, (lab, d, a, b)
             n += 1
     assert n >= 25, n
+
+
+def test_rookies_have_a_draft_day_faab_value():
+    """a draftee joins the FAAB board 1-3 days after the league draft; the draft-day twin takes that first value"""
+    p = _ROOT / "exports" / "rookie_picks.csv"
+    if not p.exists() or not FH.HISTORY.exists():
+        print("skip: no exports / history")
+        return
+    rp = pd.read_csv(p)
+    if "FAAB Value on draft day" not in rp.columns:
+        print("skip: exports predate the FAAB Value twins")
+        return
+    y = pd.to_numeric(rp.Year, errors="coerce")
+    done = rp[(y >= 2021) & (y <= 2025) & rp["Player Picked ID"].notna()]
+    filled = pd.to_numeric(done["FAAB Value on draft day"], errors="coerce").notna().mean()
+    assert filled >= 0.9, filled
 
 
 def test_committed_history_matches_the_inputs():

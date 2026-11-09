@@ -13000,10 +13000,12 @@ def build_all(repo_root: Path) -> None:
                             return _d.replace(year=_d.year + _n, day=28)
 
                     _targets = [_anchor, date(_yr + 1, 2, 1)] + [_fv_plus(_anchor, _n) for _n in (1, 2, 3, 4)]
-                    for _col, _tgt in zip(_pick_faab_cols, _targets):
+                    for _ci, (_col, _tgt) in enumerate(zip(_pick_faab_cols, _targets)):
                         if _tgt > _fv_today:
                             continue
-                        _v = _fidx.player(str(_sid), _tgt)
+                        # draft day: a draftee joins the FAAB board on the next grid date
+                        _v = (_fidx.player_entering(str(_sid), _tgt) if _ci == 0
+                              else _fidx.player(str(_sid), _tgt))
                         if _v is not None:
                             ph.at[_i, _col] = round(_v, 1)
         except Exception as e:
@@ -23182,6 +23184,10 @@ def build_all(repo_root: Path) -> None:
                 _v = _fidx.player(pid, _on)
                 return None if _v is None else round(float(_v), 1)
             fv_pick = _pa_fv(pickup_dt)
+            if fv_pick is None and atype == "Draft" and _fidx is not None and pid and pickup_dt and pickup_dt <= _pa_today:
+                # a draftee joins the FAAB board on the next grid date after the draft
+                _v0 = _fidx.player_entering(pid, pickup_dt)
+                fv_pick = None if _v0 is None else round(float(_v0), 1)
             fv_end = _pa_fv(_date_pa(season + 1, 2, 1)) if (pickup_dt and season) else None
             fv_n = [_pa_fv(_pa_plus_years(pickup_dt, _n)) if pickup_dt else None for _n in (1, 2, 3, 4)]
 
