@@ -7,7 +7,7 @@ execnet==2.1.2
 idna==3.20
 immutabledict==4.3.1
 iniconfig==2.3.1
--e git+https://github.com/Oliverwkw/LOTG-Stats@73ac1e1453fc476ca23f88c628c50e8b8c36db7e#egg=lotg
+-e git+https://github.com/Oliverwkw/LOTG-Stats@5a2464c278fb9f06556a41244b8182b95aacc158#egg=lotg
 lxml==6.1.3
 numpy==2.4.6
 openpyxl==3.1.5
