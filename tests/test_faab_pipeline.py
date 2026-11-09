@@ -317,6 +317,71 @@ def test_since_injury_counts_games_after_the_last_week_out():
     assert np.isnan(ppg[3]) and np.isnan(gp[3])            # no absence on record
 
 
+def _gl(rows):
+    ko = pd.Timestamp("2025-09-04")
+    d = pd.DataFrame(rows, columns=["gsis", "season", "week", "team", "gl_tgt", "ppr", "off_pct", "rush_car", "rec", "pass_yds"])
+    d["known"] = ko + pd.to_timedelta(7 * (d.week - 1) + 5, unit="D") + pd.to_timedelta(365 * (d.season - 2025), unit="D")
+    return d
+
+
+def test_target_lead_fades_over_17_games_after_the_lead_is_lost():
+    # a leads team T in targets weeks 1-5 (4+ games in), b takes over from week 6
+    gl = _gl([("a", 2025, w, "T", 9 if w <= 5 else 1, 10, 0.8, 0, 5, 0) for w in range(1, 11)] +
+             [("b", 2025, w, "T", 2 if w <= 5 else 12, 8, 0.8, 0, 5, 0) for w in range(1, 11)] +
+             [("c", 2025, w, "T", 3, 5, 0.5, 0, 2, 0) for w in range(1, 11)])
+    when = lambda w: gl.known[gl.week == w].iloc[0]
+    rows = pd.DataFrame(dict(gsis=["a", "a", "a", "c"], date=[when(5), when(10), when(3), when(10)]))
+    w, sh = X.target_lead(rows, gl)
+    assert w[0] == 1.0 and abs(w[1] - (1 - 2 / 17)) < 1e-9        # season-to-date: he still leads through week 8 (48 v 46)
+    assert w[2] == 0.0                                              # week 3: not 4 games into the season yet
+    assert w[3] == 0.0 and np.isnan(sh[3])                          # never led
+
+
+def test_recent_max_touch_games_big_games():
+    gl = _gl([("a", 2025, 1, "T", 5, 33.8, 0.84, 1, 6, 0), ("a", 2025, 2, "T", 5, 14.6, 0.76, 2, 5, 0), ("a", 2025, 3, "T", 4, 3.8, 0.36, 0, 2, 0),
+              ("a", 2025, 6, "T", 9, 15.7, 0.75, 18, 4, 0), ("a", 2025, 7, "T", 4, 1.9, 0.66, 20, 3, 0)])
+    when = lambda w: gl.known[gl.week == w].iloc[0]
+    rows = pd.DataFrame(dict(gsis=["a", "a"], date=[when(6), when(7)]))
+    m = X.recent_max(rows, gl)
+    assert m[0] == 33.8 and m[1] == 15.7                            # the 36%-snap week 3 is not a healthy game
+    assert list(X.touch_games(rows, gl)) == [1, 2]                  # 22 and 23 touches: over 20
+    assert list(X.big_games(rows, gl)) == [3, 4]                    # games on half the snaps
+
+
+def test_te_slide_qb_streak_draft_price_and_pass_ypg():
+    pos_of = {f"t{i}": "TE" for i in range(30)} | {"q": "QB", "q2": "QB"}
+    r = []
+    for s in (2023, 2024, 2025):
+        for i in range(30):
+            pts = 30 - i
+            if i == 0: pts = {2023: 40, 2024: 22, 2025: 5}[s]   # t0: TE1, then 9th, then outside the top 20
+            r += [(f"t{i}", s, w, "T", 5, pts, 0.8, 0, 4, 0) for w in range(1, 7)]
+    for s, n, pts in [(2023, 17, 25), (2024, 5, 20), (2025, 17, 26)]:   # q: top, hurt (5 games), top
+        r += [("q", s, w, "Q", 0, pts, 1.0, 3, 0, 250) for w in range(1, n + 1)]
+    for s in (2023, 2024, 2025): r += [("q2", s, w, "Q", 0, 30, 1.0, 3, 0, 300) for w in range(1, 18)]   # top every year
+    gl = _gl(r)
+    d = pd.Timestamp("2026-07-01"); rows = pd.DataFrame(dict(gsis=["t0", "t5", "q", "q2"], date=[d] * 4, pos=["TE", "TE", "QB", "QB"], sid=["1", "2", "3", "4"]))
+    sl, rec, was = X.te_slide(rows, gl, pos_of, [2025] * 4)
+    assert sl[0] == 2 and was[0] == 1 and sl[1] == 0                # t0: 9th then 30th, after a TE1 year; t5 is 6th
+    st = X.qb_hurt_or_top(rows, gl, pos_of, [2025] * 4)
+    assert st[2] == 3 and st[3] == 0                                # hurt-or-top for 3 years; top every year is not the rule
+    adds = pd.DataFrame(dict(sid=["3", "3"], date=pd.to_datetime(["2023-05-01", "2025-05-01"]), type=["Draft", "Trade"], price=[1234.7, 500]))
+    assert X.league_draft_price(rows, adds)[2] == 1234.7 and np.isnan(X.league_draft_price(rows, adds)[0])
+    cur_s, ins, l0 = X.season_keys(rows.date)
+    assert X.pass_ypg(rows, gl, cur_s, l0, ins)[2] == 250 and np.isnan(X.pass_ypg(rows, gl, cur_s, l0, ins)[0])
+
+
+def test_qb_base_is_the_teams_best_qb_that_day():
+    d = pd.Timestamp("2025-10-01")
+    R = pd.DataFrame(dict(sid=["1", "2", "3", "4", "5"], gsis=["w", "q1", "q2", "t", "x"], date=[d] * 5, pos=["WR", "QB", "QB", "TE", "WR"],
+                          V_raw=[300.0, 629.0, 200.0, 500.0, 100.0]))
+    rw = pd.DataFrame(dict(gsis=["w", "q1", "q2", "t", "x"], season=2025, week=1, team=["LAC", "LAC", "LAC", "GB", None]))
+    old = getattr(X, "RW", None); X.RW = rw
+    try: q = P.qb_base(R, np.arange(5))
+    finally: X.RW = old
+    assert q[0] == 629.0 and np.isnan(q[1]) and np.isnan(q[3]) and np.isnan(q[4])   # GB has no QB here; x has no team
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
         print(f"{fn.__name__}:")

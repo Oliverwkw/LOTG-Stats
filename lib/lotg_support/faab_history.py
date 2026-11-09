@@ -53,6 +53,7 @@ def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict) -> pd.DataF
     need = [c for c in P.rule_columns() if c in R]
     E = R[need].copy()
     E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
+    E["e_x_qb_base"] = P.qb_base(R, idx)
     if pa is not None and "gsis" in R:
         E = P.backup_columns(E, R.gsis.values, pa)
     E["date"] = pd.to_datetime(E.date)

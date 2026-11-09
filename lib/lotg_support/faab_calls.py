@@ -16,10 +16,13 @@ import numpy as np
 
 CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
 CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26")   # first review, second review, league chat consensus
-LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Derrick Henry", "Denzel Boston", "Ladd McConkey",
-             "A.J. Brown", "Bo Nix", "Bucky Irving", "TreVeyon Henderson", "Jalen Coker", "Luther Burden", "Emeka Egbuka",
+# Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
+# in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
+LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Derrick Henry", "Denzel Boston",
+             "A.J. Brown", "Bo Nix", "Bucky Irving", "Luther Burden", "Emeka Egbuka",
              "Parker Washington", "Bryce Young"]
 UNDER_FIRST = ["George Kittle", "Matthew Stafford", "Baker Mayfield", "Jadarian Price"]   # Etienne: left to the system (2026-10-25)
+REVIEW_AT = {"Tucker Kraft": 800}      # Oliver 2026-11-09: Kraft's reviewed $918 was a bit high; his call centres on $800
 MID_TE = ["Sam LaPorta", "Colston Loveland", "Isaiah Likely", "George Kittle", "Tyler Warren", "Kenyon Sadiq", "Tucker Kraft", "Harold Fannin"]
 TOP3 = ["Josh Allen", "Jahmyr Gibbs", "Bijan Robinson"]
 # Tolerances (round 4, Oliver 2026-11-09): with 3% random noise on every board value about 8 passing calls flip, so a
@@ -70,6 +73,8 @@ def calls(v, ref=None, qbs=()):
           ("KC about $1,000", rng("KC Concepcion", 850, 1250)),
           ("Lemon below the 1.05", rng("Makai Lemon", 600, 1250)), ("Mixon (no team) cheap", rng("Joe Mixon", 1, 120))]
     t += [(f"{n} a low first", rng(n, 750, 1200)) for n in LOW_FIRST]
+    t += [("Ladd McConkey a low first / top-2 second ($453-1,200)", rng("Ladd McConkey", 453, 1200)),
+          ("Jalen Coker at least a mid second (>= $222)", rng("Jalen Coker", 222, 99999))]
     t += [(f"{n} just under a first", rng(n, 600, 1050)) for n in UNDER_FIRST]
     t += [("McBride below ARSB", gt("Amon-Ra St. Brown", "Trey McBride")), ("Bowers below Jefferson", gt("Justin Jefferson", "Brock Bowers")),
           ("McBride <= $2,700", rng("Trey McBride", 1, 2700)), ("Bowers <= $2,700", rng("Brock Bowers", 1, 2700)),
@@ -95,7 +100,7 @@ def calls(v, ref=None, qbs=()):
           ("Rice down (<= $1,250)", rng("Rashee Rice", 1, 1250)), ("Nico > Rice", gt("Nico Collins", "Rashee Rice")), ("Zay > Rice", gt("Zay Flowers", "Rashee Rice")),
           ("Mahomes > Goff", gt("Patrick Mahomes", "Jared Goff")), ("Mahomes near Lamar (>= 90%)", h(np.log(0.9 * g("Lamar Jackson")) - np.log(g("Patrick Mahomes")), RANGE_TOL)),
           ("Hurts < Mahomes", gt("Patrick Mahomes", "Jalen Hurts")), ("Hurts < Maye", gt("Drake Maye", "Jalen Hurts")), ("Hurts < Caleb", gt("Caleb Williams", "Jalen Hurts")),
-          ("Coker like a breakout (>= $700)", rng("Jalen Coker", 700, 99999)), ("Parker Washington like a breakout (>= $700)", rng("Parker Washington", 700, 99999))]
+          ("Parker Washington like a breakout (>= $700)", rng("Parker Washington", 700, 99999))]
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
     # Hampton at least Bucky, Henderson at least a high second
     B = on(CALL_DATES[2])
@@ -104,14 +109,16 @@ def calls(v, ref=None, qbs=()):
     B = on(CALL_DATES[0])
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"
-            if n in ref.index: t += [(f"{n} stays near the reviewed ${ref[n]:,.0f}", rng(n, 0.75 * ref[n], 1.3 * ref[n]))]
+            r = REVIEW_AT.get(n, ref[n] if n in ref.index else None)
+            if r is not None: t += [(f"{n} stays near the reviewed ${r:,.0f}", rng(n, 0.75 * r, 1.3 * r))]
     return [(n, min(x, CALL_CAP)) for n, x in t]
 
+BUBBLE = (93, 222)   # Oliver 2026-11-09: the bubble is a mid-late second to an early third (2.05 $222 .. 3.03 $93), was $50-300
 def vet_bubble(v, exp):
-    """'very few guys between $50 and $300 who are not in their first 1-3 years' (replacement level)"""
+    """'very few guys between a mid-late second and an early third who are not in their first 1-3 years' (replacement level)"""
     e = exp.reindex(v.index); vets = v[e >= 3]
-    frac = float(vets.between(50, 300).mean()) if len(vets) else 0.0
-    return ("few veterans valued $50-300 (replacement level)", max(0.0, frac - 0.03) * 10)
+    frac = float(vets.between(*BUBBLE).mean()) if len(vets) else 0.0
+    return (f"few veterans valued ${BUBBLE[0]}-{BUBBLE[1]} (replacement level)", max(0.0, frac - 0.03) * 10)
 def score(v, ref=None, qbs=(), others_w=0.15, exp=None):
     """sum of call losses + a light pull of everyone else toward the reviewed board ('a lot of the rest looks alright')"""
     t = calls(v, ref, qbs)

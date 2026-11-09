@@ -124,15 +124,15 @@ def build_week(X, FC, OUT, years):
     # big weeks (20+ PPR; 25+ for QBs) from the weekly stat files
     bw = []
     for y in YEARS:
-        try: w = pd.read_csv(f"{FC}/wk_{y}.csv", low_memory=False, usecols=["player_id", "position", "season", "week", "season_type", "fantasy_points_ppr", "attempts", "sacks_suffered", "passing_epa", "rushing_epa", "receiving_epa", "passing_tds", "rushing_tds", "receiving_tds", "carries", "rushing_yards", "targets"])
+        try: w = pd.read_csv(f"{FC}/wk_{y}.csv", low_memory=False, usecols=["player_id", "position", "season", "week", "season_type", "fantasy_points_ppr", "attempts", "sacks_suffered", "passing_epa", "rushing_epa", "receiving_epa", "passing_tds", "rushing_tds", "receiving_tds", "carries", "rushing_yards", "targets", "receptions", "passing_yards"])
         except FileNotFoundError: continue
         w = w[w.season_type == "REG"]
         thr = np.where(w.position == "QB", 25.0, 20.0)
         bw.append(w.assign(gsis=w.player_id, big=(w.fantasy_points_ppr >= thr).astype(float), good=(w.fantasy_points_ppr >= thr * 0.75).astype(float),
                            dropbacks=w.attempts.fillna(0) + w.sacks_suffered.fillna(0), pass_epa=w.passing_epa, skill_epa=w.rushing_epa.fillna(0) + w.receiving_epa.fillna(0),
                            ppr=w.fantasy_points_ppr, ppr2=w.fantasy_points_ppr ** 2, td_pts=6 * (w.rushing_tds.fillna(0) + w.receiving_tds.fillna(0)) + 4 * w.passing_tds.fillna(0),
-                           rush_car=w.carries, rush_yds=w.rushing_yards, gl_tgt=w.targets)
-                  [["gsis", "season", "week", "big", "good", "dropbacks", "pass_epa", "skill_epa", "ppr", "ppr2", "td_pts", "rush_car", "rush_yds", "gl_tgt"]])
+                           rush_car=w.carries, rush_yds=w.rushing_yards, gl_tgt=w.targets, rec=w.receptions, pass_yds=w.passing_yards)
+                  [["gsis", "season", "week", "big", "good", "dropbacks", "pass_epa", "skill_epa", "ppr", "ppr2", "td_pts", "rush_car", "rush_yds", "gl_tgt", "rec", "pass_yds"]])
     W = key(W).merge(key(pd.concat(bw)), on=["gsis", "season", "week"], how="left")
     W["played"] = (W.off.fillna(0) + W.dfn.fillna(0) > 0) | W.xfp.notna()
     W["inj_out"] = W.report_status.isin(["Out", "Doubtful"]) | W.status.isin(["RES", "PUP"])
@@ -178,7 +178,7 @@ def build_week(X, FC, OUT, years):
     K["comp_age"] = (K.known - K.comp_gsis.map(bd)).dt.days / 365.25
     C = C.merge(K[["gsis", "season", "week", "comp_share", "comp_age"]], on=["gsis", "season", "week"], how="left")
     C.to_parquet(f"{OUT}/xf_week.parquet"); bp.reset_index().to_parquet(f"{OUT}/xf_bodyparts.parquet")
-    gl_cols = [c for c in ["gsis", "season", "week", "known", "ppr", "off_pct", "rush_car", "rush_yds", "gl_tgt"] if c in W]
+    gl_cols = [c for c in ["gsis", "season", "week", "known", "team", "ppr", "off_pct", "rush_car", "rush_yds", "gl_tgt", "rec", "pass_yds"] if c in W]
     W.loc[W.played.astype(bool), gl_cols].to_parquet(f"{OUT}/xf_gamelog.parquet")      # one row per game played (game_form)
     W.loc[W.inj_out.fillna(False).astype(bool), ["gsis", "season", "week", "known"]].to_parquet(f"{OUT}/xf_injweeks.parquet")   # weeks out / on IR (since_injury)
     print("weekly", C.shape, "players", C.gsis.nunique())
@@ -779,6 +779,214 @@ def since_injury(gl, iw, gsis, date_v):
             gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
         ppg[i], gp[i] = ppg_, gp_
     return ppg, gp
+
+
+def _known_games(gl, gsis):
+    """{gsis: that player's game-log rows sorted by when each game is known}"""
+    g = gl.assign(gsis=gl.gsis.astype(str)).sort_values(["known", "season", "week"])
+    return {a: v for a, v in g.groupby("gsis") if a in set(gsis)}
+
+
+def target_lead(rows, gl, min_games=4, share=0.18, horizon=17):
+    """(weight, share) of the player's last week leading his team in season-to-date targets (at least `min_games` team
+    games into a season, with `share`+ of the team's targets), known by the row's date: weight = 1 at that week, fading to
+    0 over his next `horizon` games played (Oliver 2026-11-09: a target leader keeps a boost "extended over a large part of
+    the following 17 games after the targets lead is lost"); NaN share / 0 weight when he never led. `gl`: games played
+    with gsis, season, week, known, team, gl_tgt."""
+    N = len(rows); w, sh = np.zeros(N), np.full(N, np.nan)
+    if gl is None or "team" not in gl or not len(gl): return w, sh
+    g = gl.dropna(subset=["team"]).assign(gsis=lambda x: x.gsis.astype(str), gl_tgt=lambda x: x.gl_tgt.fillna(0).astype(float))
+    g = g.sort_values(["season", "week"])
+    g["cum"] = g.groupby(["season", "team", "gsis"]).gl_tgt.cumsum()
+    lead = []
+    for (s, t), d in g.groupby(["season", "team"]):
+        wk = np.sort(d.week.unique())
+        piv = d.pivot_table(index="week", columns="gsis", values="gl_tgt", aggfunc="sum").reindex(wk).fillna(0).cumsum()
+        tot = piv.sum(axis=1).values; ng = np.arange(1, len(wk) + 1)
+        best = piv.values.max(axis=1); arg = piv.values.argmax(axis=1)
+        second = np.sort(piv.values, axis=1)[:, -2] if piv.shape[1] > 1 else np.zeros(len(wk))
+        for k in range(len(wk)):
+            if ng[k] >= min_games and tot[k] > 0 and best[k] / tot[k] >= share and best[k] > second[k]:
+                lead.append((piv.columns[arg[k]], s, wk[k], best[k] / tot[k]))
+    if not lead: return w, sh
+    L = pd.DataFrame(lead, columns=["gsis", "season", "week", "share"])
+    kn = g.drop_duplicates(["gsis", "season", "week"]).set_index(["gsis", "season", "week"]).known
+    L["known"] = kn.reindex(pd.MultiIndex.from_frame(L[["gsis", "season", "week"]])).values
+    L = L.dropna(subset=["known"]).sort_values("known")
+    LG = {a: v for a, v in L.groupby("gsis")}; GG = _known_games(g, set(L.gsis))
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    for i in range(N):
+        l = LG.get(gs[i])
+        if l is None: continue
+        j = int(np.searchsorted(l.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        if j == 0: continue
+        r = l.iloc[j - 1]; u = GG[gs[i]]
+        kk = u.known.values.astype("datetime64[ns]") <= dv[i]
+        after = ((u.season.values > r.season) | ((u.season.values == r.season) & (u.week.values > r.week))) & kk
+        w[i] = max(0.0, 1.0 - after.sum() / horizon); sh[i] = r.share
+    return w, sh
+
+
+def recent_max(rows, gl, n=3, min_off=0.5):
+    """the best PPR game in the player's last `n` healthy games known by the date (a game on at least `min_off` of the
+    offensive snaps; Oliver 2026-11-09: "within the last 3 healthy games ... had a game over 30")"""
+    N = len(rows); out = np.full(N, np.nan)
+    if gl is None or not len(gl): return out
+    g = gl[gl.off_pct.fillna(0) >= min_off] if "off_pct" in gl else gl
+    GG = _known_games(g.dropna(subset=["ppr"]), set(np.asarray(rows.gsis).astype(str)))
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    for i in range(N):
+        u = GG.get(gs[i])
+        if u is None: continue
+        k = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        if k: out[i] = float(u.ppr.values[max(0, k - n):k].max())
+    return out
+
+
+def touch_games(rows, gl, thr=20):
+    """career games with more than `thr` touches (carries + receptions) known by the date (Oliver 2026-11-09: an RB with
+    few such games has not carried a workhorse load yet)"""
+    N = len(rows); out = np.zeros(N)
+    if gl is None or not len(gl) or "rec" not in gl: return out
+    g = gl.assign(t=gl.rush_car.fillna(0) + gl.rec.fillna(0))
+    g = g[g.t > thr]
+    GG = _known_games(g, set(np.asarray(rows.gsis).astype(str)))
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    for i in range(N):
+        u = GG.get(gs[i])
+        if u is not None: out[i] = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+    return out
+
+
+def season_ranks(gl, pos_of, pos):
+    """{(gsis, season): rank} by total PPR among `pos` players in each complete regular season"""
+    g = gl.assign(gsis=gl.gsis.astype(str)); g = g[g.gsis.map(pos_of) == pos]
+    t = g.groupby(["season", "gsis"]).ppr.sum().reset_index()
+    t["rk"] = t.groupby("season").ppr.rank(ascending=False, method="min")
+    return t.set_index(["gsis", "season"]).rk
+
+
+def te_slide(rows, gl, pos_of, l0_s, top=7, deep=20, recent=4, top_wk=5, recover=3):
+    """(slide, recovered, was_top) for TEs: slide = 1 when his last two complete seasons both finished outside the top `top` TEs
+    by total PPR, 2 when the last one was also outside the top `deep` (Oliver 2026-11-09); recovered = 1 when at least
+    `recover` of his last `recent` games known by the date were top-`top_wk` TE weeks (his top-5 form back over several
+    weeks), which lifts the fade; was_top = 1 when a season before those two finished in the top `top`"""
+    N = len(rows); slide, rec, was = np.zeros(N), np.zeros(N), np.zeros(N)
+    if gl is None or not len(gl): return slide, rec, was
+    rk = season_ranks(gl, pos_of, "TE")
+    gs = np.asarray(rows.gsis).astype(str); l0 = np.asarray(l0_s).astype(int)
+    r0 = rk.reindex(pd.MultiIndex.from_arrays([gs, l0])).values; r1 = rk.reindex(pd.MultiIndex.from_arrays([gs, l0 - 1])).values
+    out0 = np.nan_to_num(r0, nan=99) > top; out1 = np.nan_to_num(r1, nan=99) > top
+    played = ~np.isnan(r0) | ~np.isnan(r1)
+    slide = (out0 & out1 & played).astype(float) * (1 + (np.nan_to_num(r0, nan=99) > deep))
+    best = rk[rk <= top].reset_index()
+    for i in np.where(slide > 0)[0]:
+        was[i] = float(((best.gsis == gs[i]) & (best.season < l0[i] - 1)).any())
+    g = gl.assign(gsis=gl.gsis.astype(str)); g = g[g.gsis.map(pos_of) == "TE"].dropna(subset=["ppr"])
+    g["wk_rk"] = g.groupby(["season", "week"]).ppr.rank(ascending=False, method="min")
+    GG = _known_games(g, set(gs[slide > 0])); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    for i in np.where(slide > 0)[0]:
+        u = GG.get(gs[i])
+        if u is None: continue
+        k = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        if k >= recover: rec[i] = float((u.wk_rk.values[max(0, k - recent):k] <= top_wk).sum() >= recover)
+    return slide, rec, was
+
+
+def qb_hurt_or_top(rows, gl, pos_of, l0_s, top=5, min_g=6, hurt_g=12):
+    """consecutive complete seasons, back from the last one, in which a QB either finished top `top` in PPR per game
+    (at least `min_g` games) or was hurt (played fewer than `hurt_g` games but some), counted only while at least one
+    of them is a top finish and at least one a hurt season (Oliver 2026-11-09: Burrow, top 5 when healthy; a QB top 5
+    every year is priced by that already)"""
+    N = len(rows); out = np.zeros(N)
+    if gl is None or not len(gl): return out
+    g = gl.assign(gsis=gl.gsis.astype(str)); g = g[g.gsis.map(pos_of) == "QB"].dropna(subset=["ppr"])
+    t = g.groupby(["season", "gsis"]).ppr.agg(["sum", "size"]).reset_index()
+    t["ppg"] = t["sum"] / t["size"]
+    t["rk"] = t.where(t["size"] >= min_g).groupby("season").ppg.rank(ascending=False, method="min")
+    t["top"] = t.rk <= top; t["hurt"] = (t["size"] < hurt_g) & ~t.top
+    T = {(a, int(b)): (bool(tp), bool(h)) for a, b, tp, h in zip(t.gsis, t.season, t.top, t.hurt)}
+    gs = np.asarray(rows.gsis).astype(str); l0 = np.asarray(l0_s).astype(int); memo = {}
+    for i in np.where(np.isin(gs, list({a for a, _ in T})))[0]:
+        k = (gs[i], l0[i])
+        if k not in memo:
+            n = tops = hurts = 0; s = l0[i]
+            while (gs[i], s) in T:
+                tp, h = T[(gs[i], s)]
+                if not (tp or h): break
+                n += 1; tops += tp; hurts += h; s -= 1
+            memo[k] = n if tops and hurts else 0
+        out[i] = memo[k]
+    return out
+
+
+def big_games(rows, gl, min_off=0.5):
+    """career games known by the date with at least `min_off` of the offensive snaps ("significant snaps")"""
+    N = len(rows); out = np.zeros(N)
+    if gl is None or not len(gl) or "off_pct" not in gl: return out
+    GG = _known_games(gl[gl.off_pct.fillna(0) >= min_off], set(np.asarray(rows.gsis).astype(str)))
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    for i in range(N):
+        u = GG.get(gs[i])
+        if u is not None: out[i] = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+    return out
+
+
+def pass_ypg(rows, gl, cur_s, l0_s, in_season, min_g=4):
+    """passing yards per game: this season's games known by the date once he has `min_g`, else the last complete
+    season's (at least `min_g` games); NaN otherwise. `gl` needs pass_yds."""
+    N = len(rows); out = np.full(N, np.nan)
+    if gl is None or not len(gl) or "pass_yds" not in gl: return out
+    g = gl.dropna(subset=["pass_yds"]).assign(gsis=lambda x: x.gsis.astype(str))
+    GG = {a: v for a, v in g.groupby("gsis")}
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    cur_s = np.asarray(cur_s); l0_s = np.asarray(l0_s); ins = np.asarray(in_season, dtype=bool)
+    for i in np.where(np.asarray(rows.pos) == "QB")[0]:
+        v = GG.get(gs[i])
+        if v is None: continue
+        c = v[(v.season.values == cur_s[i]) & (v.known.values.astype("datetime64[ns]") <= dv[i])] if ins[i] else v.iloc[:0]
+        u = c if len(c) >= min_g else v[v.season.values == l0_s[i]]
+        if len(u) >= min_g: out[i] = float(u.pass_yds.sum() / len(u))
+    return out
+
+
+def season_keys(dates):
+    """(this season, in season?, last complete season) for each date, as add_x defines them"""
+    dv = pd.to_datetime(pd.Series(dates)).values.astype("datetime64[ns]")
+    seasons = np.array(sorted(KO)); ko = np.array([KO[y] for y in seasons], dtype="datetime64[ns]")
+    j = np.searchsorted(ko, dv, side="right") - 1; cur_s = seasons[np.clip(j, 0, None)]
+    ins = (dv < (ko[np.clip(j, 0, None)] + np.timedelta64(20 * 7, "D"))) & (j >= 0)
+    return cur_s, ins, np.where(ins, cur_s - 1, cur_s)
+
+
+def round5_columns(rows, gl, pos_of, adds):
+    """the round-5 rule inputs (Oliver 2026-11-09) for rows (sid, gsis, date, pos): target lead, last-3 healthy max, 20+
+    touch games, TE slide, QB hurt-or-top streak, games on half the snaps, league draft price, passing yards a game"""
+    cur_s, ins, l0 = season_keys(rows.date)
+    out = {}
+    out["e_x_tgt_lead_w"], out["e_x_tgt_lead_sh"] = target_lead(rows, gl)
+    out["e_x_recent_max3"] = recent_max(rows, gl)
+    out["e_x_touch20"] = touch_games(rows, gl)
+    out["e_x_te_slide"], out["e_x_te_recovered"], out["e_x_te_was_top"] = te_slide(rows, gl, pos_of, l0)
+    out["e_x_qb_hurt_top"] = qb_hurt_or_top(rows, gl, pos_of, l0)
+    out["e_x_big_games"] = big_games(rows, gl)
+    out["e_x_league_draft_price"] = league_draft_price(rows, adds)
+    out["e_x_pass_ypg"] = pass_ypg(rows, gl, cur_s, l0, ins)
+    return out
+
+
+def league_draft_price(rows, adds):
+    """what the league paid for the player in its rookie draft (the latest Draft addition on or before the date, in
+    league FAAB); NaN if he was never drafted in it"""
+    a = adds[adds.type == "Draft"].dropna(subset=["price"]).sort_values("date")
+    D = {s: (v.date.values.astype("datetime64[ns]"), v.price.values.astype(float)) for s, v in a.groupby(a.sid.astype(str))}
+    sid = np.asarray(rows.sid).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]"); out = np.full(len(rows), np.nan)
+    for i in range(len(rows)):
+        t = D.get(sid[i])
+        if t is None: continue
+        j = int(np.searchsorted(t[0], dv[i], side="right"))
+        if j: out[i] = t[1][j - 1]
+    return out
 
 
 def offseason_flags(date_v, fw, ko_up, jun1, career_over):
