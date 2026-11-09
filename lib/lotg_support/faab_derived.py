@@ -137,6 +137,10 @@ class Values:
     def player(self, sid, d) -> Optional[float]:
         return self.t(self.f.player(sid, d))
 
+    def player_entering(self, sid, d) -> Optional[float]:
+        """the build's draft-day rule (FaabIndex.player_entering): a rookie's first value within days of d"""
+        return self.t(self.f.player_entering(sid, d))
+
     def pick(self, label, drafted, d) -> Optional[float]:
         return self.t(FH.pick_value(self.f, label, drafted, d))
 
@@ -196,7 +200,10 @@ class Assets:
             if m:
                 y, rn, sl = int(m.group(1)), int(m.group(2)), m.group(3)
                 # the KTC pass's future-pick rule: round average before the season that sets the order
-                lab = f"{y} {rn}.??" if (on < season_start(y - 1) or not sl) else f"{y} {rn}.{int(sl):02d}"
+                # (the build reads the slot from the pick's original owner; a pick shown without "(player)" has
+                # none there, so it is valued at its round average too)
+                lab = (f"{y} {rn}.??" if (on < season_start(y - 1) or not sl or not m.group(4))
+                       else f"{y} {rn}.{int(sl):02d}")
                 pid = drafted.get((y, f"{rn}.{int(sl):02d}")) if sl else None
                 dd = days.get(y)
                 self.picks.append((lab, (pid, dd) if pid else None))
@@ -231,6 +238,32 @@ def trade_sides(tr: pd.DataFrame, rp: pd.DataFrame, pa: pd.DataFrame):
         out.append((Assets(rd.get("Assets received"), rd.get("Player IDs received"), drafted, days, on),
                     Assets(rd.get("Assets sent"), rd.get("Player IDs sent"), drafted, days, on)))
     return out
+
+
+def _spec(cell) -> Optional[list]:
+    if not isinstance(cell, str) or not cell.startswith("["):
+        return None
+    out = []
+    for lab, dk in json.loads(cell):
+        out.append((lab, (dk[0], date.fromisoformat(dk[1])) if dk else None))
+    return out
+
+
+def use_pick_specs(sides, tr: pd.DataFrame, side_tr: Optional[pd.DataFrame]) -> int:
+    """replace the parsed picks with the build's own (label, drafted) per pick, when the side output carries them
+    (`_fd_pk_recv` / `_fd_pk_sent`): the slot and drafted player come from snapshot metadata the text can omit"""
+    if side_tr is None or "_fd_pk_recv" not in side_tr:
+        return 0
+    cols = ["Team", "Date", "Assets received"]
+    m = dict(zip(_key(side_tr, cols), zip(side_tr["_fd_pk_recv"], side_tr["_fd_pk_sent"])))
+    n = 0
+    for k, (rs, ss) in zip(_key(tr, cols), sides):
+        if k in m:
+            r, s_ = _spec(m[k][0]), _spec(m[k][1])
+            if r is not None and s_ is not None:
+                rs.picks, ss.picks = r, s_
+                n += 1
+    return n
 
 
 # ------------------------------------------------------------------------------------------- the twins
@@ -321,10 +354,10 @@ def pick_twins(picks, V: Values, today: date, days: Dict[int, date]) -> pd.DataF
             yr = int(y.group(1))
             anchor = days.get(yr, date(yr, 8, 28))
             targets = [anchor, date(yr + 1, 2, 1)] + [plus_years(anchor, n) for n in (1, 2, 3, 4)]
-            for lab, t in zip(PICK_CKPTS, targets):
+            for ci, (lab, t) in enumerate(zip(PICK_CKPTS, targets)):
                 if t > today:
                     continue
-                v = V.player(sid, t)
+                v = V.player_entering(sid, t) if ci == 0 else V.player(sid, t)
                 o[f"FAAB Value {lab}"] = round(v, 1) if v is not None else None
         rows.append(o)
     return pd.DataFrame(rows, index=picks.index)
@@ -648,7 +681,8 @@ def compare(side: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 # lineup: flagged in the report, not hidden).
 
 def _key(df: pd.DataFrame, cols: Sequence[str]) -> pd.Series:
-    k = df[list(cols)].astype(str).agg("|".join, axis=1)
+    # blanks key as "" (pandas 3 keeps NaN through astype(str), which "|".join cannot take)
+    k = df[list(cols)].apply(lambda c: c.map(lambda v: "" if pd.isna(v) else str(v))).agg("|".join, axis=1)
     return k + "#" + k.groupby(k).cumcount().astype(str)
 
 
@@ -676,6 +710,7 @@ class Search:
         self.f = fidx or FH.FaabIndex.load()
         X = self.X
         self.sides = trade_sides(X["trades"], X["rookie_picks"], X["player_additions"])
+        use_pick_specs(self.sides, X["trades"], self.side.get("trades"))
         self.days = draft_days(X["player_additions"])
         self.early = None
         pae = Path(exports) / "raw" / "pae_additions.json.gz"

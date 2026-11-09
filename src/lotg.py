@@ -12092,6 +12092,15 @@ def build_all(repo_root: Path) -> None:
                         return _o
                     row["_fd_recv"] = _fd_side(r_ids, r_pk, r_f)
                     row["_fd_sent"] = _fd_side(s_ids, s_pk, s_f)
+                    # ... and each pick's valuation label + drafted player, so
+                    # faab_derived re-values picks exactly as this pass does
+                    # (the slot and drafted player come from snapshot metadata
+                    # the export text does not always show).
+                    def _fd_pk_spec(_pks):
+                        return json.dumps([[str(_l), ([str(_dk[0]), str(_dk[1])[:10]] if _dk and _dk[0] else None)]
+                                           for _l, _dk in _pks])
+                    row["_fd_pk_recv"] = _fd_pk_spec(r_pk)
+                    row["_fd_pk_sent"] = _fd_pk_spec(s_pk)
                     # 'Change in pick FAAB Value at draft time': the drafted
                     # player's value the day after Labor Day of the pick's
                     # year minus the pick's price at the deal.
@@ -22653,7 +22662,8 @@ def build_all(repo_root: Path) -> None:
             _fd_out["trades"] = _fd_frame(
                 tr, {"Wins added": tr.get("_fd_wins"), "Wins added per season": tr.get("_fd_wins_rate"),
                      "Trade impact score": tr["_fd_tis"], "O-Score": _trf["O-Score"]},
-                ["Team", "Date", "Season", "Assets received", "Assets sent", "Player IDs received", "Player IDs sent"],
+                ["Team", "Date", "Season", "Assets received", "Assets sent", "Player IDs received", "Player IDs sent",
+                 "_fd_pk_recv", "_fd_pk_sent"],
                 ["Wins added", "Wins added per season", "Trade impact score", "O-Score",
                  "Avg net points adjusted by position", "Trade addition value", "Avg net points",
                  "Asset difference in average age", "Pick value received", "Pick FAAB Value received"]

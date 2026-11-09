@@ -33,8 +33,18 @@ def test_asset_parsing():
     # before the season that sets the order a pick is valued at its round average (the KTC pass's rule)
     assert labels == ["2024 4.??", "2028 3.??", "2025 2.??"], labels
     assert a.picks[0][1] == ("111", date(2024, 7, 13)) and a.picks[1][1] is None
-    b = D.Assets("2025 2.09", "", drafted, days, date(2025, 3, 2))
-    assert b.picks[0][0] == "2025 2.09" and b.players == []
+    b = D.Assets("2025 2.09(J. Doe); 2025 3.01", "", drafted, days, date(2025, 3, 2))
+    # in the order-setting season a pick keeps its slot, unless the text shows no "(player)": the build then has no
+    # slot for it either and uses the round average
+    assert [l for l, _ in b.picks] == ["2025 2.09", "2025 3.??"] and b.players == []
+
+
+def test_pick_specs_override_the_text():
+    tr = pd.DataFrame({"Team": ["A"], "Date": ["2025-07-20 18:16:38"], "Assets received": ["2025 2.09"]})
+    side = tr.assign(_fd_pk_recv='[["2025 2.??", ["333", "2025-07-20"]]]', _fd_pk_sent="[]")
+    sides = [(D.Assets("2025 2.09", "", {}, {}, date(2025, 7, 20)), D.Assets("", "", {}, {}, date(2025, 7, 20)))]
+    assert D.use_pick_specs(sides, tr, side) == 1
+    assert sides[0][0].picks == [("2025 2.??", ("333", date(2025, 7, 20)))] and sides[0][1].picks == []
 
 
 def test_oscore_rules():
@@ -63,6 +73,25 @@ def test_side_output_reproduces_the_build():
     for kind, r in res.items():
         for k, n in r.items():
             assert n == 0, (kind, k, n)
+
+
+def test_search_without_a_transform_reproduces_the_side_output():
+    """the transform search recomputes every FAAB version from the history; with no transform it must land on the
+    build's own numbers, or a transform's score would mix in the search's own drift"""
+    side = D.load_side()
+    if not side or "_fd_pk_recv" not in side.get("trades", pd.DataFrame()):
+        print("skip: no exports/raw/faab_derived with pick specs (written by the CI build)")
+        return
+    s = D.Search(D.EXPORTS, D.OUT, date.today())
+    res = s.run(D.Transform())
+    for sh, df in res.items():
+        for c in df.columns:
+            fc = c + D.SUFFIX
+            if fc not in s.side[sh]:
+                continue
+            a, b = D._num(s.side[sh][fc]), D._num(df[c])
+            bad = int((((a - b).abs() > 0.051) | (a.isna() != b.isna())).sum())
+            assert bad == 0, (sh, c, bad)
 
 
 if __name__ == "__main__":
