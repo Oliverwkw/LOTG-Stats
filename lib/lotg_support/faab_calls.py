@@ -29,6 +29,19 @@ TOP3 = ["Josh Allen", "Jahmyr Gibbs", "Bijan Robinson"]
 # call that misses by a hair is not evidence. A range call ("about $1,000", ">= $900") passes within 5% of its bounds;
 # a player-over-player call only when extremely close (within 1%). A call's loss is capped (CALL_CAP, log units: a
 # miss by about 65%), so no single call can outweigh the trades (Coker + McConkey were 29% of the objective).
+# Rating-page votes that count as calls (Oliver 2026-11-10: "anything unanimous with 3+ people in agreement"): every
+# league team that answered (3+ teams, each team's latest answer) said the same thing about the value it was shown on that
+# board. "about right" = within VOTE_BAND of the value shown (the vote page's own band); "too low" / "too high" = above /
+# below it; a pick = that player over the other. (date, kind, player, shown value or other player)
+VOTE_BAND = 0.15
+VOTE_CALLS = (
+    ("2026-10-24", "up", "Jaxson Dart", 281), ("2026-10-24", "right", "Omar Cooper Jr.", 806),
+    ("2026-10-24", "down", "Eli Stowers", 142), ("2026-10-24", "right", "DJ Moore", 266),
+    ("2026-10-24", "down", "Chuba Hubbard", 972), ("2026-10-24", "over", "Michael Pittman Jr.", "Isaac TeSlaa"),
+    ("2026-10-24", "over", "Jaxson Dart", "DJ Moore"),
+    ("2026-10-26", "right", "Jalen Coker", 367), ("2026-10-26", "right", "Tyler Warren", 909),
+    ("2026-10-26", "over", "Isaiah Likely", "TreVeyon Henderson"),
+)
 RANGE_TOL = float(np.log(1.05))
 PAIR_TOL = float(np.log(1.01))
 CALL_CAP = 0.5
@@ -106,6 +119,13 @@ def calls(v, ref=None, qbs=()):
     B = on(CALL_DATES[2])
     t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-340)", rng("Kyle Monangai", 180, 340)),
           ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999))]
+    # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
+    for d, kind, a, b in VOTE_CALLS:
+        B = on(d)
+        if kind == "over": t += [(f"votes {d}: {a} > {b}", gt(a, b, 0.0))]
+        else:
+            lo, hi = {"right": (b / (1 + VOTE_BAND), b * (1 + VOTE_BAND)), "up": (b, 99999), "down": (1, b)}[kind]
+            t += [(f"votes {d}: {a} {dict(right='about', up='above', down='below')[kind]} ${b:,.0f}", rng(a, lo, hi))]
     B = on(CALL_DATES[0])
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"

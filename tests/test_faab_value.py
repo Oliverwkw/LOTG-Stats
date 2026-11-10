@@ -563,6 +563,21 @@ def test_try_rule_scores_a_change_against_the_current_params():
     assert FT.parse_overrides(["vet_floor=0.8", "F.VET_FLOOR_PPG=9"]) == ({"vet_floor": 0.8}, {"VET_FLOOR_PPG": 9.0})
 
 
+
+def test_vote_calls_name_board_players_and_read_their_own_day():
+    """the unanimous 3+-team votes Oliver counts as calls (2026-11-10): every name is on its board, and each is judged there"""
+    ev = F.Evidence.load(); v = F.call_values(ev, F.load_params())
+    for d, kind, a, b in LC.VOTE_CALLS:
+        B = v[max(k for k in v if k <= d)]
+        assert a in B.index and (kind != "over" or b in B.index), (d, a, b)
+    B = v[LC.CALL_DATES[0]].copy(); key = "votes 2026-10-24: DJ Moore about $266"
+    B["DJ Moore"] = 260.0; assert dict(LC.calls(B))[key] == 0
+    B["DJ Moore"] = 126.0; assert dict(LC.calls(B))[key] > 0
+
+
+def test_out_spare_and_rookie_lost_are_on_at_olivers_strengths():
+    assert F.OUT_CLEAN == 0.5 and F.OUT_LONG == 1.0 and F.ROOKIE_LOST == -0.4
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
         print(f"{fn.__name__}:")
