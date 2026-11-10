@@ -289,6 +289,16 @@ characteristics for `F.` constants (it reported trades +0.0000 for SUMMER_TO_DRA
   goes from $172 vs $292 to $276 vs $292 (near even). Oliver accepted the cost: on the committed inputs trades +0.038
   and far-off 51 -> 54 (with `e_x_catch3`: 50 -> 53), calls unchanged.
 
+### Round 5d: the summer window (Oliver 2026-11-10)
+
+Grid on the committed inputs (start = NFL draft -30/0/+14 days, Mar 1, May 1, Jun 1, Jul 1; end = kickoff -17/-3/+0/+4/
++7/+10/+14 days; fade-in 0-90 days, fade-out 0-14; strength -0.5 to -0.9; post-draft lift 0.25-0.8). Kept:
+`summer_weight` rises from 0 at 90 days before the NFL draft (late January, the season over) to full at the draft
+(rookies have teams), and runs through Week 1 (kickoff + 7 days); no fade-out (every fade-out scored worse). Strength
+-0.7; `SUMMER_TO_DRAFT` 0.5 of it lifts after the league draft (Oliver's pick): the Aug 2025 Conner trade $271 vs
+$292. Trades 0.863 -> 0.847 vs round 5c; far-off 54 -> 53. Lift 0.6: trades 0.856, Conner $292 (even); 0.25: 0.829, $230.
+The window is computed from the date in `faab_value`, so it needs no rebuild.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
