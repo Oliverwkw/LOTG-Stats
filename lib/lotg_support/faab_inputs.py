@@ -108,7 +108,9 @@ def drops(pa, exports=EXPORTS):
 class Picks:
     """rookie-pick prices on a date: the median price of each slot over the league's drafts held before it"""
 
-    def __init__(self, pa, exports=EXPORTS):
+    def __init__(self, pa, exports=EXPORTS, slots=None):
+        """slots: a faab_pick_slots.SlotOdds (default: on these exports, roster strength from the FAAB history)"""
+        self._pa, self._exports, self._slots = pa, exports, slots
         pa = pa.copy(); pa["d"] = pd.to_datetime(pa.Date.astype(str).str[:10])
         dr = pa[pa["Addition type"] == "Draft"]
         self.draft_day = dr.groupby("Season").d.min(); self.draft_day.index = self.draft_day.index.astype(int)
@@ -121,16 +123,29 @@ class Picks:
         m = self.m.dropna(subset=["Price paid (FAAB)"]); held = m.Year.astype(int).map(lambda y: self.draft_day.get(y, pd.Timestamp(f"{y}-07-15")))
         return m[held.values < pd.Timestamp(date)].groupby("Number")["Price paid (FAAB)"].median()
 
+    @property
+    def slots(self):
+        if self._slots is None:
+            from . import faab_history as FH, faab_pick_slots as PS
+            fi = FH.FaabIndex.load()
+            self._slots = PS.load(self._exports, value=fi.player if fi is not None else None, pa=self._pa) or False
+        return self._slots or None
+
     def value(self, label, d):
-        """a pick's price on date d (the exact slot once the order is set, else its round's average; 5th+ = $20;
-        5% off a year per draft further out)"""
+        """a pick's price on date d: the exact slot once its order is set; before that, while its deciding season is
+        next up or under way, the slot prices weighted by its original team's projected odds that day
+        (faab_pick_slots, 2026-11-10: the number fades in with the standings); further out its round's average.
+        5th+ = $20; 5% off a year per draft further out"""
         mm = PICK.match(str(label)); sv_ = self.slot_values(d)
         if mm is None or not len(sv_): return np.nan
         y, rn, sl = int(mm.group(1)), int(mm.group(2)), mm.group(3)
         rnd = sv_.groupby(sv_.index.str[0].astype(int)).mean()
         if rn >= 5: return 20.0
         nxt = d.year if d.month <= 8 else d.year + 1
-        v = sv_.get(f"{rn}.{sl}", rnd.get(rn, np.nan)) if (sl and y == d.year and d.month <= 8) else rnd.get(rn, np.nan)
+        S = self.slots
+        v = S.price(label, d, sv_.to_dict(), rnd.to_dict()) if S is not None else None
+        if v is None:
+            v = sv_.get(f"{rn}.{sl}", rnd.get(rn, np.nan)) if (sl and y == d.year and d.month <= 8) else rnd.get(rn, np.nan)
         return v * 0.95 ** max(0, y - nxt)
 
 

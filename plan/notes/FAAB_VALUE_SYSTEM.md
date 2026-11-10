@@ -422,6 +422,23 @@ Blank before 2021. A merged refit re-values the history with `scripts/faab_rebui
 workflow runs it on a push that changes `params.json`; a manual dispatch can too). A draftee's first value lands on
 the grid date after the league draft, so the draft-day columns take it (`FaabIndex.player_entering`).
 
+**Pick slots fade in** (2026-11-10, Oliver: "pick number is not known until the end of the season"):
+`faab_inputs.Picks.value` and `FaabIndex.pick` (so the fit's trade evidence, the build's FAAB Value twins and the
+off-build columns alike) price a pick through `lotg_support.faab_pick_slots`. Before, a pick was its round's average
+until January of its draft year and its exact slot after, so an in-season trade of next year's pick never saw the
+standings and a January trade saw the slot before the final. Now, while its deciding season is next up or under way,
+it is the slot prices weighted by its original team's projected odds that day: the KTC Price paid's model
+(`acquisition.project_slot_odds` / `post_season_slot_odds`), with roster strength = the team's best 15 FAAB values
+from the history, blended toward record (Max PF within the bottom four from the 2026 draft) by week 8, the spread
+narrowing from 2.75 slots to 1.0; after the regular season the bottom four by the rule and the playoff block by the
+bracket; the exact slot once the final is played. Two or more drafts out: still the round average. Original team: a
+future label's "(team)", else rookie_picks' Original Team for the slot (or for the player later taken with it, since
+the build masks a pick to "2026 3.??" before its season). A pick the build shows as "2027 4.??" with no drafted
+player has no original team and stays at the round average. Result on main at 54bc73c (no refit): 81 of 214 trades'
+pick sides move, trade error 0.842 -> 0.832, far-off trades 52 -> 52 at +$25 (two off, two on), 25 -> 23 at +$100.
+`scripts/faab_rebuild.py --reprice-picks` re-derives evidence.json's pick values on the committed inputs (the full
+rebuild does it anyway). `faab_pick_slots.FADE_IN = False` restores the old rule for comparisons.
+
 **FAAB versions of the KTC-derived columns, off the build** (2026-11-09, Oliver: keep them out of the sheets): the
 build writes `exports/raw/faab_derived/` (artifact only, `.gitignore`): O-Score on trades / add_drops / picks (pure
 drops, both pick pools, the non-rookie de-trend), Trade impact score, the three manager skills, Wins added with the

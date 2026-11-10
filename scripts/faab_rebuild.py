@@ -7,6 +7,7 @@
     python scripts/faab_rebuild.py --max-minutes 270   # stop fitting new snapshots after 270 min (exit 3; resume next run)
     python scripts/faab_rebuild.py --history-only      # rewrite history.csv / pick_prices.csv from the cached grid
                                                        # frame with the committed params.json (after a refit)
+    python scripts/faab_rebuild.py --reprice-picks     # re-derive evidence.json's pick values on the committed inputs
 
 Writes data/faab_value/inputs.csv, evidence.json, history.csv and pick_prices.csv (and awards.csv when a fresh parse finds at least as many
 awards). Needs scikit-learn, scipy and pyarrow besides the build's requirements. Rule strengths are not refit.
@@ -31,7 +32,11 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--max-minutes", type=float, help="stop fitting new snapshots after this long (cached blocks resume next run)")
     ap.add_argument("--history-only", action="store_true", help="only rewrite the dated values from the cached grid frame")
+    ap.add_argument("--reprice-picks", action="store_true", help="only re-derive evidence.json's trade pick values on the committed inputs")
     a = ap.parse_args(argv)
+    if a.reprice_picks:
+        n = P.reprice_evidence(out=Path(a.out) if a.out else None, log=lambda m: print(m, flush=True))
+        sys.exit(0 if n is not None else 4)
     if a.history_only:
         n = P.history_only(out=Path(a.out) if a.out else None, log=lambda m: print(m, flush=True))
         sys.exit(0 if n else 4)

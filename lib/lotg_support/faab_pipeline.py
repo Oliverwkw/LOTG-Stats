@@ -415,6 +415,28 @@ def write_history(R, pa, picks, out=V.DATA, log=print):
         return None
 
 
+def reprice_evidence(out=None, log=print):
+    """evidence.json's trades re-derived on the committed inputs with today's pick prices (no refit, no fetch): the
+    pick / FAAB side values change, the players and cuts do not. For a change to faab_inputs.Picks between rebuilds
+    (2026-11-10: pick slots fade in, faab_pick_slots); the inputs hold every evidence row, so evidence_rows on them
+    reproduces the rebuild's trades exactly (same order, same players)."""
+    out = Path(out or V.DATA)
+    R = V.load_inputs(out); ev = json.load(open(out / "evidence.json"))
+    pa = I.player_additions_sid(); TR = I.trades(pa); picks = I.Picks(pa)
+    tr, _ = evidence_rows(R, TR, pa, picks, I.drops(pa))
+    key = lambda i: [str(R.sid.values[i]), pd.Timestamp(R.date.values[i]).strftime("%Y-%m-%d")]
+    new = [dict(date=str(d.date()), sides=[dict(other_value=round(float(pk), 3), players=[key(i) for i in ix]) for pk, ix in s]) for d, s in tr]
+    same = [dict(date=t["date"], sides=[dict(players=x["players"]) for x in t["sides"]]) for t in ev["trades"]]
+    if same != [dict(date=t["date"], sides=[dict(players=x["players"]) for x in t["sides"]]) for t in new]:
+        log("evidence trades differ from the committed ones beyond their pick values: run the full rebuild instead")
+        return None
+    n = sum(a["other_value"] != b["other_value"] for t0, t1 in zip(ev["trades"], new) for a, b in zip(t0["sides"], t1["sides"]))
+    ev["trades"] = new
+    json.dump(ev, open(out / "evidence.json", "w"), indent=0)
+    log(f"repriced {n} trade sides of {len(new)} trades")
+    return n
+
+
 def history_only(out=None, log=print):
     """refresh the dated FAAB values from the cached grid frame (after a params.json change; no refit, no fetch)"""
     p = WORK / "raw.parquet"

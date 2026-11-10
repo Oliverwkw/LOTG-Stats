@@ -1989,8 +1989,9 @@ for _base, _sheet, _how, _note in _POS_TWINS:
 # FAAB Value twins of the columns in KTC value units (formula_equations.KTC_UNIT_STATS).
 _FAAB_TWIN_TEXT = ("The same as '{k}' with every asset at its FAAB value (the league's FAAB dollars from the FAAB value "
                    "system: stats only, every rule applied, on the last grid date on or before the checkpoint) instead "
-                   "of its KTC; a pick is its FAAB pick price (the slot's median price in the league's earlier drafts) "
-                   "until its draft, then the drafted player; FAAB moved in a trade counts its own dollars.")
+                   "of its KTC; a pick is its FAAB pick price (the slot's median price in the league's earlier drafts; "
+                   "until its order is set, the slot prices weighted by its original team's projected odds that day, "
+                   "as for the KTC Price paid, or its round's average two drafts out) until its draft, then the drafted player; FAAB moved in a trade counts its own dollars.")
 _FAAB_TWIN_NOTE = ("Blank where the KTC column is blank for a future checkpoint, before 2021 (the FAAB history starts "
                    "then), for a player the history never valued, and for a pick before the league's first rookie draft "
                    "(no earlier draft prices). Values move when the weekly FAAB rebuild or a refit changes the history. "

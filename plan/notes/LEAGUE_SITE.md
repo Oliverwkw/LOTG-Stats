@@ -54,7 +54,9 @@ If Sleeper fails, or takes longer than 4 s, the page keeps the build's rosters a
 
 ## How it is built
 
-- `lib/lotg_support/league_site.py` reads the committed `exports/*.csv`, `data/digest/last_digest.html`
+- `lib/lotg_support/league_site.py` reads `exports/*.csv` (in CI, `site.yml` first replaces them with the latest
+  successful main build's sheets from its `LOTG_outputs` artifact, because the build commits `exports/` only on a
+  roster change, the Tuesday run or the 6-day cadence; a new column used to stay blank until then), `data/digest/last_digest.html`
   and (through `lotg_support.forecast`) the snapshot; writes JSON. `scripts/build_site.py` is the CLI.
   `site/` holds the hand-written shell (index.html, app.js, style.css): no framework, no build step.
 - Numbers are shipped raw with each column's workbook format (`number_format.col_number_format`), and

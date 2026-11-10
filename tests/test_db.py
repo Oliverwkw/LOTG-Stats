@@ -185,7 +185,7 @@ def test_pw_is_fast_player_weeks_and_ts_is_team_seasons():
     ts = fast.team_seasons()
     t = con.execute("SELECT * FROM ts").df().set_index(["Team", "Year"])
     col = "Regular season all-play win %"
-    m = ts[[col]].join(t[[col]], rsuffix="_db")
+    m = ts[[col]].join(t[[col]].rename(columns={col: col + "_db"}))
     assert len(m) == len(t) == len(ts)
     assert _same_numbers(m[col], m[col + "_db"])
     assert _same_numbers(ts["Tanking"], t.loc[ts.index, "Tanking"])

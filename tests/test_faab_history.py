@@ -122,7 +122,10 @@ def test_committed_pick_table_matches_faab_inputs():
         return
     from lotg_support import faab_inputs as I
     picks = I.Picks(I.player_additions_sid())
-    f = FH.FaabIndex(pd.DataFrame(columns=["sid", "date", "value"]), FH.pick_price_table(picks))
+    # the same history on both sides: before its order is set a pick's price reads roster strength from it
+    # (faab_pick_slots); faab_inputs.Picks reads the committed history too
+    H = pd.read_csv(FH.HISTORY, dtype={"sid": str, "date": str}) if FH.HISTORY.exists() else pd.DataFrame(columns=["sid", "date", "value"])
+    f = FH.FaabIndex(H, FH.pick_price_table(picks))
     n = 0
     for d in ["2022-03-01", "2023-01-15", "2023-08-01", "2024-02-10", "2025-05-05", "2025-11-20", "2026-06-30"]:
         t = pd.Timestamp(d)
