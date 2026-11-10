@@ -436,8 +436,8 @@ SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games o
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
 SUMMER_FADE_IN = 90               # summer: rises from 0 this many days before the NFL draft to full at the draft (Oliver 2026-11-10 grid)
 SUMMER_END = 7                    # ... and ends this many days after kickoff (Week 1 still counts)
-SUMMER_TO_DRAFT = 0.6             # ... share of it lifted after the league draft (Oliver: a smaller post-draft impact; the Aug 2025
-                                  # Conner trade even at -0.7)
+SUMMER_TO_DRAFT = 0.5             # ... share of it lifted after the league draft (Oliver: a smaller post-draft impact; the Aug 2025
+                                  # Conner trade $271 vs $292 at -0.7; Oliver chose 0.5)
 RB_HOLD_TOP = 15                 # rb_hold: last season's RB rank (total PPR) at or above this
 RB_HOLD_LO, RB_HOLD_HI = 400.0, 1000.0   # ... base value range, fading over the 25% past each end (Conner $667 on 2025-08-02)
 RB_HOLD_MAXV = 600.0            # ... only while his value at this stage is under this (fading from 75% of it)

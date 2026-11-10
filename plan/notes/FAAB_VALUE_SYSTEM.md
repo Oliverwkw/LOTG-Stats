@@ -295,8 +295,8 @@ Grid on the committed inputs (start = NFL draft -30/0/+14 days, Mar 1, May 1, Ju
 +7/+10/+14 days; fade-in 0-90 days, fade-out 0-14; strength -0.5 to -0.9; post-draft lift 0.25-0.8). Kept:
 `summer_weight` rises from 0 at 90 days before the NFL draft (late January, the season over) to full at the draft
 (rookies have teams), and runs through Week 1 (kickoff + 7 days); no fade-out (every fade-out scored worse). Strength
--0.7; `SUMMER_TO_DRAFT` 0.6 of it lifts after the league draft, which makes the Aug 2025 Conner trade even ($292 vs
-$292). Trades 0.863 -> 0.856 vs round 5c; far-off 54 -> 56. Lift 0.5: trades 0.847, Conner $271; 0.25: 0.829, $230.
+-0.7; `SUMMER_TO_DRAFT` 0.5 of it lifts after the league draft (Oliver's pick): the Aug 2025 Conner trade $271 vs
+$292. Trades 0.863 -> 0.847 vs round 5c; far-off 54 -> 53. Lift 0.6: trades 0.856, Conner $292 (even); 0.25: 0.829, $230.
 The window is computed from the date in `faab_value`, so it needs no rebuild.
 
 ## The noise bar, and every rule needs a reason
