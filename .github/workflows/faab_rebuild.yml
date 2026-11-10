@@ -9,7 +9,7 @@ name: Rebuild FAAB values
 # a PR. Values move here only through the stats.
 #
 # CACHE: finished snapshots' blocks never change, so they are kept in the Actions cache and only the current
-# quarter is refit (~25 min: 5 fold bags). A cold cache (or `full: true`) refits all 24+ (~9 h), so the run stops
+# quarter is refit (~37 min in all: 5 fold bags, one per core). A cold cache (or `full: true`) refits all 24+ (~9 h), so the run stops
 # fitting after 270 min, saves the cache and skips the commit; the next run (or a manual dispatch) continues.
 #
 # WHEN: Wednesdays, after Tuesday's build has refreshed exports/ (trades, cuts, rosters) and the week's stats are out.
@@ -19,7 +19,7 @@ on:
   schedule:
     - cron: "23 13 * * 3"
   # A merged refit (params.json) re-values the dated history the build's "FAAB Value" columns read
-  # (history.csv) from the cached grid frame: no fetch, no model refit (~10 min).
+  # (history.csv) from the cached grid frame: no fetch, no model refit (~3 min).
   push:
     branches: [main]
     paths: ["data/faab_value/params.json"]

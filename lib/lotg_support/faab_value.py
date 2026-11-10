@@ -842,8 +842,31 @@ def objective(ev, ref, votes=None, band=True):
 def _ok(q): return q["y200"] < q["y450"] < q["y650"] < 1000
 
 
-def fit(obj, starts, restarts=8, passes=3, polish=4, seed=0, log=print):
-    """coordinate search over every rule's strength within its sign-locked bounds, perturbed restarts, a polish"""
+def fit(obj, starts, restarts=8, passes=3, polish=4, seed=0, log=print, workers=None):
+    """coordinate search over every rule's strength within its sign-locked bounds, perturbed restarts, a polish.
+
+    The candidates are scored over `workers` forked processes (default FIT_WORKERS: one per CPU; 1 = in this process)
+    with the search's choices made in the same order as before 2026-11-10, so the fit lands on the same parameters:
+    a coordinate step's 13 values of one strength are independent of each other (only that strength moves when one is
+    taken), and the polish draws its random steps in the same order and re-scores any step drawn before a move from the
+    moved point.
+
+    A parameter with no BOUNDS entry is not a fitted strength: it is held at the starting point's value (Oliver,
+    2026-11-10: keep the values as they are) and returned unchanged."""
+    p0 = min(starts, key=obj)
+    fixed = {k: v for k, v in p0.items() if k not in BOUNDS}
+    if fixed:
+        log(f"held (no bounds): {', '.join(f'{k}={v:g}' for k, v in fixed.items())}")
+        inner = obj
+
+        def obj(q, detail=False): return inner({**q, **fixed}, detail)
+        starts = [{k: v for k, v in p0.items() if k in BOUNDS}]
+    with _Scorer(obj, workers) as score:
+        p = _fit(obj, score, starts, restarts, passes, polish, seed, log)
+    return {k: p[k] if k in p else fixed[k] for k in p0}
+
+
+def _fit(obj, score, starts, restarts, passes, polish, seed, log):
     p = min(starts, key=obj); best = obj(p); rng = np.random.default_rng(seed)
     log(f"start: total {best:.3f}")
     scale_keys = ("y200", "y450", "y650", "lvl", "vet", "vet_hi", "top_g", "spike_hi", "youth_age")
@@ -851,11 +874,9 @@ def fit(obj, starts, restarts=8, passes=3, polish=4, seed=0, log=print):
     def coord(p, best, n):
         for _ in range(n):
             for k, (lo, hi) in BOUNDS.items():
-                for x in np.linspace(lo, hi, 13):
-                    q = dict(p, **{k: float(x)})
-                    if not _ok(q): continue
-                    e = obj(q)
-                    if e < best: best, p = e, q
+                qs = [q for q in (dict(p, **{k: float(x)}) for x in np.linspace(lo, hi, 13)) if _ok(q)]
+                for q, e in zip(qs, score(qs)):
+                    if e < best: best, p = e, q        # p moves only in k, so the later q are unchanged
         return p, best
     gbest, gp = best, p
     for rs in range(restarts):
@@ -867,12 +888,56 @@ def fit(obj, starts, restarts=8, passes=3, polish=4, seed=0, log=print):
     p, best = gp, gbest
     for it in range(polish):
         p, best = coord(p, best, 1)
-        for _ in range(400):
-            q = {k: float(np.clip(v * np.exp(rng.normal(0, 0.08)) if k in scale_keys[:7] else v + rng.normal(0, 0.08), *BOUNDS[k])) for k, v in p.items()}
-            if not _ok(q): continue
-            e = obj(q)
-            if e < best: best, p = e, q
+        # 400 random steps around the current point: the noise is drawn step by step, key by key, as before (each step
+        # draws one normal per strength whether it is taken or not); a batch is scored at once and, after the first
+        # step that improves, the rest of the batch is rebuilt from the new point and scored again
+        drawn, queue, B = 0, [], max(1, 2 * score.n)
+        while drawn < 400 or queue:
+            while len(queue) < B and drawn < 400:
+                queue.append([rng.normal(0, 0.08) for _ in p]); drawn += 1
+            batch, queue = queue[:B], queue[B:]
+            qs = [{k: float(np.clip(v * np.exp(z) if k in scale_keys[:7] else v + z, *BOUNDS[k])) for (k, v), z in zip(p.items(), zs)} for zs in batch]
+            ok = [j for j, q in enumerate(qs) if _ok(q)]
+            es = dict(zip(ok, score([qs[j] for j in ok])))
+            for j in ok:
+                if es[j] < best:
+                    best, p = es[j], qs[j]
+                    queue = batch[j + 1:] + queue
+                    break
         d = obj(p, True)
         log(f"pass {it + 1}: total {d['total']:.3f} | calls {d['calls']:.3f} ({sum(x == 0 for _, x in d['tests'])}/{len(d['tests'])} pass) "
             f"| trades {d['trades']:.3f} | cuts {d['cuts']:.3f} | votes {d['votes']:.3f}")
     return p
+
+
+FIT_WORKERS = int(__import__("os").environ.get("FAAB_WORKERS", "0")) or (__import__("os").cpu_count() or 1)
+_OBJ = None
+
+
+def _score_one(q):
+    return _OBJ(q)
+
+
+class _Scorer:
+    """obj over a list of parameter sets, in order: in this process (n == 1) or over a forked pool"""
+
+    def __init__(self, obj, workers=None):
+        self.obj, self.n, self.pool = obj, max(1, int(workers or FIT_WORKERS)), None
+
+    def __enter__(self):
+        global _OBJ
+        if self.n > 1:
+            import multiprocessing as mp
+            _OBJ = self.obj; self.pool = mp.get_context("fork").Pool(self.n)
+        return self
+
+    def __exit__(self, *a):
+        global _OBJ
+        if self.pool is not None: self.pool.terminate(); self.pool.join()
+        _OBJ = None
+        return False
+
+    def __call__(self, qs):
+        if not qs: return []
+        if self.pool is None or len(qs) == 1: return [self.obj(q) for q in qs]
+        return self.pool.map(_score_one, qs, chunksize=max(1, len(qs) // (2 * self.n)))

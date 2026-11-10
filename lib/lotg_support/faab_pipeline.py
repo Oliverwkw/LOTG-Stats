@@ -359,12 +359,8 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     PW = pd.read_csv(ROOT / "exports" / "player_week.csv", usecols=["Player", "Year", "Week", "Injury?"], low_memory=False)
     TRK = pd.read_csv(ROOT / "data" / "injury_tracker.csv", dtype={"player_id": str})
     F = FM.Formula(TL, pa, pd.read_csv(ROOT / "exports" / "rookie_picks.csv"), E, seasons, PW, TRK)
-    rows = []
-    for g in F.GRID:
-        d = F.at(g)
-        keep = [c for c in KEEP if c in d] + [c for c in d.columns if c.startswith("e_x_")]
-        rows.append(d.reset_index().rename(columns={"index": "sid"})[["sid"] + [c for c in keep if c != "sid"]].assign(date=pd.Timestamp(g)))
-    R = pd.concat(rows, ignore_index=True)
+    R = pd.concat(formula_frames(F), ignore_index=True)
+    log(f"formula: {len(F.GRID)} grid dates ({time.time() - t0:.0f}s)")
     for c in R.columns:
         if R[c].dtype == "float64": R[c] = R[c].astype("float32")
     players = json.load(open(ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json"))
@@ -375,6 +371,33 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     log(f"exported {n} input rows, {len(tr)} trades, {len(cut)} cuts as of {R.date.max().date()} ({time.time() - t0:.0f}s)")
     write_history(R, pa, picks, out or V.DATA, log=log)
     return R
+
+
+_FORMULA = None
+
+
+def _formula_at(g):
+    d = _FORMULA.at(g)
+    keep = [c for c in KEEP if c in d] + [c for c in d.columns if c.startswith("e_x_")]
+    return d.reset_index().rename(columns={"index": "sid"})[["sid"] + [c for c in keep if c != "sid"]].assign(date=pd.Timestamp(g))
+
+
+def formula_frames(F, workers=None):
+    """the formula on every grid date, in grid order. Each date reads only the formula's inputs (its caches are pure),
+    so the dates are spread over `workers` forked processes (default faab_base.WORKERS; 1 = in this process): the
+    same frames, ~4x sooner on a 4-core runner. Forked (the formula's base timeline is shared, not copied); the
+    children run no OpenMP code."""
+    from . import faab_base as B
+    global _FORMULA
+    n = max(1, int(workers or B.WORKERS)); _FORMULA = F
+    try:
+        if n == 1 or len(F.GRID) < 2 * n:
+            return [_formula_at(g) for g in F.GRID]
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(n) as pool:
+            return pool.map(_formula_at, F.GRID, chunksize=max(1, len(F.GRID) // (8 * n)))
+    finally:
+        _FORMULA = None
 
 
 def write_history(R, pa, picks, out=V.DATA, log=print):

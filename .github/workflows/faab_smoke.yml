@@ -49,4 +49,4 @@ jobs:
           print("smoke ok:", len(x), "rows,", len(e["trades"]), "trades,", len(e["cuts"]), "cuts")
           PY
       - name: FAAB tests
-        run: python -m pytest -q tests/test_faab_value.py tests/test_faab_pipeline.py
+        run: python -m pytest -q tests/test_faab_value.py tests/test_faab_pipeline.py tests/test_faab_speed.py
