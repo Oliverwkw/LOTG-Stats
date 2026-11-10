@@ -120,8 +120,12 @@ class Picks:
                           left_on=["Player Picked", "Year"], right_on=["Player", "Season"], how="left")
 
     def slot_values(self, date):
+        """the slot medians of the drafts held before date; before the league's first rookie draft, that draft's own
+        prices (Oliver, 2026-11-10: picks traded before 2021-08-29 take the first draft's slot prices)"""
         m = self.m.dropna(subset=["Price paid (FAAB)"]); held = m.Year.astype(int).map(lambda y: self.draft_day.get(y, pd.Timestamp(f"{y}-07-15")))
-        return m[held.values < pd.Timestamp(date)].groupby("Number")["Price paid (FAAB)"].median()
+        before = held.values < pd.Timestamp(date)
+        if not before.any() and len(m): before = (held == held.min()).values
+        return m[before].groupby("Number")["Price paid (FAAB)"].median()
 
     @property
     def slots(self):

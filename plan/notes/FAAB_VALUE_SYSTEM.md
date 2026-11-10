@@ -328,6 +328,19 @@ Together: calls 126 -> 129 of 129. No trade or cut row moves, so the trades can'
 rules, like `boom_week`. Softening `inj_out` for everyone fails: it loses Addison, Hunter > Addison, Monangai and the
 Hurts calls.
 
+## Rookies from the NFL draft, picks before the first rookie draft (Oliver 2026-11-10)
+
+"FAAB value should be calculable for any player at any time."
+- **Rookies** are valued from their NFL draft day (`faab_features.NFL_DRAFT`), not from the league's rookie draft (`faab_formula.frame_at`). Players not yet drafted into the NFL still have no value.
+- **Before the league's rookie draft**, a rookie's draft price is estimated from his NFL draft capital (`Formula.expected_dprice`). The estimate is an isotonic fit of league price against NFL overall pick, over the rookie drafts held before that date. Before any had been held it uses the first one; the 2020 startup board is excluded. The estimate is a floor only: it lifts thin rookies, for example Michael Carter 2021 from $2 to $43, and never pulls a rookie the stats rate higher down (Javonte Williams stays $1,297).
+- **Picks before the first rookie draft (2021-08-29)** take that draft's slot prices (Oliver's choice), in `faab_inputs.Picks.slot_values` and `faab_history.FaabIndex.slot_values`.
+- **Effect, rebuilt from the cached models with no refit:**
+  - 5,915 new history rows.
+  - 5 newly fitted trades: 4 on 2021-08-29 and Jayden Reed 2023-06-11.
+  - On the 214 trades fitted before: mean error 0.4769 to 0.4793; far-off 52 to 52.
+  - Calls 129/129. Cuts and votes unchanged.
+- **Interim measure.** The league's draft and trade prices are still KTC money-curve prices (`acquisition.py`), so this estimate inherits them until the KTC-free redesign replaces them.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

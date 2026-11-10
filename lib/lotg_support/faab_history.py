@@ -16,7 +16,8 @@ prices, and reads them back for the build:
   player_entering(sid, d)  the same, but a player with no value yet takes his first one within MAX_GAP days
                    (the draft-day columns: a draftee joins the board on the next grid date)
   pick(label, d)   the FAAB system's own pick price (faab_inputs.Picks.value), from the exported slot table.
-                   None after the pick's draft (the caller values the drafted player instead) or before any draft.
+                   None after the pick's draft (the caller values the drafted player instead); before the first
+                   league draft it takes that draft's slot prices.
 
 The values are point-in-time: every row is computed from what was known on its date. The history goes stale when
 params.json changes until the next rebuild (`scripts/faab_rebuild.py --history-only` refreshes it from the cache).
@@ -172,12 +173,14 @@ class FaabIndex:
         for dd, sv in self._slots:
             if dd < t:
                 out = sv
+        if not out and self._slots:     # before the first rookie draft: that draft's prices (faab_inputs.Picks)
+            out = min(self._slots, key=lambda x: x[0])[1]
         return out
 
     def pick(self, label, d, pid=None) -> Optional[float]:
         """faab_inputs.Picks.value on the exported table: the exact slot once the order is set, the odds-weighted slot
         price while its deciding season is next up or under way (faab_pick_slots), else its round's average; 5th round on $20; 5% off a year per draft further out. None once the
-        pick's own draft has been held (value the drafted player) or before any league draft. pid = the player later
+        pick's own draft has been held (value the drafted player); before the first league draft, that draft's prices. pid = the player later
         taken with it, used only to find its original team (the build masks a future pick's slot to "??")."""
         mm = PICK.match(str(label).strip())
         t = _d(d)
