@@ -3,6 +3,7 @@
 - `faab_frame._pd_mean` (the snapshot means on cached arrays) equals pandas' Series.mean bit for bit, NaNs included;
 - `faab_value.fit` over a pool of processes takes the same steps as the one-at-a-time search it replaced (kept
   below as `_fit_reference`), so it lands on the same parameters, and 1 worker equals 2;
+- a parameter with no fit bounds is held at its value (the fit used to crash on one);
 - `faab_pipeline.formula_frames` over forked processes returns the same frames, in grid order, as a plain loop.
 
 No scikit-learn, no network, no exports needed. Run: python tests/test_faab_speed.py
@@ -89,6 +90,21 @@ def test_parallel_fit_takes_the_same_steps():
     assert list(one.items()) == list(ref.items()), "1 worker differs from the reference search"
     assert list(two.items()) == list(ref.items()), "2 workers differ from the reference search"
     assert obj(ref) < obj(starts[0])
+
+
+def test_fit_holds_unbounded_parameters():
+    """a parameter with no BOUNDS entry (e.g. avail_young_floor) is held at its value; the fit used to crash on it"""
+    obj = _toy_objective(); seen = []
+    start = dict({k: v for k, v in F.P0.items() if k in F.BOUNDS}, held_a=0.25, held_b=-3.0)
+
+    def obj2(q, detail=False):
+        seen.append((q["held_a"], q["held_b"])); return obj(q, detail)
+    kw = dict(restarts=1, passes=1, polish=1, seed=3, log=lambda s: None)
+    p = F.fit(obj2, [start], workers=1, **kw)
+    assert list(p) == list(start) and p["held_a"] == 0.25 and p["held_b"] == -3.0
+    assert set(seen) == {(0.25, -3.0)}
+    plain = F.fit(obj, [{k: v for k, v in start.items() if k in F.BOUNDS}], workers=1, **kw)
+    assert all(p[k] == plain[k] for k in plain)        # holding them changes nothing else
 
 
 class _FakeFormula:

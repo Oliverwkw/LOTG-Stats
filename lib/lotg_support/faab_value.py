@@ -849,9 +849,21 @@ def fit(obj, starts, restarts=8, passes=3, polish=4, seed=0, log=print, workers=
     with the search's choices made in the same order as before 2026-11-10, so the fit lands on the same parameters:
     a coordinate step's 13 values of one strength are independent of each other (only that strength moves when one is
     taken), and the polish draws its random steps in the same order and re-scores any step drawn before a move from the
-    moved point."""
+    moved point.
+
+    A parameter with no BOUNDS entry is not a fitted strength: it is held at the starting point's value (Oliver,
+    2026-11-10: keep the values as they are) and returned unchanged."""
+    p0 = min(starts, key=obj)
+    fixed = {k: v for k, v in p0.items() if k not in BOUNDS}
+    if fixed:
+        log(f"held (no bounds): {', '.join(f'{k}={v:g}' for k, v in fixed.items())}")
+        inner = obj
+
+        def obj(q, detail=False): return inner({**q, **fixed}, detail)
+        starts = [{k: v for k, v in p0.items() if k in BOUNDS}]
     with _Scorer(obj, workers) as score:
-        return _fit(obj, score, starts, restarts, passes, polish, seed, log)
+        p = _fit(obj, score, starts, restarts, passes, polish, seed, log)
+    return {k: p[k] if k in p else fixed[k] for k in p0}
 
 
 def _fit(obj, score, starts, restarts, passes, polish, seed, log):
