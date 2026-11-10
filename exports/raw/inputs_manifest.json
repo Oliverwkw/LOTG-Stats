@@ -1,7 +1,7 @@
 {
  "version": 1,
- "written_at": "2026-11-10T20:43:44+00:00",
- "commit": "4b607cf4211ff6998ea0f2d55f9437440f4a39ca",
+ "written_at": "2026-11-10T22:40:04+00:00",
+ "commit": "24a9db1ad9b39fd83f8aad01bd4c66f339ab6ece",
  "python": "3.11.18",
  "packages": {
   "absl-py": "2.5.1",
@@ -44,7 +44,7 @@
   "ffopportunity_ep_weekly_2024.csv.gz": "2026-11-02T20:34:51.491127+00:00",
   "ffopportunity_ep_weekly_2025.csv": "2026-11-03T22:07:30.568678+00:00",
   "ffopportunity_ep_weekly_2025.csv.gz": "2026-11-02T20:34:53.740052+00:00",
-  "ffopportunity_ep_weekly_2026.csv": "2026-11-10T20:42:26.985449+00:00",
+  "ffopportunity_ep_weekly_2026.csv": "2026-11-10T22:38:35.788356+00:00",
   "ffopportunity_ep_weekly_2026.csv.gz": "2026-11-03T21:54:12.866642+00:00",
   "nfldata_games.csv": "2026-11-09T05:54:20.406019+00:00",
   "nflverse_injuries_2020.csv": "2026-11-09T05:56:03.985186+00:00",
@@ -53,7 +53,7 @@
   "nflverse_injuries_2023.csv": "2026-11-09T05:58:14.506084+00:00",
   "nflverse_injuries_2024.csv": "2026-11-09T05:59:00.189216+00:00",
   "nflverse_injuries_2025.csv": "2026-11-09T05:54:07.846506+00:00",
-  "nflverse_injuries_2026.csv": "2026-11-10T20:38:21.965891+00:00",
+  "nflverse_injuries_2026.csv": "2026-11-10T22:34:40.566423+00:00",
   "nflverse_player_ids.csv": "2026-11-09T05:54:20.129588+00:00",
   "nflverse_red_zone_2020.csv": "2026-11-02T20:34:42.831968+00:00",
   "nflverse_red_zone_2021.csv": "2026-11-02T20:34:45.179160+00:00",
@@ -61,7 +61,7 @@
   "nflverse_red_zone_2023.csv": "2026-11-02T20:34:49.727008+00:00",
   "nflverse_red_zone_2024.csv": "2026-11-02T20:34:51.922846+00:00",
   "nflverse_red_zone_2025.csv": "2026-11-02T20:34:54.140691+00:00",
-  "nflverse_red_zone_2026.csv": "2026-11-10T20:42:27.293998+00:00",
+  "nflverse_red_zone_2026.csv": "2026-11-10T22:38:36.177631+00:00",
   "nflverse_snap_counts_2018.csv": "2026-11-09T06:02:08.471749+00:00",
   "nflverse_snap_counts_2019.csv": "2026-11-09T06:02:30.764171+00:00",
   "nflverse_snap_counts_2020.csv": "2026-11-09T05:55:52.688600+00:00",
@@ -70,7 +70,7 @@
   "nflverse_snap_counts_2023.csv": "2026-11-09T05:58:03.315246+00:00",
   "nflverse_snap_counts_2024.csv": "2026-11-09T05:58:48.941140+00:00",
   "nflverse_snap_counts_2025.csv": "2026-11-09T06:00:11.140356+00:00",
-  "nflverse_snap_counts_2026.csv": "2026-11-10T20:42:26.304024+00:00",
+  "nflverse_snap_counts_2026.csv": "2026-11-10T22:38:34.843988+00:00",
   "nflverse_stats_player_week_2010.csv": "2026-10-14T01:45:19.819375+00:00",
   "nflverse_stats_player_week_2011.csv": "2026-10-14T01:45:20.569656+00:00",
   "nflverse_stats_player_week_2012.csv": "2026-10-14T01:45:21.302849+00:00",
@@ -87,7 +87,7 @@
   "nflverse_stats_player_week_2023.csv": "2026-11-09T05:57:39.805287+00:00",
   "nflverse_stats_player_week_2024.csv": "2026-11-09T05:58:25.988321+00:00",
   "nflverse_stats_player_week_2025.csv": "2026-11-09T06:03:21.560145+00:00",
-  "nflverse_stats_player_week_2026.csv": "2026-11-10T20:42:26.127059+00:00",
+  "nflverse_stats_player_week_2026.csv": "2026-11-10T22:38:34.444843+00:00",
   "nflverse_weekly_rosters_2018.csv": "2026-11-09T06:02:19.604602+00:00",
   "nflverse_weekly_rosters_2019.csv": "2026-11-09T06:02:42.052600+00:00",
   "nflverse_weekly_rosters_2020.csv": "2026-11-09T05:55:40.500836+00:00",
@@ -96,11 +96,11 @@
   "nflverse_weekly_rosters_2023.csv": "2026-11-09T05:57:51.134195+00:00",
   "nflverse_weekly_rosters_2024.csv": "2026-11-09T05:58:37.660867+00:00",
   "nflverse_weekly_rosters_2025.csv": "2026-11-09T05:59:59.630488+00:00",
-  "nflverse_weekly_rosters_2026.csv": "2026-11-10T20:42:26.698150+00:00"
+  "nflverse_weekly_rosters_2026.csv": "2026-11-10T22:38:35.183447+00:00"
  },
  "files": {
   ".cache/_fetch_log.json": {
-   "sha256": "6a8a2011dd9b734ee1c67206cccdba9c479ac37ce8bb68524af6679dfc412726",
+   "sha256": "4bdf43ac257806ca2c2fdd0dae1284029cbada6ba5513bc898cf5d51646e9d8c",
    "bytes": 4753
   },
   ".cache/dynastyprocess_playerids.csv": {
@@ -412,7 +412,7 @@
    "files": 877
   },
   "exports/snapshot/_snapshot_meta.json": {
-   "sha256": "44b3a8f96596214db9f78111feacb937bc0d67210c2899fc33cb61aa5275667e",
+   "sha256": "c428a86ef7156d9839da905eca22f540619417df898e1aaf38ddc22d376579f5",
    "bytes": 160
   },
   "exports/snapshot/dynastyprocess_playerids.csv": {
@@ -420,8 +420,8 @@
    "bytes": 2684767
   },
   "exports/snapshot/league_chain.json": {
-   "sha256": "e147fcd9fae39b34525b5e61900aaf8fee0f2f626539209155c97bb8d4123271",
-   "bytes": 24052
+   "sha256": "404a40a514dd54c942b5ccfecbbb01ad0e9fe1fb74028f097c6d36c319a521b5",
+   "bytes": 24050
   },
   "exports/snapshot/season_2021/league.json": {
    "sha256": "600e0abd7706a140948deef3be1f31332053c995cbcb62abeeb9575846da1e5a",
@@ -1588,8 +1588,8 @@
    "bytes": 1400
   },
   "exports/snapshot/season_2026/league.json": {
-   "sha256": "740ad6c4975b608645e78257adace673cd39339df7b5a574162149076b527915",
-   "bytes": 3642
+   "sha256": "e1603a8e22d92767d07e46aec4498ded7580a854587e1e4735eff77e51a8843d",
+   "bytes": 3640
   },
   "exports/snapshot/season_2026/nflverse_injuries.csv": {
    "sha256": "6d3450bf475100eb450dc6ed672fc5881946eaf9c5e225b52068c0aae38390c5",
@@ -1824,8 +1824,8 @@
    "bytes": 2
   },
   "exports/snapshot/sleeper_players_nfl.json": {
-   "sha256": "886e4d32f11e2897e40a5320ae5bbe3cb369f3b819506869bacb96d6dd7d966a",
-   "bytes": 18981040
+   "sha256": "6103f0224c3b0785f1b37175926fad7c0b324262d80978579dc2f7994f8c3c01",
+   "bytes": 18981003
   }
  }
 }
