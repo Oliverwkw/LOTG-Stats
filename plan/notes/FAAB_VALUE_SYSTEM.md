@@ -400,6 +400,13 @@ commits the inputs and the page data. It never refits the rule strengths.
 Finished quarterly snapshots never change, so the weekly run reuses their cached blocks and refits only the current
 quarter (`--full` refits all, about 2–3 hours).
 
+**Speed (2026-11-10, PR #575; outputs byte-identical to before, checked old vs new on the same cache):** the weekly
+rebuild takes ~37 min on a 4-core runner (was ~113), the history-only rebuild ~3 min (was ~25), the 1-bag smoke
+window ~13 min (was ~29). The fold-bag fits run one per core in spawned processes (one BLAS/OpenMP thread each:
+sklearn's results do not depend on the thread count), the formula's grid dates over forked processes, and
+`faab_value.py fit` scores its candidates in parallel with the same search path. `FAAB_WORKERS=1` runs everything in
+one process. Most of the weekly run (~26 of 37 min) is the current quarter's 5 fold bags.
+
 The port reproduces the research run exactly: every feature table, the base at two snapshots, and `V_raw` on five
 dates, all with zero difference. Two research-era behaviours changed on purpose (`faab_base.REPRO` restores them for
 reproduction):
