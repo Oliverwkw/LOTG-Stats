@@ -104,6 +104,7 @@ class FaabIndex:
         self.last = self.grid[-1] if len(self.grid) else None
         self._p: Dict[str, tuple] = {s: (g.d.values.astype("datetime64[D]"), g.value.values.astype(float))
                                      for s, g in h.groupby("sid", sort=False)}
+        self._odds = None               # faab_pick_slots.SlotOdds, built on first use (False = unavailable)
         self._slots: list = []          # [(draft_day, {slot: price})], ascending
         self.draft_days: Dict[int, date] = {}
         if pick_prices is not None and len(pick_prices):
@@ -173,10 +174,11 @@ class FaabIndex:
                 out = sv
         return out
 
-    def pick(self, label, d) -> Optional[float]:
-        """faab_inputs.Picks.value on the exported table: the exact slot once the order is set (same-year pick before
-        September), else its round's average; 5th round on $20; 5% off a year per draft further out. None once the
-        pick's own draft has been held (value the drafted player) or before any league draft."""
+    def pick(self, label, d, pid=None) -> Optional[float]:
+        """faab_inputs.Picks.value on the exported table: the exact slot once the order is set, the odds-weighted slot
+        price while its deciding season is next up or under way (faab_pick_slots), else its round's average; 5th round on $20; 5% off a year per draft further out. None once the
+        pick's own draft has been held (value the drafted player) or before any league draft. pid = the player later
+        taken with it, used only to find its original team (the build masks a future pick's slot to "??")."""
         mm = PICK.match(str(label).strip())
         t = _d(d)
         sv = self.slot_values(t)
@@ -201,7 +203,18 @@ class FaabIndex:
             v = ravg.get(rn)
         if v is None:
             return None
+        o = self.slot_odds()
+        f = o.price(label, pd.Timestamp(t), sv, ravg, pid=pid) if o is not None else None
+        if f is not None:
+            v = f
         return float(v) * 0.95 ** max(0, y - nxt)
+
+    def slot_odds(self):
+        """the pick-slot fade-in (faab_pick_slots) on the committed exports, roster strength from this history"""
+        if self._odds is None:
+            from . import faab_pick_slots as PS
+            self._odds = PS.load(value=self.player) or False
+        return self._odds or None
 
 
 DEPTH_FACTOR = 0.6       # the trades KTC columns' depth tax: best asset in full, the 2nd x0.6, the 3rd x0.36, ...
@@ -219,7 +232,7 @@ def depth_adjusted(vals) -> float:
 def pick_value(fidx: FaabIndex, label, drafted, target) -> Optional[float]:
     """a traded pick on a date: its FAAB pick price until its draft, then the drafted player's value.
     drafted = (Sleeper id of the player taken with it, the day from which he stands in for it) or None"""
-    v = fidx.pick(label, target)
+    v = fidx.pick(label, target, pid=drafted[0] if drafted else None)    # the drafted player names its original team
     if v is not None:
         return v
     if not drafted or not drafted[0]:
