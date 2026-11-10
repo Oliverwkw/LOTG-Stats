@@ -201,6 +201,11 @@ jobs:
           # so one long test no longer holds a chunk hostage; --durations=30
           # prints where the suite's time goes.
           pip install --no-cache-dir -c requirements.lock pytest==9.1.1 pytest-xdist==3.8.0 pyarrow==25.0.1 2>&1 | tail -n 2
+          # tests/test_db.py — the SQL query layer (lotg_support.db). Inquiry-only:
+          # the build never imports duckdb. Same best-effort install as build.yml;
+          # without it those tests skip (the 2026-11-04 health email's 9 skips).
+          pip install --no-cache-dir -c requirements.lock duckdb==1.4.5 2>&1 | tail -n 1 \
+            || echo "::warning::duckdb unavailable — tests/test_db.py will skip"
           # test_contracts.py's data tests need Over The Cap's contract history,
           # which the build never fetches — without this they have skipped on
           # every CI run. Best-effort: a failed download leaves them skipping,
