@@ -308,45 +308,46 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     return len(E)
 
 
-def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=None):
+def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=None, refreeze=False, frozen=None):
+    """everything. The base is the frozen one (faab_frozen, data/faab_value/frozen/): applied to every grid date from
+    the 2020 startup draft on, reading no KTC. `refreeze=True` (or `full=True`, or no manifest at all) fits it first,
+    on all history, and writes it to `frozen` (default the committed folder): a reviewed change, like a params refit.
+    A manifest whose model files are missing is restored from its asset_url (faab_frozen.ensure), never refit."""
     from . import faab_base as B          # the models need scikit-learn / scipy (the rebuild workflow installs them)
     from . import faab_formula as FM
+    from . import faab_frozen as FZ
     t0 = time.time(); WORK.mkdir(parents=True, exist_ok=True)
+    fdir = Path(frozen) if frozen else FZ.DIR
+    refreeze = refreeze or full or not FZ.exists(fdir)
     last = D.current_season()
     if fetch: D.fetch_all(last, log=log)
     X.build_store(last, log=log); X.load_store()
     pa = I.player_additions_sid(); TR = I.trades(pa); drops = I.drops(pa); picks = I.Picks(pa)
     o0 = X.add_x(I.league_frame(pa)); LR = B.league_rows(o0, pa)
     E = I.evidence(LR)
-    Fd = X.add_x(I.ktc_panel())
     ED = evidence_dates(TR, pa)
-    F_all = X.add_x(I.grid_frame(pa, E, end=end, dates=ED))
-    log(f"frames: league {len(o0)}, KTC panel {len(Fd)}, grid {len(F_all)} ({time.time() - t0:.0f}s)")
-    FC = list(dict.fromkeys([c for c in B.feats(Fd) if not c.startswith("e_x_")] + B.PVF + [c for c in Fd.columns if c.startswith("e_x_")]))
+    # the grid from the supply universe's first Tuesday: rows before the first valued date (the 2020 startup draft)
+    # are the universe only
+    F_all = X.add_x(I.grid_frame(pa, E, start=FZ.UNIVERSE_START, end=end, dates=ED))
+    U = FZ.universe(F_all)
     seasons = B.load_seasons(last)
-    today = pd.Timestamp(end) if end else pd.Timestamp.today().normalize()
-    snaps = list(pd.date_range("2021-01-01", today, freq="QS")) + [today + pd.Timedelta(days=1)]
-    blocks = []
-    for R0, R1 in zip(snaps[:-1], snaps[1:]):
-        if max_minutes and (time.time() - t0) / 60 > max_minutes:   # out of budget: the cached blocks carry over to the next run
-            log(f"time budget ({max_minutes} min) reached before snapshot {R0.date()}: blocks so far are cached; inputs NOT exported")
-            return None
-        p = WORK / f"blk_{R0.date()}{'' if end is None else '_partial'}.parquet"
-        done = R1 <= today and p.exists() and not full     # a finished snapshot never changes
-        if done:
-            b = pd.read_parquet(p)
-            if int(b["bags"].iloc[0] if "bags" in b else 1) == B.BAGS:   # refit if cached under another bag count
-                b, k = refresh_block(b, F_all, R0, R1)
-                if k: log(f"snapshot {R0.date()}: cached block, {k} new evidence-date rows carried from earlier rows")
-                blocks.append(b); continue
-        fb = B.Football(seasons).fit(B.season_done(R0))
-        b = B.bagged_block(FC, fb, R0, R1, F_all, LR, Fd, log=log)
-        b.to_parquet(p); blocks.append(b)
-    Bk = pd.concat(blocks, ignore_index=True)
+    log(f"frames: league {len(o0)}, grid {len(F_all)}, supply universe {len(U)} ({time.time() - t0:.0f}s)")
+    if refreeze:
+        Fd = X.add_x(I.ktc_panel())           # KTC is read here only: the translator's training scale
+        fb = B.Football(seasons).fit(B.season_done(pd.Timestamp(end) if end else pd.Timestamp.today().normalize()))
+        FB = FZ.FrozenBase.fit(Fd, LR, U, fb, log=log)
+        FB.save(fdir); del Fd
+        log(f"froze the base into {fdir} ({sum(f.stat().st_size for f in fdir.glob('*')) / 1e6:.1f} MB, {time.time() - t0:.0f}s)")
+    else:
+        FB = FZ.FrozenBase.load(FZ.ensure(fdir, log=log))
+        log(f"frozen base {fdir} (frozen {FB.meta.get('freeze_date')}, {FB.meta['bags']} bags)")
+    LRv = LR[LR.date <= (pd.Timestamp(end) if end else LR.date.max())]
+    Bk = FB.apply(F_all[F_all.date >= FZ.GRID_START], LRv, U, seasons, log=log)
+    del F_all
     # rows that exist only for an evidence date's full board are smoothed after the others, so adding them changes no
     # other row's value (each is smoothed with the rows before it)
     old = set(zip(E.sid.astype(str), pd.to_datetime(E.date).values.astype("datetime64[ns]")))
-    gd = set(I.grid_dates(end=end).values.astype("datetime64[ns]"))
+    gd = set(I.grid_dates(start=FZ.GRID_START, end=end).values.astype("datetime64[ns]"))
     bd = Bk.date.values.astype("datetime64[ns]")
     xtra = np.array([(d not in gd) and ((s_, d) not in old) for s_, d in zip(Bk.sid.astype(str).values, bd)], dtype=bool)
     tl = B.smooth_route(Bk.loc[~xtra, ["sid", "date", "L"]].copy(), LR[["sid", "date", "y"]])
@@ -358,7 +359,9 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     log(f"base: {len(TL)} rows ({time.time() - t0:.0f}s)")
     PW = pd.read_csv(ROOT / "exports" / "player_week.csv", usecols=["Player", "Year", "Week", "Injury?"], low_memory=False)
     TRK = pd.read_csv(ROOT / "data" / "injury_tracker.csv", dtype={"player_id": str})
-    F = FM.Formula(TL, pa, pd.read_csv(ROOT / "exports" / "rookie_picks.csv"), E, seasons, PW, TRK)
+    F = FM.Formula(TL, pa, pd.read_csv(ROOT / "exports" / "rookie_picks.csv"), E, seasons, PW, TRK, holding=FB.holding)
+    if refreeze or FB.holding is None:       # the holding map is fit once, on the frozen base's smoothed values
+        FB.save_holding(F._hold, fdir); log(f"holding map fit on {F._hold['n']} evidence rows, stored")
     R = pd.concat(formula_frames(F), ignore_index=True)
     log(f"formula: {len(F.GRID)} grid dates ({time.time() - t0:.0f}s)")
     for c in R.columns:

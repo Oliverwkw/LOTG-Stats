@@ -4,8 +4,8 @@ On any date, using only what was known then: the base value (injured players at 
 injury and preseason), this season's games so far (best game at half weight), the injury report for the latest
 completed week, the last league price, the rookie-draft slot's price once the rookie draft has happened. Then:
 
-  holding-value map  isotonic map base -> league price, fitted on owned-player evidence before the snapshot
-                     (trades, drafts, and the league chat's valuations x4: data/faab_value/chat_evidence.csv)
+  holding-value map  isotonic map base -> league price, fit once on all owned-player evidence and stored with the
+                     frozen base (trades, drafts, and the league chat's valuations x4: data/faab_value/chat_evidence.csv)
   league terms       young / old QB, old RB, the decline past each position's fade age, past top finishes
                      (half-life 2.5 seasons), a breakout this season against the established level
   floors (soft)      young players hold their rookie-slot price, a sophomore-or-younger star holds 1.6x his last
@@ -67,7 +67,7 @@ UNDRAFTED_PICK = 300.0     # NFL overall pick an undrafted rookie counts as (pas
 class Formula:
     """V_raw on any date from the base timeline TL (sid, date, Lf, a_y and the frame columns)"""
 
-    def __init__(self, TL, PA, rookie_picks, evidence, seasons, player_week, injury_tracker, wk_dir=None):
+    def __init__(self, TL, PA, rookie_picks, evidence, seasons, player_week, injury_tracker, wk_dir=None, holding=None):
         TL = TL.copy(); TL["date"] = pd.to_datetime(TL.date); TL["sid"] = TL.sid.astype(str)
         self.TL = TL.drop_duplicates(["sid", "date"]).sort_values(["sid", "date"])
         self._hist = {s_: (g.date.values, g.Lf.values) for s_, g in self.TL[["sid", "date", "Lf"]].groupby("sid")}
@@ -76,7 +76,6 @@ class Formula:
         cg = self.TL.groupby("date").c_gp.apply(lambda x: x.notna().mean())
         self.C_MAX = float(cg.max()); cg = cg / cg.max()
         self.ROLL = [g for g, p in zip(cg.index[1:], cg.values[1:]) if p < 0.03 and cg[cg.index < g].iloc[-1] >= 0.03]
-        self.SNAPS = sorted(self.TL.snap.dropna().unique()) if "snap" in self.TL else []
         pa = PA.copy(); pa["d"] = pd.to_datetime(pa.Date.astype(str).str[:10]); pa["sid"] = pa.sid.astype(str)
         self.DR = pa[pa["Addition type"] == "Draft"].sort_values("d")
         self.DRAFT_DAY = self.DR.groupby("Season").d.min(); self.DRAFT_DAY.index = self.DRAFT_DAY.index.astype(int)
@@ -102,7 +101,9 @@ class Formula:
         self.LEG2 = {g: dd[["season", "pts2"]].values for g, dd in X[X.pts2 > 0].groupby("player_id")}
         self.PW = player_week; self.TRK = injury_tracker[injury_tracker.injury_status.isin(["IR", "PUP", "Out", "Doubtful"])]
         self.wk_dir = wk_dir or kp.CACHE
-        self._wk, self._recal = {}, {}
+        self._wk = {}
+        self._hold = holding
+        self._recal_fn = self.recal()
 
     # ---- inputs on a date
     def _wkfile(self, s):
@@ -205,15 +206,15 @@ class Formula:
         x = np.nan_to_num(np.asarray(dovr, dtype=float), nan=UNDRAFTED_PICK)
         return np.expm1(self._xdp[key].predict(x))
 
-    def snap_of(self, date):
-        return max([x for x in self.SNAPS if x <= np.datetime64(date)], default=self.SNAPS[0])
-
-    def recal_at(self, R):
-        """the holding-value map (base -> league price): isotonic on owned-player evidence before R (chat
-        valuations x4), never below the base, smoothed so it has no flat steps"""
-        R = pd.Timestamp(R)
-        if R in self._recal: return self._recal[R]
-        e = self.E_ALL[self.E_ALL.date < R].merge(self.TL[["sid", "date", "Lf"]], on=["sid", "date"], how="inner").dropna(subset=["Lf", "y"])
+    @staticmethod
+    def holding_map(E_ALL, TL):
+        """the holding-value map (base -> league price), fit ONCE (the frozen base stores it, 2026-11-10; it was
+        refit at each quarterly snapshot on the evidence before it): isotonic on every owned-player evidence row
+        (trades, drafts, the chat's valuations x4) against the smoothed base that day, never below the base,
+        smoothed so it has no flat steps. Returns {"xs": [...], "ys": [...]}"""
+        E = E_ALL.copy(); E["date"] = pd.to_datetime(E.date); E["sid"] = E.sid.astype(str)
+        T = TL[["sid", "date", "Lf"]].copy(); T["date"] = pd.to_datetime(T.date); T["sid"] = T.sid.astype(str)
+        e = E.merge(T, on=["sid", "date"], how="inner").dropna(subset=["Lf", "y"])
         xs = np.linspace(0, 9, 91)
         if len(e) < 40: ys = xs.copy()
         else:
@@ -221,7 +222,13 @@ class Formula:
             iso = IsotonicRegression(out_of_bounds="clip").fit(e.Lf, e.y, sample_weight=w)
             ys = np.maximum.accumulate(np.maximum(iso.predict(xs), xs))
         ys = np.convolve(np.pad(ys, 2, mode="edge"), np.ones(5) / 5, mode="valid"); ys = np.maximum.accumulate(ys) + 0.01 * np.arange(len(ys)) / len(ys)
-        self._recal[R] = (lambda b, xs=xs, ys=ys: np.interp(b, xs, ys)); return self._recal[R]
+        return dict(xs=[float(x) for x in xs], ys=[float(y) for y in ys], n=int(len(e)))
+
+    def recal(self):
+        """the holding-value map as a function (the stored one, else fit on all evidence)"""
+        if self._hold is None: self._hold = self.holding_map(self.E_ALL, self.TL)
+        xs, ys = np.array(self._hold["xs"]), np.array(self._hold["ys"])
+        return lambda b: np.interp(b, xs, ys)
 
     def slotv_at(self, date):
         m = self.m.dropna(subset=["Price paid (FAAB)"]); held = m.Year.astype(int).map(lambda y: self.DRAFT_DAY.get(y, pd.Timestamp(f"{y}-07-15")))
@@ -310,7 +317,7 @@ class Formula:
     def formula_at(self, date, stats_date=None):
         date = pd.Timestamp(date); sd = pd.Timestamp(stats_date) if stats_date is not None else date
         d = self.frame_at(date, stats_date); rob = self.rob_at(sd); off = d.c_gp.notna().mean() < 0.03 * self.C_MAX
-        v = pd.Series(self.final(d, sd, off, self.recal_at(self.snap_of(sd)), self.slotv_at(date), rob), index=d.index)
+        v = pd.Series(self.final(d, sd, off, self._recal_fn, self.slotv_at(date), rob), index=d.index)
         # rookies: the draft slot's price x how they have played (3+ games); hurt before playing x0.8
         slot = d.index.map(lambda s: self.SLOT_OF.get(str(s))); sv = pd.Series(slot, index=d.index).map(self.slotv_at(date).to_dict()) * P["scale"]
         dy = d.dyear.fillna(0).astype(int).values

@@ -5,11 +5,14 @@ use only what was known that day, the way the league values players. A 1.05 rook
 
 ## How a value is made
 
-1. **Base value (walk-forward)**:
+1. **Base value (frozen, 2026-11-10; see "The frozen base" below)**:
    - Production value: projected points above superflex replacement, aged by position curves.
-   - A stats translator: stats in, never KTC in. It is fitted to the KTC history only as a training scale.
+   - A stats translator: stats in, never KTC in. It is fitted to the KTC history only as a training scale, on KTC's
+     value at the same position rank (so KTC's scale drift is not learned), plus a supply step (a player's predicted
+     rank at his position among every board player that week).
    - A league-price model fitted to LOTG drafts, trades and waivers.
-   - Every model is refit at each quarterly snapshot, on data dated before that snapshot. Values are then smoothed causally across dates.
+   - Every model is fit ONCE on all history and stored in `data/faab_value/frozen/`; a rebuild applies it to every
+     date from the 2020 startup draft on. Values are then smoothed causally across dates.
 2. **General rules** (`lib/lotg_support/faab_value.py`): about 45 characteristics, such as:
    - usage (expected points), team share, availability, a sustained elite record, QB passing quality;
    - early-career draft and college pedigree, efficiency, volatility and TD dependence, age cliffs;
@@ -341,6 +344,36 @@ Hurts calls.
   - Calls 129/129. Cuts and votes unchanged.
 - **Interim measure.** The league's draft and trade prices are still KTC money-curve prices (`acquisition.py`), so this estimate inherits them until the KTC-free redesign replaces them.
 
+## The frozen base (2026-11-10)
+
+Oliver: "if KTC were to completely vanish from reality, the faab values of any player at any time should not change";
+a 100% identical player (team and league context included) in 2021 and 2026 gets the same value; differences between
+years only from football context. So the quarterly walk-forward refits are gone (`lotg_support.faab_frozen`):
+
+- **Fit once** on all history (`--refreeze`): the aging curves (seasons through 2025), the stats translator (5 player
+  folds x 5 bags), the supply step, the KTC-scale -> league maps, the league-price models, their curves and position
+  quantile maps, and one holding-value map (1,511 evidence rows). Stored in `data/faab_value/frozen/`: `manifest.json`
+  (feature lists, library versions, the training data's sha256, the freeze date, each model file's sha256) is
+  committed; the five `bag*.joblib` (51.8 MB, xz, with training-only tree fields zeroed: predictions identical) are
+  not, and `faab_frozen.ensure` restores them from the manifest's `asset_url` / `$FAAB_FROZEN_URL`. A missing base
+  is an error, never a silent refit.
+- **No calendar or drift inputs**: no `e_t`, no recency weight, no era weight, no "2022 on" / "last 3 years" windows.
+  Time of year (month, day of year) stays. `k_gtd` is guaranteed money / that league year's cap (`faab_frame.NFL_CAP`;
+  `k_apy` already was a cap share). The replacement level is each row's last five complete seasons (context, `ctx_repl`).
+- **Translator target**: KTC's value at the same position rank, pooled over months (`KtcScale`); past QB40 / RB70 /
+  WR100 / TE35 the pooled curve continues by rank (past-cap SD of quarterly mean residuals 0.360 raw, 0.138 with a
+  ratio extension, 0.064 by rank; all rows 0.100 -> 0.051).
+- **Supply**: each row's predicted rank at his position among every board player that Tuesday (`u_rank`), leak-free
+  (ranked against the universe as his own fold's model sees it), then a small model of the remaining residual.
+- **Applying** reads no KTC file: a rebuild with the KTC loaders patched to raise wrote byte-identical inputs, evidence
+  and history, and changed no stored file. Values now start at the 2020 startup draft (2020-09-09).
+- `smooth_route` (causal smoothing and routing to the last league price) is unchanged.
+
+Known gaps: league draft / trade prices are still the KTC money curve (`acquisition.py`), and they feed the league
+models, the holding map and the routing; `faab_inputs.player_additions_sid` breaks 32 ambiguous-name rows (9
+players) by KTC at pickup (the exports' `Player ID` would remove it). `tests/test_faab_frozen.py` holds the
+invariance, KTC-removed, audit and stability checks.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
@@ -407,11 +440,11 @@ commits the inputs and the page data. It never refits the rule strengths.
 | Features | `faab_features` | dated `e_x_*` stats, each counted from when it was known |
 | Frame | `faab_frame` | per (player, date) stats frame (the KTC-proxy feature builder, moved into lib) |
 | Inputs | `faab_inputs` | Sleeper ids, trades, cuts, pick prices, KTC training panel, valuation grid, evidence |
-| Base | `faab_base` | the walk-forward base: one model set per quarterly snapshot, fit only on data before it |
+| Base | `faab_base`, `faab_frozen` | the frozen base: fit once on all history, stored in `data/faab_value/frozen/`, applied to every grid date |
 | Formula | `faab_formula` | base -> `V_raw` on any date (floors, legacy, breakout, rookie slot, injuries, offseason blend) |
 
-Finished quarterly snapshots never change, so the weekly run reuses their cached blocks and refits only the current
-quarter (`--full` refits all, about 2–3 hours).
+The weekly run only applies the stored base (it reads no KTC file). `--refreeze` (or `--full`) fits it again on all
+history and rewrites `data/faab_value/frozen/`: a reviewed change, like a params refit.
 
 **Speed (2026-11-10, PR #575; outputs byte-identical to before, checked old vs new on the same cache):** the weekly
 rebuild takes ~37 min on a 4-core runner (was ~113), the history-only rebuild ~3 min (was ~25), the 1-bag smoke
@@ -420,9 +453,11 @@ sklearn's results do not depend on the thread count), the formula's grid dates o
 `faab_value.py fit` scores its candidates in parallel with the same search path. `FAAB_WORKERS=1` runs everything in
 one process. Most of the weekly run (~26 of 37 min) is the current quarter's 5 fold bags.
 
+(The speed numbers and the reproduction below describe the quarterly walk-forward base the frozen base replaced.)
+
 The port reproduces the research run exactly: every feature table, the base at two snapshots, and `V_raw` on five
-dates, all with zero difference. Two research-era behaviours changed on purpose (`faab_base.REPRO` restores them for
-reproduction):
+dates, all with zero difference. Two research-era behaviours changed on purpose (`faab_base.REPRO` restored them for
+reproduction until the frozen base removed it):
 
 - **Aging curve:** it kept seasons ≤ 2024 regardless of the snapshot. That counted the last complete season as all
   drop-offs at the 2021–23 snapshots, and would have frozen the curve from 2027. It now uses seasons before the
