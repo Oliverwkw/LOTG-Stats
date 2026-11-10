@@ -122,6 +122,91 @@ def _wkdate(season, week):
 
 
 # ------------------------------------------------------------------------- features
+_TABLES: dict = {}
+_WK_MEAN = ["fantasy_points_ppr", "targets", "carries", "attempts", "target_share", "rushing_yards", "passing_yards"]
+
+
+def _pd_mean(x):
+    """Series.mean() of a numpy column, bit for bit (pandas' nanops.nanmean without bottleneck: NaN filled with 0,
+    summed in the column's float dtype, or float64 for integers, over the non-NaN count)"""
+    if x.dtype.kind == "f":
+        m = np.isnan(x)
+        if m.any():
+            x = x.copy(); np.putmask(x, m, 0)
+        with np.errstate(all="ignore"):
+            return x.sum(dtype=x.dtype) / x.dtype.type(m.size - m.sum())
+    return x.sum(dtype=np.float64) / np.float64(x.size)
+
+
+def _tables(seasons):
+    """the stat tables build() reads that do not depend on its rows: read and grouped once per process (the rebuild
+    calls build three times: league rows, the KTC panel, the grid), keyed on the files and their mtimes"""
+    files = [CACHE / f"{p}_{y}.csv" for y in seasons for p in ("sp", "wk", "dc", "snap")] + [REPO / "exports/snapshot/dynastyprocess_playerids.csv"]
+    key = (tuple(seasons), tuple((str(f), f.stat().st_mtime_ns if f.exists() else None) for f in files))
+    if _TABLES.get("key") == key:
+        return _TABLES
+    T = {"key": key}
+    ns = pd.concat([_read(f"sp_{y}.csv") for y in seasons])
+    T["ns"] = ns
+    W = []
+    for y in seasons:
+        w = _read(f"wk_{y}.csv", usecols=["player_id", "season", "week", "season_type", "fantasy_points_ppr",
+                                          "targets", "carries", "attempts", "target_share", "rushing_yards",
+                                          "passing_yards"])
+        if w is None:
+            continue
+        w = w[w.season_type == "REG"].copy()
+        w["avail"] = _wkdate(y, w.week).values
+        W.append(w)
+    T["Wg"] = {key: v.sort_values("avail") for key, v in pd.concat(W).groupby(["player_id", "season"])}
+    T["Wa"] = {key: v.avail.values for key, v in T["Wg"].items()}
+    T["Wc"] = {key: [np.ascontiguousarray(v[c].to_numpy()) for c in _WK_MEAN] for key, v in T["Wg"].items()}
+    D = []
+    for y in seasons:
+        d = _read(f"dc_{y}.csv")
+        if d is None:
+            continue
+        if "depth_team" in d.columns:
+            d = d[(d.formation == "Offense") & d.position.isin(POS) & (d.game_type == "REG")].copy()
+            d["avail"] = (_wkdate(y, d.week) - pd.Timedelta(days=4)).values
+            d["rank"] = pd.to_numeric(d.depth_team, errors="coerce")
+        else:
+            d = d[d.pos_abb.isin(POS)].copy()
+            d["avail"] = pd.to_datetime(d.dt.str[:10])
+            d["rank"] = d.pos_rank
+        D.append(d[["gsis_id", "avail", "rank"]])
+    D = pd.concat(D).groupby(["gsis_id", "avail"]).agg(rank=("rank", "min")).reset_index()
+    T["snapdates"] = np.sort(D.avail.unique())
+    T["Dg"] = {key: v.sort_values("avail") for key, v in D.groupby("gsis_id")}
+    T["Da"] = {key: v.avail.values for key, v in T["Dg"].items()}
+    T["Dr"] = {key: (list(v.avail), v["rank"].to_numpy()) for key, v in T["Dg"].items()}
+    dp = pd.read_csv(REPO / "exports/snapshot/dynastyprocess_playerids.csv")
+    pfr2g = dict(zip(dp.pfr_id, dp.gsis_id))
+    sn = []
+    for y in seasons:
+        s = _read(f"snap_{y}.csv")
+        if s is None:
+            continue
+        s = s[s.game_type == "REG"].copy()
+        s["gsis"] = s.pfr_player_id.map(pfr2g)
+        s["avail"] = _wkdate(y, s.week).values
+        sn.append(s[["gsis", "season", "week", "avail", "offense_pct"]])
+    sn = pd.concat(sn).dropna(subset=["gsis"]).sort_values(["gsis", "season", "week"])
+    T["SA"] = sn.groupby(["gsis", "season"]).offense_pct.mean()
+    # each game's season-to-date and last-3 mean: the same window kernels as a per-group expanding() / rolling(3, 1)
+    # transform, in one pass (the per-group lambdas took ~25 s a call)
+    g = sn.offense_pct.reset_index(drop=True).groupby([sn.gsis.values, sn.season.values])
+    sn["cum"] = g.expanding().mean().droplevel([0, 1]).sort_index().values
+    sn["l3"] = g.rolling(3, 1).mean().droplevel([0, 1]).sort_index().values
+    sn["avail"] = pd.to_datetime(sn.avail).astype("datetime64[ns]")
+    T["sn"] = sn.sort_values("avail")[["gsis", "avail", "season", "cum", "l3"]]
+    car = ns.groupby(["player_id", "season"]).agg(ppr=("fantasy_points_ppr", "sum"), g=("games", "sum")).reset_index()
+    car["ppg"] = car.ppr / car.g.replace(0, np.nan)
+    T["cp"] = {pid: g[["season", "ppg", "g"]].values for pid, g in car.groupby("player_id")}
+    _TABLES.clear(); _TABLES.update(T)
+    return _TABLES
+
+
 def build(k: pd.DataFrame) -> pd.DataFrame:
     """Every feature is computed from what was public on the row's date."""
     df = k.merge(player_info(k.sid.unique()), on="sid")
@@ -135,8 +220,10 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     df = df.reset_index(drop=True)
     seasons = sorted(int(y) for y in KO if (CACHE / f"sp_{y}.csv").exists())
 
+    T = _tables(seasons)
+
     # n_: last three completed seasons (nflverse regular season, PPR)
-    ns = pd.concat([_read(f"sp_{y}.csv") for y in seasons])
+    ns = T["ns"]
     agg = ns.groupby(["player_id", "season"]).agg(
         gp=("games", "sum"), ppr=("fantasy_points_ppr", "sum"), tgt=("targets", "sum"), car=("carries", "sum"),
         att=("attempts", "sum"), ts=("target_share", "mean"), pyd=("passing_yards", "sum"),
@@ -160,19 +247,12 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
 
     # c_: current season to date (Sep-Jan rows only)
     df["cur"] = np.where(df.month >= 9, df.date.dt.year, np.where(df.month == 1, df.date.dt.year - 1, -1))
-    W = []
-    for y in seasons:
-        w = _read(f"wk_{y}.csv", usecols=["player_id", "season", "week", "season_type", "fantasy_points_ppr",
-                                          "targets", "carries", "attempts", "target_share", "rushing_yards",
-                                          "passing_yards"])
-        if w is None:
-            continue
-        w = w[w.season_type == "REG"].copy()
-        w["avail"] = _wkdate(y, w.week).values
-        W.append(w)
-    Wg = {key: v.sort_values("avail") for key, v in pd.concat(W).groupby(["player_id", "season"])}
+    Wg, Wa = T["Wg"], T["Wa"]
     names = ["c_gp", "c_ppg", "c_tgt", "c_car", "c_att", "c_ts", "c_l4ppg", "c_ryd", "c_pyd"]
     out = {c: np.full(len(df), np.nan) for c in names}
+    # a row's figures depend only on how many of the season's weeks were known by its date (each group is sorted by
+    # avail, so the known weeks are a prefix): each (player, season, weeks known) is computed once, as before
+    memo = {}
     for i, (g, cur, dt) in enumerate(zip(df.gsis, df.cur, df.date)):
         if cur < 0:
             continue
@@ -180,13 +260,21 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
         if v is None:
             out["c_gp"][i] = 0
             continue
-        v = v[v.avail <= dt]
-        out["c_gp"][i] = len(v)
-        if len(v):
-            out["c_ppg"][i] = v.fantasy_points_ppr.mean(); out["c_tgt"][i] = v.targets.mean()
-            out["c_car"][i] = v.carries.mean(); out["c_att"][i] = v.attempts.mean()
-            out["c_ts"][i] = v.target_share.mean(); out["c_l4ppg"][i] = v.fantasy_points_ppr.tail(4).mean()
-            out["c_ryd"][i] = v.rushing_yards.mean(); out["c_pyd"][i] = v.passing_yards.mean()
+        mk = (g, cur, int(np.searchsorted(Wa[(g, cur)], np.datetime64(dt), side="right")))
+        r = memo.get(mk)
+        if r is None:
+            n = mk[2]
+            if n:
+                ppr, tgt, car_, att, ts, ryd, pyd = (c[:n] for c in T["Wc"][(g, cur)])
+                r = [n, _pd_mean(ppr), _pd_mean(tgt), _pd_mean(car_), _pd_mean(att), _pd_mean(ts), _pd_mean(ppr[-4:]),
+                     _pd_mean(ryd), _pd_mean(pyd)]
+            else:
+                r = [0]
+            memo[mk] = r
+        out["c_gp"][i] = r[0]
+        if r[0]:
+            (out["c_ppg"][i], out["c_tgt"][i], out["c_car"][i], out["c_att"][i], out["c_ts"][i], out["c_l4ppg"][i],
+             out["c_ryd"][i], out["c_pyd"][i]) = r[1:]
     for c, v in out.items():
         df[c] = v
     df["c_weeks"] = [((dt - pd.Timestamp(KO[c])).days // 7 + 1) if c > 0 else np.nan for c, dt in zip(df.cur, df.date)]
@@ -201,94 +289,77 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     c = c[c.position == c.gsis_id.map(dict(zip(df.gsis, df.pos)))]  # nflverse mis-keys some namesakes
     cg = {key: v.sort_values(["year_signed", "value"]) for key, v in c.groupby("gsis_id")}  # tag vs extension tie
     kc = {n: np.full(len(df), np.nan) for n in ["k_apy", "k_gtd", "k_yrs_left", "k_years"]}
+    memo = {}                          # a row reads only its player and two year cut-offs: each combination once
     for i, (g, dt) in enumerate(zip(df.gsis, df.date)):
         v = cg.get(g)
         if v is None:
             continue
-        v = v[v.year_signed <= (dt.year if dt.month >= 4 else dt.year - 1)]
-        if not len(v):
+        ys, yl = (dt.year if dt.month >= 4 else dt.year - 1), (dt.year if dt.month >= 3 else dt.year - 1)
+        mk = (g, ys, yl); r = memo.get(mk, memo)
+        if r is memo:
+            v = v[v.year_signed <= ys]
+            if len(v):
+                x = v.iloc[-1]
+                r = (x.apy_cap_pct, x.guaranteed, x.years, x.year_signed + x.years - yl)
+            else:
+                r = None
+            memo[mk] = r
+        if r is None:
             continue
-        r = v.iloc[-1]
-        kc["k_apy"][i] = r.apy_cap_pct; kc["k_gtd"][i] = r.guaranteed; kc["k_years"][i] = r.years
-        kc["k_yrs_left"][i] = r.year_signed + r.years - (dt.year if dt.month >= 3 else dt.year - 1)
+        kc["k_apy"][i], kc["k_gtd"][i], kc["k_years"][i], kc["k_yrs_left"][i] = r
     for n, v in kc.items():
         df[n] = v
 
     # d_: depth-chart rank as of the date (weekly charts to 2024, daily ESPN snapshots 2025+)
-    D = []
-    for y in seasons:
-        d = _read(f"dc_{y}.csv")
-        if d is None:
-            continue
-        if "depth_team" in d.columns:
-            d = d[(d.formation == "Offense") & d.position.isin(POS) & (d.game_type == "REG")].copy()
-            d["avail"] = (_wkdate(y, d.week) - pd.Timedelta(days=4)).values
-            d["rank"] = pd.to_numeric(d.depth_team, errors="coerce")
-        else:
-            d = d[d.pos_abb.isin(POS)].copy()
-            d["avail"] = pd.to_datetime(d.dt.str[:10])
-            d["rank"] = d.pos_rank
-        D.append(d[["gsis_id", "avail", "rank"]])
-    D = pd.concat(D).groupby(["gsis_id", "avail"]).agg(rank=("rank", "min")).reset_index()
-    snapdates = np.sort(D.avail.unique())
-    Dg = {key: v.sort_values("avail") for key, v in D.groupby("gsis_id")}
+    snapdates, Dg, Da = T["snapdates"], T["Dg"], T["Da"]
     dr = np.full(len(df), np.nan); dage = np.full(len(df), np.nan)
+    memo = {}                          # a row reads the charts known by its date: each (player, charts known) once
     for i, (g, dt) in enumerate(zip(df.gsis, df.date)):
-        last = snapdates[snapdates <= np.datetime64(dt)]
-        if not len(last):
-            continue
-        v = Dg.get(g)
-        v = v[v.avail <= dt] if v is not None else None
-        if v is None or not len(v):
-            dr[i] = 9
-            continue
-        r = v.iloc[-1]
-        dage[i] = (last[-1] - np.datetime64(r.avail)) / np.timedelta64(1, "D")
-        dr[i] = r["rank"] if dage[i] <= 21 else 9  # off every chart for 3+ weeks
+        t = np.datetime64(dt)
+        a = Da.get(g)
+        mk = (g, int(np.searchsorted(snapdates, t, side="right")), -1 if a is None else int(np.searchsorted(a, t, side="right")))
+        r = memo.get(mk)
+        if r is None:
+            r = (np.nan, np.nan)
+            if mk[1]:                                       # some chart was out by the date
+                if mk[2] <= 0:                              # none had him (or he has none)
+                    r = (9, np.nan)
+                else:
+                    av, rk = T["Dr"][g]
+                    da = (snapdates[mk[1] - 1] - np.datetime64(av[mk[2] - 1])) / np.timedelta64(1, "D")
+                    r = (rk[mk[2] - 1] if da <= 21 else 9, da)  # off every chart for 3+ weeks
+            memo[mk] = r
+        dr[i], dage[i] = r
     df["d_rank"] = dr; df["d_stale"] = dage
 
     # s_: offensive snap share (last season, season before, this season, last 3 games)
-    dp = pd.read_csv(REPO / "exports/snapshot/dynastyprocess_playerids.csv")
-    pfr2g = dict(zip(dp.pfr_id, dp.gsis_id))
-    sn = []
-    for y in seasons:
-        s = _read(f"snap_{y}.csv")
-        if s is None:
-            continue
-        s = s[s.game_type == "REG"].copy()
-        s["gsis"] = s.pfr_player_id.map(pfr2g)
-        s["avail"] = _wkdate(y, s.week).values
-        sn.append(s[["gsis", "season", "week", "avail", "offense_pct"]])
-    sn = pd.concat(sn).dropna(subset=["gsis"]).sort_values(["gsis", "season", "week"])
-    SA = sn.groupby(["gsis", "season"]).offense_pct.mean()
+    SA = T["SA"]
     df["s_snap_l0"] = SA.reindex(list(zip(df.gsis, df.lcs))).values
     df["s_snap_l1"] = SA.reindex(list(zip(df.gsis, df.lcs - 1))).values
-    sn["cum"] = sn.groupby(["gsis", "season"]).offense_pct.transform(lambda s: s.expanding().mean())
-    sn["l3"] = sn.groupby(["gsis", "season"]).offense_pct.transform(lambda s: s.rolling(3, 1).mean())
     left = df[["date", "gsis"]].assign(rid=np.arange(len(df))).dropna(subset=["gsis"])
     left["date"] = left.date.astype("datetime64[ns]")
-    sn["avail"] = pd.to_datetime(sn.avail).astype("datetime64[ns]")
-    m = merge_asof(left.sort_values("date"), sn.sort_values("avail")[["gsis", "avail", "season", "cum", "l3"]],
-                      left_on="date", right_on="avail", by="gsis").set_index("rid")
+    m = merge_asof(left.sort_values("date"), T["sn"], left_on="date", right_on="avail", by="gsis").set_index("rid")
     ok = m.season.values == df.cur.values[m.index]
     df["s_snap_cur"] = np.nan; df["s_snap_l3"] = np.nan
     df.loc[m.index[ok], "s_snap_cur"] = m.cum[ok].values
     df.loc[m.index[ok], "s_snap_l3"] = m.l3[ok].values
 
     # e_: career to date + calendar (e_t tracks drift in KTC's overall level)
-    car = ns.groupby(["player_id", "season"]).agg(ppr=("fantasy_points_ppr", "sum"), g=("games", "sum")).reset_index()
-    car["ppg"] = car.ppr / car.g.replace(0, np.nan)
-    cp = {pid: g[["season", "ppg", "g"]].values for pid, g in car.groupby("player_id")}
+    cp = T["cp"]
     best, games, elite = [], [], []
+    memo = {}
     for g, lcs in zip(df.gsis, df.lcs):
-        v = cp.get(g)
-        v = v[v[:, 0] <= lcs] if v is not None else None
-        if v is None or not len(v):
-            best.append(np.nan); games.append(np.nan); elite.append(np.nan)
-            continue
-        good = v[v[:, 2] >= 6]
-        best.append(np.nanmax(good[:, 1]) if len(good) else np.nan)
-        games.append(np.nansum(v[:, 2])); elite.append((good[:, 1] >= 15).sum())
+        r = memo.get((g, lcs))
+        if r is None:
+            v = cp.get(g)
+            v = v[v[:, 0] <= lcs] if v is not None else None
+            if v is None or not len(v):
+                r = (np.nan, np.nan, np.nan)
+            else:
+                good = v[v[:, 2] >= 6]
+                r = (np.nanmax(good[:, 1]) if len(good) else np.nan, np.nansum(v[:, 2]), (good[:, 1] >= 15).sum())
+            memo[(g, lcs)] = r
+        best.append(r[0]); games.append(r[1]); elite.append(r[2])
     df["e_career_best"] = best; df["e_career_games"] = games; df["e_n_elite"] = elite
     df["e_t"] = (df.date - pd.Timestamp("2020-01-01")).dt.days / 365.25
     df["e_doy"] = df.date.dt.dayofyear

@@ -132,8 +132,15 @@ class Football:
         self.SEAS = seasons[seasons.games >= 6]
         self.CAR = set(self.SEAS.player_id)
         self.repl, self.cur, self.cur2 = {}, {}, {}
+        self._memo()
+
+    def _memo(self):
+        """memo tables for the pure per-row pieces (cleared on fit: they read the curves). The block calls add_pv on
+        the same rows once per fold bag and per frame (panel, league rows, grid), so most rows repeat exactly."""
+        self._af, self._ceil, self._seas_by = {}, {}, None
 
     def fit(self, last):
+        self._memo()
         s = self.ALL[self.ALL.season <= last]
         self.repl = {p: float(np.mean([g[g.games >= 6].ppg.sort_values(ascending=False).iloc[n]
                                          for _, g in s[(s.position == p) & (s.season >= last - 4)].groupby("season")]))
@@ -162,16 +169,33 @@ class Football:
 
     # -- production value pieces (v7 / v8 / tl_base)
     def age_factor(self, pos, a0, a1):
-        n = max(0, int(round(a1 - a0)))
-        return float(np.exp(sum(np.polyval(self.cur[pos], a0 + j) for j in range(n)))) if pos in self.cur else 1.0
+        k = (pos, a0, a1)
+        f = self._af.get(k)
+        if f is None:
+            n = max(0, int(round(a1 - a0)))
+            f = self._af[k] = float(np.exp(sum(np.polyval(self.cur[pos], a0 + j) for j in range(n)))) if pos in self.cur else 1.0
+        return f
 
     def career_ceiling_aged(self, df, top=2):
-        out = np.full(len(df), np.nan); S = self.SEAS
+        """the mean of a player's best `top` seasons (6+ games, through lcs), each aged to his current age. Per player
+        the seasons are read from a dict of arrays (in SEAS's row order, as the boolean filter read them before
+        2026-11-10) and each (player, lcs, pos, age) result is memoised: the same arithmetic, ~100x faster."""
+        if self._seas_by is None:
+            S = self.SEAS
+            self._seas_by = {g: (x.season.values, x.ppg.values, x.age.values) for g, x in S.groupby("player_id", sort=False)}
+        out = np.full(len(df), np.nan); by = self._seas_by; memo = self._ceil
         for i, (g, lcs, pos, age) in enumerate(zip(df.gsis.values, df.lcs.values, df.pos.values, df.age.values)):
-            v = S[(S.player_id == g) & (S.season <= lcs)] if g in self.CAR else None
-            if v is None or not len(v) or np.isnan(age): continue
-            aged = [p * self.age_factor(pos, sa, age) if not np.isnan(sa) else p for p, sa in zip(v.ppg.values, v.age.values)]
-            out[i] = np.mean(sorted(aged, reverse=True)[:top])
+            if g not in self.CAR or g not in by: continue        # (a NaN id is in neither: the old filter matched nothing)
+            k = (g, lcs, pos, age)
+            r = memo.get(k, memo)
+            if r is memo:
+                r = None
+                se, pp, ag = by[g]; m = se <= lcs
+                if m.any() and not np.isnan(age):
+                    aged = [p * self.age_factor(pos, sa, age) if not np.isnan(sa) else p for p, sa in zip(pp[m], ag[m])]
+                    r = np.mean(sorted(aged, reverse=True)[:top])
+                memo[k] = r
+            if r is not None: out[i] = r
         return out
 
     def pv8_level(self, df, ceil_w):
@@ -407,8 +431,63 @@ class WalkForward:
         return F
 
 
-def bagged_block(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print):
-    """the snapshot's block under `bags` fold assignments; L (and S) averaged across them, the rest from bag 0"""
+def bagged_block(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print, workers=None):
+    """the snapshot's block under `bags` fold assignments; L (and S) averaged across them, the rest from bag 0.
+
+    The same arithmetic as running WalkForward(FC, football, b).block(...) for each bag (bagged_block_serial), with
+    the model fits spread over `workers` processes (default WORKERS: one per CPU; 1 = in this process): first the
+    5 x bags stats translators, then the 5 x bags x 3 seeds league-price model pairs. scikit-learn's boosted trees
+    gain nothing from extra threads on these sizes and give the same trees on any thread count, so one fit per core
+    is ~4x faster on a 4-core runner with every model, and so every value, unchanged (2026-11-10)."""
+    bags = BAGS if bags is None else bags
+    t0 = time.time()
+    with _Pool(workers) as pool:
+        # 1. the stats translator S for each (bag, fold), on the KTC panel before R (add_pv is the same in every bag)
+        Fd_R = football.add_pv(Fd[Fd.date < R].copy())
+        folds = [fold_of(Fd_R.sid, b) for b in range(bags)]
+        Xs = Fd_R[FC]; ys = {t: (np.sqrt(Fd_R.ktc.values) if t == "sqrt" else Fd_R.ktc.values) for t, _ in ENS}
+        wts = Fd_R.date.values
+        pool.share(_SM=(Xs, ys, wts, folds, ENS))
+        fits = pool.map(_fit_stats, [(b, k) for b in range(bags) for k in range(5)])
+        Sfold = {b: [fits[b * 5 + k] for k in range(5)] for b in range(bags)}
+        # 2. per bag: S on the league rows, the panel and the block's rows; anchors; the league-price model's rows
+        W = [WalkForward(FC, football, b) for b in range(bags)]
+        P = []
+        for b in range(bags):
+            obs, kt, hist = W[b].obs_prep(LR, Fd, R, R1, Sfold[b])
+            F = W[b].with_S(F_all[(F_all.date >= R) & (F_all.date < R1)].copy(), Sfold[b])
+            F = add_anchor(F, hist)
+            COLS = list(dict.fromkeys(["posc"] + [c for c in feats(obs) if c != "posc"] + ["sqS"] + AF + PVF))
+            P.append((obs, kt, F, COLS))
+        ld_tasks = [(b, k, sd) for b in range(bags) for k in range(5) if (P[b][2].fold == k).values.any() for sd in LD_SEEDS]
+        pool.share(_LD=[(o[COLS], o.y.values, o.w.values, o.fold.values, k_[COLS], k_.y.values, k_.w.values, k_.fold.values)
+                        for o, k_, _, COLS in P])
+        got = dict(zip(ld_tasks, pool.map(_fit_ld, ld_tasks)))
+    # 3. per bag and fold, exactly WalkForward.block's tail
+    out = []
+    for b in range(bags):
+        obs, kt, F, COLS = P[b]
+        L = np.zeros(len(F)); ref_all = kt[kt.date >= R - pd.Timedelta(days=3 * 365)]
+        for k in range(5):
+            m = (F.fold == k).values
+            if not m.any(): continue
+            o = obs[obs.fold != k]
+            ms = [x for sd in LD_SEEDS for x in got[(b, k, sd)]]; LD = ld_pred(ms, F[m], COLS)
+            cv = fit_curve(W[b].curve_rows(o).assign(date=pd.Timestamp("2022-06-01"))); ref = ref_all[ref_all.fold != k]
+            qS, qP = qpos_fit_col(ref.assign(S=ref.S.clip(0)), "S"), qpos_fit_col(ref, NM)
+            L[m] = hybrid(LD, LG8(F[m], cv, qS, qP, A_PV, NM))
+        F["L"] = gated_boost(F, L, BOOST, 2, 30); F["snap"] = R
+        log(f"snapshot {R.date()}{f' bag {b}' if b else ''}: {len(F)} rows, obs {len(obs)}, panel {len(Fd_R)}, {time.time() - t0:.0f}s"
+            f" (all bags, {pool.n} worker{'s' if pool.n > 1 else ''})")
+        out.append(F)
+    F = out[0]
+    if bags <= 1: return F
+    F["L"] = np.mean([x.L.values for x in out], axis=0); F["S"] = np.mean([x.S.values for x in out], axis=0); F["bags"] = bags
+    return F
+
+
+def bagged_block_serial(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print):
+    """the reference: each bag's WalkForward.block in turn (the rebuild before 2026-11-10); bagged_block must match it"""
     bags = BAGS if bags is None else bags
     F = WalkForward(FC, football, 0).block(R, R1, F_all, LR, Fd, log=log)
     if bags <= 1: return F
@@ -418,6 +497,69 @@ def bagged_block(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print):
         Ls.append(Fb.L.values); Ss.append(Fb.S.values)
     F["L"] = np.mean(Ls, axis=0); F["S"] = np.mean(Ss, axis=0); F["bags"] = bags
     return F
+
+
+# ------------------------------------------------------------------ the parallel fits (bagged_block)
+LD_SEEDS = (0, 1, 2)          # ld_models' seeds in WalkForward.block
+WORKERS = int(os.environ.get("FAAB_WORKERS", "0")) or (os.cpu_count() or 1)
+_SHARED: dict = {}
+
+
+def _fit_stats(task):
+    """one (bag, fold) stats translator: kp.StatsModel(FC, ensemble=ENS).fit(Fd_R[fold != k]), from shared arrays"""
+    b, k = task
+    X, ys, dates, folds, ens = _SHARED["_SM"]
+    m = folds[b] != k
+    d = X[m]
+    w = kp._recency(pd.DataFrame({"date": dates[m]}))
+    sm = kp.StatsModel(list(X.columns), ensemble=ens)
+    sm.models = [(t, kp._gbm(**kw).fit(d, ys[t][m], sample_weight=w)) for t, kw in ens]
+    return sm
+
+
+def _fit_ld(task):
+    """one (bag, fold, seed) pair of ld_models' league-price models"""
+    b, k, sd = task
+    oX, oy, ow, of, kX, ky, kw, kf = _SHARED["_LD"][b]
+    mo, mk = of != k, kf != k
+    a = gbm(random_state=sd, max_features=0.6).fit(oX[mo], oy[mo], sample_weight=ow[mo])
+    X = pd.concat([oX[mo], kX[mk]]); y = np.r_[oy[mo], ky[mk]]; w = np.r_[ow[mo], kw[mk] * 0.03]
+    return [a, gbm(random_state=sd, max_features=0.6).fit(X, y, sample_weight=w)]
+
+
+def _worker_init(shared):
+    _SHARED.update(shared)
+    try:
+        from threadpoolctl import threadpool_limits
+        _SHARED["_limits"] = threadpool_limits(1)    # one fit per core: the trees are the same on any thread count
+    except Exception:                  # noqa: BLE001 - only a speed setting
+        pass
+
+
+class _Pool:
+    """map over processes (spawned, so no OpenMP state is forked), or in this process when n == 1. `share` sets the
+    data the next map's tasks read (sent once per worker)."""
+
+    def __init__(self, workers=None):
+        self.n = max(1, int(workers or WORKERS)); self.shared = {}
+
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+    def share(self, **kw): self.shared.update(kw)
+
+    def map(self, fn, tasks):
+        tasks = list(tasks)
+        if self.n == 1 or len(tasks) <= 1:
+            _SHARED.update(self.shared)
+            try: return [fn(t) for t in tasks]
+            finally:
+                for k in self.shared: _SHARED.pop(k, None)
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(min(self.n, len(tasks)), mp_context=mp.get_context("spawn"), initializer=_worker_init,
+                                 initargs=(self.shared,)) as ex:
+            return list(ex.map(fn, tasks))
 
 
 def season_done(R):

@@ -458,17 +458,32 @@ def coach_follow(up_s, first_team_up, last_team_prev, gt):
 ROOKIE_W1_MULT = 4.0      # a Week-1 waiver bid (100-dollar budget) counts 4x a rookie-draft dollar: Oliver, 2026-11-08
 
 
+_TEAM_PREP: dict = {}
+
+
+def _team_prep(roster):
+    """team_on's roster tables (each week's team from when it is known, each season's first team), built once per
+    roster frame: rookie_backup_spend calls team_on once per rookie, and the prep was ~0.5 s a call"""
+    hit = _TEAM_PREP.get(id(roster))
+    if hit is not None and hit[0] is roster:
+        return hit[1]
+    r = roster.dropna(subset=["gsis", "team"]).copy(); r["gsis"] = r.gsis.astype(str); r["season"] = r.season.astype(int)
+    r["known"] = r.season.map(lambda y: KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08"))) + pd.to_timedelta(7 * (r.week.astype(int) - 1) - 3, unit="D")
+    r = r.sort_values(["season", "week"])
+    first = r.groupby(["gsis", "season"]).team.first()
+    out = (r.sort_values("known")[["gsis", "season", "known", "team"]], first)
+    _TEAM_PREP.clear(); _TEAM_PREP[id(roster)] = (roster, out)
+    return out
+
+
 def team_on(gsis, dates, roster):
     """each player's NFL team on each date: the latest REG roster week known by then (a week's roster counts from 3 days
     before its kickoff week), else his first roster week that season (before kickoff: the small hindsight the move flags
     use). The season is the one whose rosters count from March 1. roster: gsis, season, week, team."""
     d = pd.DataFrame({"gsis": pd.Series(gsis).astype(str).values, "date": pd.to_datetime(pd.Series(dates)).values, "_i": np.arange(len(gsis))})
     d["s"] = np.where(d.date.dt.month >= 3, d.date.dt.year, d.date.dt.year - 1)
-    r = roster.dropna(subset=["gsis", "team"]).copy(); r["gsis"] = r.gsis.astype(str); r["season"] = r.season.astype(int)
-    r["known"] = r.season.map(lambda y: KO.get(int(y), pd.Timestamp(f"{int(y)}-09-08"))) + pd.to_timedelta(7 * (r.week.astype(int) - 1) - 3, unit="D")
-    r = r.sort_values(["season", "week"])
-    first = r.groupby(["gsis", "season"]).team.first()
-    m = kp.merge_asof(d.sort_values("date"), r.sort_values("known")[["gsis", "season", "known", "team"]], left_on="date", right_on="known",
+    rk, first = _team_prep(roster)
+    m = kp.merge_asof(d.sort_values("date"), rk, left_on="date", right_on="known",
                       by="gsis", direction="backward").set_index("_i").sort_index()
     t = np.where(m.season.values == d.s.values, m.team.values, None)
     f = first.reindex(pd.MultiIndex.from_arrays([d.gsis.values, d.s.values])).values
@@ -516,15 +531,19 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
     held = nan.copy()
     if gl is None: return out, held
     G = {key: g.sort_values("known") for key, g in gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"])}
+    GK = {key: np.sort(pd.to_datetime(g.known).values) for key, g in G.items()}
+    memo = {}            # a row reads his games known by the date: each (player, season, position, games known) once
     for i in np.where(out > 0)[0]:
         cols = BACKUP_USE.get(rows.pos.values[i])
         g1, g0 = G.get((gs_row[i], s_row[i])), G.get((gs_row[i], s_row[i] - 1))
         if not cols or g1 is None or g0 is None: continue
-        g1 = g1[pd.to_datetime(g1.known).values <= dt[i]]
-        if not len(g1): continue
-        r_ = [min(float(np.nanmean(g1[c].astype(float).fillna(0))) / v0, 1.5) for c in cols
-              for v0 in [float(np.nanmean(g0[c].astype(float).fillna(0)))] if v0 >= BACKUP_FLOOR[c]]
-        if r_: held[i] = float(np.mean(r_))
+        mk = (gs_row[i], s_row[i], rows.pos.values[i], int(np.searchsorted(GK[(gs_row[i], s_row[i])], dt[i], side="right")))
+        if mk not in memo:
+            g1 = g1[pd.to_datetime(g1.known).values <= dt[i]]
+            r_ = [min(float(np.nanmean(g1[c].astype(float).fillna(0))) / v0, 1.5) for c in cols
+                  for v0 in [float(np.nanmean(g0[c].astype(float).fillna(0)))] if v0 >= BACKUP_FLOOR[c]] if len(g1) else []
+            memo[mk] = float(np.mean(r_)) if r_ else None
+        if memo[mk] is not None: held[i] = memo[mk]
     return out, held
 
 
@@ -584,13 +603,20 @@ def ypc_with_current(rows, gl):
     rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
     g = gl.dropna(subset=["rush_car"]).assign(gsis=lambda x: x.gsis.astype(str), known=lambda x: pd.to_datetime(x.known))
     by = {k: v for k, v in g.groupby("gsis")}
+    kn = {k: (v.season.values, v.known.values) for k, v in by.items()}
     dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    memo = {}            # the rows read depend only on (player, season, this season's games known): each once
     for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).values, s_row)):
         v = by.get(gs)
         if v is None: continue
-        v = v[(v.season >= y - 2) & (v.season <= y) & ((v.season < y) | (v.known.values <= dt[i]))]
-        c = float(v.rush_car.sum())
-        if c >= 100: out[i] = float(v.rush_yds.fillna(0).sum()) / c
+        se, kw = kn[gs]
+        mk = (gs, y, int(((se == y) & (kw <= dt[i])).sum()))
+        r = memo.get(mk, memo)
+        if r is memo:
+            v = v[(v.season >= y - 2) & (v.season <= y) & ((v.season < y) | (v.known.values <= dt[i]))]
+            c = float(v.rush_car.sum())
+            r = memo[mk] = float(v.rush_yds.fillna(0).sum()) / c if c >= 100 else None
+        if r is not None: out[i] = r
     return out
 
 
@@ -611,14 +637,20 @@ def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
         t = last.get((x.gsis_id, y))
         if q is None or q["count"] < min_games or t is None: continue
         k = (t, x.position, y); best[k] = max(best.get(k, 0.0), float(q["mean"]))
+    memo = {}            # a row reads only (player, season, position): each once
     for i in range(len(rows)):
         gs, y = str(rows.gsis.values[i]), int(s_row[i]) - 1
-        q = g.loc[(gs, y)] if (gs, y) in g.index else None
-        t = last.get((gs, y))
-        if q is None or q["count"] < own_min or t is None: continue
-        b = best.get((t, rows.pos.values[i], y), 0.0)
-        if (d.draft_year[d.gsis_id == gs] == y).any(): continue                 # a rookie himself
-        out[i] = float(np.clip((b - q["mean"]) / gap, 0, 1))
+        mk = (gs, y, rows.pos.values[i]); r = memo.get(mk, memo)
+        if r is memo:
+            r = None
+            q = g.loc[(gs, y)] if (gs, y) in g.index else None
+            t = last.get((gs, y))
+            if not (q is None or q["count"] < own_min or t is None):
+                b = best.get((t, rows.pos.values[i], y), 0.0)
+                if not (d.draft_year[d.gsis_id == gs] == y).any():                 # not a rookie himself
+                    r = float(np.clip((b - q["mean"]) / gap, 0, 1))
+            memo[mk] = r
+        if r is not None: out[i] = r
     return out
 
 
@@ -683,10 +715,15 @@ def league_undrafted(rows, adds):
         px = fa.price.astype(float).fillna(0)
         cut = max(float(np.sort(px.values)[::-1][TOP_ADDS - 1]) if len(px) >= TOP_ADDS else 0.0, 5.0)
         m = np.where((s_row == y) & (dt >= np.datetime64(d0)))[0]
+        fd = {k: np.sort(v.date.values) for k, v in fa.groupby("sid")}; memo = {}
         for i in m:
             if sid[i] in got: out[i] = 0.0; continue
-            b = fa[(fa.sid == sid[i]) & (fa.date.values <= dt[i])]
-            out[i] = 1.0 - min(float(b.price.astype(float).fillna(0).max()) / cut, 1.0) if len(b) else 1.0
+            t = fd.get(sid[i])
+            mk = (sid[i], 0 if t is None else int(np.searchsorted(t, dt[i], side="right")))   # his bids known by the date
+            if mk not in memo:
+                b = fa[(fa.sid == sid[i]) & (fa.date.values <= dt[i])]
+                memo[mk] = 1.0 - min(float(b.price.astype(float).fillna(0).max()) / cut, 1.0) if len(b) else 1.0
+            out[i] = memo[mk]
     return out
 
 
@@ -814,16 +851,18 @@ def target_lead(rows, gl, min_games=4, share=0.18, horizon=17):
     L["known"] = kn.reindex(pd.MultiIndex.from_frame(L[["gsis", "season", "week"]])).values
     L = L.dropna(subset=["known"]).sort_values("known")
     LG = {a: v for a, v in L.groupby("gsis")}; GG = _known_games(g, set(L.gsis))
+    # the same per-row arithmetic on arrays taken out of the frames once (the loop read them off pandas every row)
+    LA = {a: (l.known.values.astype("datetime64[ns]"), l.season.values, l.week.values, l.share.values) for a, l in LG.items()}
+    UA = {a: (u.known.values.astype("datetime64[ns]"), u.season.values, u.week.values) for a, u in GG.items()}
     gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
     for i in range(N):
-        l = LG.get(gs[i])
+        l = LA.get(gs[i])
         if l is None: continue
-        j = int(np.searchsorted(l.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        j = int(np.searchsorted(l[0], dv[i], side="right"))
         if j == 0: continue
-        r = l.iloc[j - 1]; u = GG[gs[i]]
-        kk = u.known.values.astype("datetime64[ns]") <= dv[i]
-        after = ((u.season.values > r.season) | ((u.season.values == r.season) & (u.week.values > r.week))) & kk
-        w[i] = max(0.0, 1.0 - after.sum() / horizon); sh[i] = r.share
+        rs, rw, rsh = l[1][j - 1], l[2][j - 1], l[3][j - 1]; uk, us, uw = UA[gs[i]]
+        after = ((us > rs) | ((us == rs) & (uw > rw))) & (uk <= dv[i])
+        w[i] = max(0.0, 1.0 - after.sum() / horizon); sh[i] = rsh
     return w, sh
 
 
@@ -834,12 +873,13 @@ def recent_max(rows, gl, n=3, min_off=0.5):
     if gl is None or not len(gl): return out
     g = gl[gl.off_pct.fillna(0) >= min_off] if "off_pct" in gl else gl
     GG = _known_games(g.dropna(subset=["ppr"]), set(np.asarray(rows.gsis).astype(str)))
+    GA = {a: (u.known.values.astype("datetime64[ns]"), u.ppr.values) for a, u in GG.items()}
     gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
     for i in range(N):
-        u = GG.get(gs[i])
+        u = GA.get(gs[i])
         if u is None: continue
-        k = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
-        if k: out[i] = float(u.ppr.values[max(0, k - n):k].max())
+        k = int(np.searchsorted(u[0], dv[i], side="right"))
+        if k: out[i] = float(u[1][max(0, k - n):k].max())
     return out
 
 
@@ -851,10 +891,11 @@ def touch_games(rows, gl, thr=20):
     g = gl.assign(t=gl.rush_car.fillna(0) + gl.rec.fillna(0))
     g = g[g.t > thr]
     GG = _known_games(g, set(np.asarray(rows.gsis).astype(str)))
+    GA = {a: u.known.values.astype("datetime64[ns]") for a, u in GG.items()}
     gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
     for i in range(N):
-        u = GG.get(gs[i])
-        if u is not None: out[i] = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        u = GA.get(gs[i])
+        if u is not None: out[i] = int(np.searchsorted(u, dv[i], side="right"))
     return out
 
 
@@ -880,16 +921,20 @@ def te_slide(rows, gl, pos_of, l0_s, top=7, deep=20, recent=4, top_wk=5, recover
     played = ~np.isnan(r0) | ~np.isnan(r1)
     slide = (out0 & out1 & played).astype(float) * (1 + (np.nan_to_num(r0, nan=99) > deep))
     best = rk[rk <= top].reset_index()
+    wm = {}
     for i in np.where(slide > 0)[0]:
-        was[i] = float(((best.gsis == gs[i]) & (best.season < l0[i] - 1)).any())
+        k_ = (gs[i], l0[i])
+        if k_ not in wm: wm[k_] = float(((best.gsis == gs[i]) & (best.season < l0[i] - 1)).any())
+        was[i] = wm[k_]
     g = gl.assign(gsis=gl.gsis.astype(str)); g = g[g.gsis.map(pos_of) == "TE"].dropna(subset=["ppr"])
     g["wk_rk"] = g.groupby(["season", "week"]).ppr.rank(ascending=False, method="min")
     GG = _known_games(g, set(gs[slide > 0])); dv = np.asarray(rows.date, dtype="datetime64[ns]")
+    GA = {a: (u.known.values.astype("datetime64[ns]"), u.wk_rk.values) for a, u in GG.items()}
     for i in np.where(slide > 0)[0]:
-        u = GG.get(gs[i])
+        u = GA.get(gs[i])
         if u is None: continue
-        k = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
-        if k >= recover: rec[i] = float((u.wk_rk.values[max(0, k - recent):k] <= top_wk).sum() >= recover)
+        k = int(np.searchsorted(u[0], dv[i], side="right"))
+        if k >= recover: rec[i] = float((u[1][max(0, k - recent):k] <= top_wk).sum() >= recover)
     return slide, rec, was
 
 
@@ -925,10 +970,11 @@ def big_games(rows, gl, min_off=0.5):
     N = len(rows); out = np.zeros(N)
     if gl is None or not len(gl) or "off_pct" not in gl: return out
     GG = _known_games(gl[gl.off_pct.fillna(0) >= min_off], set(np.asarray(rows.gsis).astype(str)))
+    GA = {a: u.known.values.astype("datetime64[ns]") for a, u in GG.items()}
     gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
     for i in range(N):
-        u = GG.get(gs[i])
-        if u is not None: out[i] = int(np.searchsorted(u.known.values.astype("datetime64[ns]"), dv[i], side="right"))
+        u = GA.get(gs[i])
+        if u is not None: out[i] = int(np.searchsorted(u, dv[i], side="right"))
     return out
 
 
@@ -941,12 +987,19 @@ def pass_ypg(rows, gl, cur_s, l0_s, in_season, min_g=4):
     GG = {a: v for a, v in g.groupby("gsis")}
     gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(rows.date, dtype="datetime64[ns]")
     cur_s = np.asarray(cur_s); l0_s = np.asarray(l0_s); ins = np.asarray(in_season, dtype=bool)
+    GA = {a: (v.season.values, v.known.values.astype("datetime64[ns]")) for a, v in GG.items()}
+    memo = {}            # a row reads this season's games known by the date or last season's: each combination once
     for i in np.where(np.asarray(rows.pos) == "QB")[0]:
         v = GG.get(gs[i])
         if v is None: continue
-        c = v[(v.season.values == cur_s[i]) & (v.known.values.astype("datetime64[ns]") <= dv[i])] if ins[i] else v.iloc[:0]
-        u = c if len(c) >= min_g else v[v.season.values == l0_s[i]]
-        if len(u) >= min_g: out[i] = float(u.pass_yds.sum() / len(u))
+        se, kn = GA[gs[i]]
+        mk = (gs[i], bool(ins[i]), cur_s[i], l0_s[i], int(((se == cur_s[i]) & (kn <= dv[i])).sum()) if ins[i] else -1)
+        r = memo.get(mk, memo)
+        if r is memo:
+            c = v[(v.season.values == cur_s[i]) & (v.known.values.astype("datetime64[ns]") <= dv[i])] if ins[i] else v.iloc[:0]
+            u = c if len(c) >= min_g else v[v.season.values == l0_s[i]]
+            r = memo[mk] = float(u.pass_yds.sum() / len(u)) if len(u) >= min_g else None
+        if r is not None: out[i] = r
     return out
 
 
