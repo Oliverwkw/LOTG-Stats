@@ -18,7 +18,7 @@ CALLS_DATE = "2026-10-24"                                  # the reviewed board 
 CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26")   # first review, second review, league chat consensus
 # Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
 # in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
-LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Derrick Henry", "Denzel Boston",
+LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Denzel Boston",
              "A.J. Brown", "Bo Nix", "Bucky Irving", "Luther Burden", "Emeka Egbuka",
              "Parker Washington", "Bryce Young"]
 UNDER_FIRST = ["George Kittle", "Matthew Stafford", "Baker Mayfield", "Jadarian Price"]   # Etienne: left to the system (2026-10-25)
@@ -86,6 +86,7 @@ def calls(v, ref=None, qbs=()):
           ("KC about $1,000", rng("KC Concepcion", 850, 1250)),
           ("Lemon below the 1.05", rng("Makai Lemon", 600, 1250)), ("Mixon (no team) cheap", rng("Joe Mixon", 1, 120))]
     t += [(f"{n} a low first", rng(n, 750, 1200)) for n in LOW_FIRST]
+    t += [("Derrick Henry a mid-low first (1.07-1.04, $783-1,135)", rng("Derrick Henry", 783, 1135))]   # Oliver 2026-11-10
     t += [("Ladd McConkey a low first / top-2 second ($453-1,200)", rng("Ladd McConkey", 453, 1200)),
           ("Jalen Coker at least a mid second (>= $222)", rng("Jalen Coker", 222, 99999))]
     t += [(f"{n} just under a first", rng(n, 600, 1050)) for n in UNDER_FIRST]
@@ -146,7 +147,7 @@ def score(v, ref=None, qbs=(), others_w=0.15, exp=None):
     if exp is not None: t.append(vet_bubble(v, exp))
     loss = sum(x for _, x in t)
     if ref is not None:
-        named = set(LOW_FIRST + UNDER_FIRST + MID_TE + TOP3)
+        named = set(LOW_FIRST + UNDER_FIRST + MID_TE + TOP3 + ["Derrick Henry"])
         o = [n for n in ref.index if n in v.index and n not in named and ref[n] >= 50]
         loss += others_w * float(np.mean(np.abs(np.log(v[o].values) - np.log(ref[o].values))))
     return loss, t
