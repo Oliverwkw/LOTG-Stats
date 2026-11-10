@@ -525,6 +525,15 @@ def test_target_lead_needs_a_typical_catch_rate():
     assert np.isclose(t[0], 0.5 * 0.53) and t[1] == 0 and np.isclose(t[2], 0.5 * 0.53 * 0.5) and np.isclose(t[3], 0.5 * 0.53) and np.isclose(t[4], 0.5 * 0.53)
 
 
+def test_summer_weight_fades_in_before_the_nfl_draft_and_runs_through_week_1():
+    from lotg_support.faab_features import KO, NFL_DRAFT
+    nd, ko = pd.Timestamp(NFL_DRAFT[2025]), pd.Timestamp(KO[2025])
+    R = pd.DataFrame(dict(date=[nd - pd.Timedelta(days=F.SUMMER_FADE_IN + 1), nd - pd.Timedelta(days=F.SUMMER_FADE_IN / 2), nd,
+                                ko + pd.Timedelta(days=F.SUMMER_END - 1), ko + pd.Timedelta(days=F.SUMMER_END), pd.Timestamp("2026-11-09")]))
+    w = F.summer_weight(R)
+    assert w[0] == 0 and np.isclose(w[1], 0.5) and w[2] == 1 and w[3] == 1 and w[4] == 0 and w[5] == 0
+
+
 def test_summer_can_end_at_the_league_draft():
     R = pd.DataFrame([dict(pos="WR", age=25.0, exp=2.0, injury="", e_x_offseason=1.0, e_x_league_draft_done=d) for d in (0.0, 1.0, np.nan)])
     old = F.SUMMER_TO_DRAFT

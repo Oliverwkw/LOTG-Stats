@@ -107,6 +107,21 @@ def boom_bust_early(R, cur_gp):
     cv = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_ppr_cv"), np.nan), col(R, "e_x_l0_ppr_cv"), col(R, "e_x_l1_ppr_cv"))
     tds = _rowmean(np.where(cur_gp >= 4, col(R, "e_x_cur_td_share"), np.nan), col(R, "e_x_l0_td_share"), col(R, "e_x_l1_td_share"))
     return np.clip((np.nan_to_num(cv, nan=0.5) - 0.5) / 0.25, 0, 1.5) + np.clip((np.nan_to_num(tds, nan=0.2) - 0.25) / 0.15, 0, 1.5)
+def summer_weight(R):
+    """the summer window on each row's date (Oliver 2026-11-10, grid of start/end dates and fades): 0 until SUMMER_FADE_IN
+    days before the NFL draft, rising to 1 at the draft, 1 until SUMMER_END days after kickoff (Week 1 still counts),
+    then 0. A year without an NFL draft or kickoff date falls back to the exported June 1 -> kickoff - 3 flag."""
+    if "date" not in R: return np.nan_to_num(col(R, "e_x_offseason"))
+    from .faab_features import KO, NFL_DRAFT
+    d = pd.to_datetime(R.date).dt.normalize(); y = d.dt.year
+    nd = pd.to_datetime(y.map(NFL_DRAFT)); ko = pd.to_datetime(y.map(lambda v: KO.get(v)))
+    up = np.clip(((d - nd).dt.days.values + SUMMER_FADE_IN) / max(SUMMER_FADE_IN, 1e-9), 0, 1) if SUMMER_FADE_IN > 0 \
+        else ((d - nd).dt.days.values >= 0).astype(float)
+    w = np.where((d - ko).dt.days.values < SUMMER_END, up, 0.0)
+    known = nd.notna().values & ko.notna().values
+    return np.where(known, np.nan_to_num(w), np.nan_to_num(col(R, "e_x_offseason")))
+
+
 def characteristics(R, youth_age=26.0):
     """the measurable characteristics the rules act on (each 0..1 or a small count)"""
     age = col(R, "age"); exp_ = np.nan_to_num(col(R, "exp"))
@@ -297,10 +312,10 @@ def characteristics(R, youth_age=26.0):
     # off the field: out of the league / unsigned after June 1 / a dated off-field event, plus the share of a season suspended
     off_field = np.clip(np.nan_to_num(col(R, "e_x_career_over")) + np.nan_to_num(col(R, "e_x_unsigned")) + np.nan_to_num(col(R, "e_x_offfield")), 0, 1)
     off_field = np.maximum(off_field, 0.5 * np.nan_to_num(col(R, "e_x_suspended")))
-    # the summer (June 1 -> kickoff - 3 days): one level shift for every player against picks and FAAB, which the league
-    # prices differently once the draft is done (either sign; 0 on every in-season board)
-    # ... ending with the league's rookie draft (Oliver 2026-11-09: after it, the picks are players; no draft date: to kickoff)
-    summer = np.nan_to_num(col(R, "e_x_offseason")) * (1 - np.nan_to_num(col(R, "e_x_league_draft_done")) * SUMMER_TO_DRAFT)
+    # the summer (summer_weight: fading in over the 90 days before the NFL draft, through Week 1): one level shift for
+    # every player against picks and FAAB, which the league prices differently in the offseason (0 on in-season boards);
+    # SUMMER_TO_DRAFT of it lifts after the league's rookie draft (Oliver: after it, the picks are players)
+    summer = summer_weight(R) * (1 - np.nan_to_num(col(R, "e_x_league_draft_done")) * SUMMER_TO_DRAFT)
     # journeyman QB: 27+ with at most one full season as a starter in the last four (a dime a dozen)
     journeyman = (posv == "QB") * (np.nan_to_num(col(R, "e_x_qb_full_4y")) <= 1) * np.clip((np.nan_to_num(age, nan=25) - 26) / 2, 0, 1)
     # bust: nothing as a rookie and nothing again in year two (both well below replacement usage), and no breakout now
@@ -419,8 +434,10 @@ QB_TOUGH_MIN = 2                 # qb_tough: at least this many straight seasons
 YPG_THR, YPG_SPAN, YPG_MIN_V = 230.0, 40.0, 1000.0   # qb_ypg: passing yards a game under THR (full SPAN below), QBs worth $1,000+
 SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games on half the snaps -> at most his league draft price
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
-SUMMER_TO_DRAFT = 0.524            # summer: share of the shift lifted after the league draft (Oliver 2026-11-10: smaller post-draft impact;
-                                   # with summer -0.7: x0.50 before the draft, x0.72 after; the Conner trade near even)
+SUMMER_FADE_IN = 90               # summer: rises from 0 this many days before the NFL draft to full at the draft (Oliver 2026-11-10 grid)
+SUMMER_END = 7                    # ... and ends this many days after kickoff (Week 1 still counts)
+SUMMER_TO_DRAFT = 0.6             # ... share of it lifted after the league draft (Oliver: a smaller post-draft impact; the Aug 2025
+                                  # Conner trade even at -0.7)
 RB_HOLD_TOP = 15                 # rb_hold: last season's RB rank (total PPR) at or above this
 RB_HOLD_LO, RB_HOLD_HI = 400.0, 1000.0   # ... base value range, fading over the 25% past each end (Conner $667 on 2025-08-02)
 RB_HOLD_MAXV = 600.0            # ... only while his value at this stage is under this (fading from 75% of it)
