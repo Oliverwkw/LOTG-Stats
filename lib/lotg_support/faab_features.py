@@ -972,6 +972,7 @@ def round5_columns(rows, gl, pos_of, adds):
     out["e_x_big_games"] = big_games(rows, gl)
     out["e_x_league_draft_price"] = league_draft_price(rows, adds)
     out["e_x_pass_ypg"] = pass_ypg(rows, gl, cur_s, l0, ins)
+    out["e_x_catch3"] = catch_rate(rows, gl)
     return out
 
 
@@ -1001,6 +1002,26 @@ def rb_room(rows, gl, roster, dp, pos_of, top=15, proven_ppg=None, min_games=6):
         j = joins.get((team[i], int(l0[i]) + 1), set()) - {gs[i]}
         comp[i] = rook[i] + len(j)
     return rank, comp
+
+
+def catch_rate(rows, gl, seasons=3, min_tgt=30):
+    """receptions / targets over his last two complete seasons and this one (games known by the date); NaN under
+    `min_tgt` targets. gl: games played with gsis, season, known, gl_tgt, rec (Oliver 2026-11-10: the target-lead boost
+    is for a receiver who catches the ball)"""
+    N = len(rows); out = np.full(N, np.nan)
+    if gl is None or "rec" not in gl or not len(gl): return out
+    g = gl.dropna(subset=["gl_tgt"]).assign(gsis=lambda x: x.gsis.astype(str), known=lambda x: pd.to_datetime(x.known))
+    by = {k: (v.season.values.astype(int), v.known.values.astype("datetime64[ns]"), v.gl_tgt.values.astype(float), np.nan_to_num(v.rec.values.astype(float)))
+          for k, v in g.groupby("gsis")}
+    _, _, l0 = season_keys(rows.date)
+    gs = np.asarray(rows.gsis).astype(str); dv = np.asarray(pd.to_datetime(pd.Series(np.asarray(rows.date))).values, dtype="datetime64[ns]")
+    for i in range(N):
+        t = by.get(gs[i])
+        if t is None: continue
+        m = (t[0] >= int(l0[i]) - (seasons - 2)) & (t[1] <= dv[i])
+        tg = t[2][m].sum()
+        if tg >= min_tgt: out[i] = t[3][m].sum() / tg
+    return out
 
 
 def league_draft_done(rows, adds):

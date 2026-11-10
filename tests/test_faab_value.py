@@ -518,6 +518,13 @@ def test_rb_hold_and_the_new_arrival_draft_comp_cut():
     assert dc[0] < 0 and np.isclose(dc[1], dc[0] * (1 - F.DRAFT_COMP_NEW)) and np.isclose(dc[2], dc[0])
 
 
+def test_target_lead_needs_a_typical_catch_rate():
+    b = dict(age=24.0, exp=2.0, injury="", pos="WR", V_raw=335.0, e_x_tgt_lead_w=0.53, e_x_qb_base=629.0)
+    rows = [dict(b, e_x_catch3=0.682), dict(b, e_x_catch3=0.601), dict(b, e_x_catch3=0.63), b, dict(b, pos="TE", e_x_catch3=0.709)]
+    t = _final(rows, [800] * 5, tgt_lead=0.5)["tgt_lead"]
+    assert np.isclose(t[0], 0.5 * 0.53) and t[1] == 0 and np.isclose(t[2], 0.5 * 0.53 * 0.5) and np.isclose(t[3], 0.5 * 0.53) and np.isclose(t[4], 0.5 * 0.53)
+
+
 def test_summer_can_end_at_the_league_draft():
     R = pd.DataFrame([dict(pos="WR", age=25.0, exp=2.0, injury="", e_x_offseason=1.0, e_x_league_draft_done=d) for d in (0.0, 1.0, np.nan)])
     old = F.SUMMER_TO_DRAFT
