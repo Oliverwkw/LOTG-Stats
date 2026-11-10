@@ -1,0 +1,117 @@
+name: FAAB speed-up identity check (temporary)
+
+# TEMPORARY (remove before merge): runs main's FAAB pipeline and this branch's on the same restored cache, each in
+# its own tree with its own copy of the cache, and byte-compares every output, with timings. Read-only: the cache is
+# restored, never saved; nothing is committed.
+
+on:
+  push:
+    branches: [claude/project-thread-vvc403]
+    paths: [".github/workflows/faab_speed_check.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests pyyaml pytest
+      - name: Restore pipeline cache (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-none
+          restore-keys: faab-
+      - name: Main's tree with its own copy of the cache
+        run: |
+          set -euo pipefail
+          git worktree add "$RUNNER_TEMP/main" origin/main
+          echo "main $(git rev-parse --short origin/main), branch $(git rev-parse --short HEAD), $(nproc) cores"
+          git diff --stat origin/main HEAD -- lib scripts data
+          mkdir -p "$RUNNER_TEMP/main/.cache" "$RUNNER_TEMP/main/data"
+          cp -a .cache/faab .cache/ktc_proxy "$RUNNER_TEMP/main/.cache/"
+          rm -rf "$RUNNER_TEMP/main/data/ktc_cache"; cp -a data/ktc_cache "$RUNNER_TEMP/main/data/"
+          ls .cache/faab/pipeline | head -50
+      - name: Rebuild (weekly mode, no fetch) - main
+        run: |
+          cd "$RUNNER_TEMP/main"; s=$(date +%s)
+          python scripts/faab_rebuild.py --no-fetch 2>&1 | tee "$RUNNER_TEMP/old_rebuild.log"
+          echo "main rebuild: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+      - name: Rebuild (weekly mode, no fetch) - branch
+        run: |
+          s=$(date +%s)
+          python scripts/faab_rebuild.py --no-fetch 2>&1 | tee "$RUNNER_TEMP/new_rebuild.log"
+          echo "branch rebuild: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+      - name: History-only - main and branch
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/h_old" "$RUNNER_TEMP/h_new"
+          s=$(date +%s); (cd "$RUNNER_TEMP/main" && python scripts/faab_rebuild.py --history-only --out "$RUNNER_TEMP/h_old")
+          echo "main history-only: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+          s=$(date +%s); python scripts/faab_rebuild.py --history-only --out "$RUNNER_TEMP/h_new"
+          echo "branch history-only: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+      - name: Smoke window (1 bag, no fetch) - main and branch
+        env:
+          FAAB_BAGS: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/s_old" "$RUNNER_TEMP/s_new"
+          s=$(date +%s); (cd "$RUNNER_TEMP/main" && python scripts/faab_rebuild.py --no-fetch --end 2021-10-25 --out "$RUNNER_TEMP/s_old")
+          echo "main smoke: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+          s=$(date +%s); python scripts/faab_rebuild.py --no-fetch --end 2021-10-25 --out "$RUNNER_TEMP/s_new"
+          echo "branch smoke: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+      - name: Publish - main and branch
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/main" && python scripts/faab_value.py publish)
+          python scripts/faab_value.py publish
+      - name: Compare
+        if: always()
+        run: |
+          set -uo pipefail
+          M="$RUNNER_TEMP/main"; bad=0
+          for f in data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/history.csv data/faab_value/pick_prices.csv data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json; do
+            if cmp -s "$M/$f" "$f"; then echo "IDENTICAL $f"; else echo "DIFFERENT $f"; bad=1; fi
+          done
+          for f in history.csv pick_prices.csv; do
+            if cmp -s "$RUNNER_TEMP/h_old/$f" "$RUNNER_TEMP/h_new/$f"; then echo "IDENTICAL history-only $f"; else echo "DIFFERENT history-only $f"; bad=1; fi
+          done
+          for f in $(cd "$RUNNER_TEMP/s_old" && ls); do
+            if cmp -s "$RUNNER_TEMP/s_old/$f" "$RUNNER_TEMP/s_new/$f"; then echo "IDENTICAL smoke $f"; else echo "DIFFERENT smoke $f"; bad=1; fi
+          done
+          python - "$M" <<'PY'
+          import sys, pathlib, pandas as pd
+          a, b = pathlib.Path(sys.argv[1]) / ".cache/faab/pipeline", pathlib.Path(".cache/faab/pipeline")
+          for f in sorted(b.glob("*.parquet")):
+              g = a / f.name
+              if not g.exists(): print("only on branch", f.name); continue
+              try: pd.testing.assert_frame_equal(pd.read_parquet(g), pd.read_parquet(f), check_exact=True); print("IDENTICAL cache", f.name)
+              except AssertionError as e: print("DIFFERENT cache", f.name, str(e)[:300])
+          PY
+          cat "$RUNNER_TEMP/times.txt"
+          git status --short
+          exit $bad
+      - name: Tests
+        if: always()
+        run: python -m pytest -q tests/test_faab_speed.py tests/test_faab_value.py tests/test_faab_pipeline.py tests/test_faab_history.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: faab_speed_check
+          path: |
+            ${{ runner.temp }}/*.log
+            ${{ runner.temp }}/times.txt
+          retention-days: 7
