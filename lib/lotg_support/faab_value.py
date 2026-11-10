@@ -405,6 +405,8 @@ WR_BACKUP_MIN = 100.0      # wr_backup: at least this much league spend ($) on t
 # round 5 (Oliver 2026-11-09, his notes on the failing calls)
 TGT_LEAD_LO, TGT_LEAD_HI = 50.0, 1000.0   # tgt_lead: base value range it reaches (McConkey's to Kraft's)
 TGT_LEAD_LOST = True             # ... only once the lead is lost (a current leader's usage is already in his value)
+CATCH_MED = {"WR": 0.64, "TE": 0.69}   # tgt_lead: median catch rate, WR/TE seasons with 50+ targets, 2018-26 game logs
+TGT_LEAD_CATCH_GAP = 0.02         # ... the boost fades out this far below the median
 TGT_LEAD_QB = 600.0              # ... with a team QB whose base value is this much (full; none below 75% of it; Herbert $629 on 2026-10-24)
 YOUNG_BOOM_EXP = (1, 2)          # young_boom: 2nd-3rd NFL season (Sleeper's exp 1-2; Coker is a 2024 UDFA, exp 2)
 YOUNG_BOOM_PPG, YOUNG_BOOM_PTS = 12.0, 30.0   # ... with this PPR/g and a game over this in his last 3 healthy games
@@ -417,11 +419,20 @@ QB_TOUGH_MIN = 2                 # qb_tough: at least this many straight seasons
 YPG_THR, YPG_SPAN, YPG_MIN_V = 230.0, 40.0, 1000.0   # qb_ypg: passing yards a game under THR (full SPAN below), QBs worth $1,000+
 SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games on half the snaps -> at most his league draft price
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
-SUMMER_TO_DRAFT = 0.0            # summer: 1 = the shift ends the day after the league draft, 0 = runs to kickoff - 3 days
+SUMMER_TO_DRAFT = 0.524            # summer: share of the shift lifted after the league draft (Oliver 2026-11-10: smaller post-draft impact;
+                                   # with summer -0.7: x0.50 before the draft, x0.72 after; the Conner trade near even)
 RB_HOLD_TOP = 15                 # rb_hold: last season's RB rank (total PPR) at or above this
 RB_HOLD_LO, RB_HOLD_HI = 400.0, 1000.0   # ... base value range, fading over the 25% past each end (Conner $667 on 2025-08-02)
 RB_HOLD_MAXV = 600.0            # ... only while his value at this stage is under this (fading from 75% of it)
 DRAFT_COMP_NEW = 0.5             # draft_comp: share taken off for a player who joined the team that offseason (not vs a first-rounder)
+
+
+def catch_ok(R, pos):
+    """1 for a WR/TE who catches at least his position's typical share of his targets (last two seasons and this one,
+    e_x_catch3), fading to 0 at TGT_LEAD_CATCH_GAP below it; 1 where the column is missing (Oliver 2026-11-10: McConkey
+    68% and Kraft 71% keep the target-lead boost, Quentin Johnston 60% does not)"""
+    c = col(R, "e_x_catch3"); med = np.select([pos == "WR", pos == "TE"], [CATCH_MED["WR"], CATCH_MED["TE"]], np.nan)
+    return np.where(np.isnan(c) | np.isnan(med), 1.0, np.clip((c - med + TGT_LEAD_CATCH_GAP) / max(TGT_LEAD_CATCH_GAP, 1e-9), 0, 1))
 
 
 def final_terms(R, v, p, X):
@@ -483,7 +494,8 @@ def final_terms(R, v, p, X):
     # injury or a new teammate takes the lead for a while (Oliver 2026-11-09, McConkey and Kraft)
     base = np.maximum(col(R, "V_raw"), 0); qv = np.nan_to_num(col(R, "e_x_qb_base")); tl = np.nan_to_num(col(R, "e_x_tgt_lead_w"))
     T["tgt_lead"] = p.get("tgt_lead", 0.0) * np.isin(pos, ("WR", "TE")) * (base >= TGT_LEAD_LO) * (base <= TGT_LEAD_HI) \
-        * np.interp(qv, [0.75 * TGT_LEAD_QB, TGT_LEAD_QB], [0, 1]) * tl * ((tl < 0.999) | (not TGT_LEAD_LOST))
+        * np.interp(qv, [0.75 * TGT_LEAD_QB, TGT_LEAD_QB], [0, 1]) * tl * ((tl < 0.999) | (not TGT_LEAD_LOST)) \
+        * catch_ok(R, pos)
     # a QB with almost no NFL snaps (under 2 career games on half the snaps) is worth at most what the league paid for
     # him in its rookie draft (Oliver 2026-11-09, Mendoza)
     pr = col(R, "e_x_league_draft_price")

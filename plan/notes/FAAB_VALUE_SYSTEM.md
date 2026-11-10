@@ -278,6 +278,17 @@ players (best x1.4): trade error 0.883 vs 0.819, far-off 54 vs 49, because the s
 rules (vet floor, bands, the $25 pad), so cheap players drop only to ~x0.77. try-rule now clears its cached
 characteristics for `F.` constants (it reported trades +0.0000 for SUMMER_TO_DRAFT before).
 
+### Round 5c: catch rate on the target lead, a smaller post-draft summer shift (Oliver 2026-11-10)
+
+- `tgt_lead` now needs a typical catch rate: receptions / targets over the last two complete seasons and this one
+  (`e_x_catch3`, 30+ targets) at or above the position median (WR 0.64, TE 0.69, from 2018-26 seasons with 50+
+  targets), fading to 0 at 2 points below. McConkey 0.682 and Kraft 0.709 keep it; Quentin Johnston 0.601 (Oct 2025)
+  loses it. With the column: trades -0.0012, far-off 51 -> 50, calls 119 of 119.
+- Summer: `summer` -0.7 before the league draft (x0.50) and `SUMMER_TO_DRAFT` 0.524 lifts about half of it after
+  (-0.33, x0.72), on Oliver's football reasoning (after the draft the picks are players). The Aug 2025 Conner trade
+  goes from $172 vs $292 to $276 vs $292 (near even). Oliver accepted the cost: on the committed inputs trades +0.038
+  and far-off 51 -> 54 (with `e_x_catch3`: 50 -> 53), calls unchanged.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

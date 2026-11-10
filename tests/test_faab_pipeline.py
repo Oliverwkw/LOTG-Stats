@@ -339,6 +339,15 @@ def test_rb_room_ranks_last_season_and_counts_added_competition():
     assert list(cp) == [1, 0, 1, 0]          # a: v joined T; b: nobody; k: W's first-round rookie; v himself is not his own competition
 
 
+def test_catch_rate_reads_two_seasons_and_this_one_by_the_date():
+    gl = _gl([("a", 2023, 1, "T", 40, 10, 0.8, 0, 40, 0), ("a", 2024, 1, "T", 40, 10, 0.8, 0, 24, 0), ("a", 2025, 1, "T", 20, 10, 0.8, 0, 16, 0),
+              ("a", 2025, 2, "T", 20, 10, 0.8, 0, 0, 0), ("b", 2025, 1, "T", 10, 10, 0.8, 0, 9, 0)])
+    when = lambda s, w: gl.known[(gl.season == s) & (gl.week == w)].iloc[0]
+    rows = pd.DataFrame(dict(gsis=["a", "a", "b"], date=[when(2025, 1), when(2025, 2), when(2025, 2)]))
+    c = X.catch_rate(rows, gl)
+    assert abs(c[0] - 80 / 100) < 1e-9 and abs(c[1] - 80 / 120) < 1e-9 and np.isnan(c[2])   # 2023 counts (two complete seasons back); b: under 30 targets
+
+
 def test_league_draft_done_is_the_day_after_the_draft():
     adds = pd.DataFrame(dict(type=["Draft", "Draft", "Waiver"], date=pd.to_datetime(["2025-07-20", "2025-07-20", "2025-08-01"])))
     rows = pd.DataFrame(dict(date=pd.to_datetime(["2025-07-19", "2025-07-20", "2025-07-21", "2024-07-30"])))
