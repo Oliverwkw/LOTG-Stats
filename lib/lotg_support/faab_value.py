@@ -117,7 +117,9 @@ def summer_weight(R):
     nd = pd.to_datetime(y.map(NFL_DRAFT)); ko = pd.to_datetime(y.map(lambda v: KO.get(v)))
     up = np.clip(((d - nd).dt.days.values + SUMMER_FADE_IN) / max(SUMMER_FADE_IN, 1e-9), 0, 1) if SUMMER_FADE_IN > 0 \
         else ((d - nd).dt.days.values >= 0).astype(float)
-    w = np.where((d - ko).dt.days.values < SUMMER_END, up, 0.0)
+    since = (d - ko).dt.days.values
+    down = np.clip((SUMMER_END - since) / SUMMER_FADE_OUT, 0, 1) if SUMMER_FADE_OUT > 0 else (since < SUMMER_END).astype(float)
+    w = up * down
     known = nd.notna().values & ko.notna().values
     return np.where(known, np.nan_to_num(w), np.nan_to_num(col(R, "e_x_offseason")))
 
@@ -435,6 +437,7 @@ YPG_THR, YPG_SPAN, YPG_MIN_V = 230.0, 40.0, 1000.0   # qb_ypg: passing yards a g
 SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games on half the snaps -> at most his league draft price
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
 SUMMER_FADE_IN = 90               # summer: rises from 0 this many days before the NFL draft to full at the draft (Oliver 2026-11-10 grid)
+SUMMER_FADE_OUT = 0               # ... fading out linearly over this many days before SUMMER_END (0 = hard stop)
 SUMMER_END = 7                    # ... and ends this many days after kickoff (Week 1 still counts)
 SUMMER_TO_DRAFT = 0.5             # ... share of it lifted after the league draft (Oliver: a smaller post-draft impact; the Aug 2025
                                   # Conner trade $271 vs $292 at -0.7; Oliver chose 0.5)
