@@ -5,6 +5,9 @@ name: League site
 # (the rating page, docs/rate/). Nothing generated is committed: the deploy replaces the previous one,
 # so git history does not grow with the site.
 #
+# SHEETS: the exports/*.csv come from the latest successful main build's LOTG_outputs artifact (the same one
+# the workbook comes from), not the checkout: the build commits exports/ only now and then.
+#
 # WHEN: after every main run of the weekly build (it commits fresh exports/ and the digest), after the
 # FAAB rebuild (it commits docs/rate/board.json), on pushes to main that touch the site or docs/, and
 # by hand. It is a separate workflow so the main build's ~8 minutes are untouched; this one takes about
@@ -89,6 +92,25 @@ jobs:
           gh run download "$run_id" -R "$REPO" -n LOTG_outputs -D "$RUNNER_TEMP/build_out"
           wb=$(find "$RUNNER_TEMP/build_out" -name LOTG_Stats.xlsx | head -n 1)
           test -n "$wb" && echo "WORKBOOK=$wb" >> "$GITHUB_ENV"
+
+      - name: Use the build's sheets
+        # The build commits exports/ only on a roster/pick change, the Tuesday run or the
+        # 6-day cadence, so the checkout's CSVs can lag the build by days: a new column
+        # (e.g. the FAAB Value twins, #568) showed as blank on the site until the next
+        # committed refresh. The build artifact fetched above holds the same sheets from the
+        # latest successful main build, so the site serves those. Best-effort: without the
+        # artifact the committed exports stand.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/build_out"
+          if [ -d "$src" ] && ls "$src"/*.csv >/dev/null 2>&1; then
+            for f in "$src"/*.csv; do cp "$f" "exports/$(basename "$f")"; done
+            echo "sheets from build run ${LOTG_BUILD_RUN:-?}: $(ls "$src"/*.csv | wc -l) CSVs"
+            git status --short exports | head -20
+          else
+            echo "no build sheets; using the committed exports/"
+          fi
 
       - name: Build the site
         env:
