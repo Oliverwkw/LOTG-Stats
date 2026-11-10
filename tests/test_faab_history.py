@@ -56,7 +56,10 @@ def test_pick_price_rules():
     assert abs(f.pick("2027 2.01", "2026-03-01") - 380.0 * 0.95) < 1e-9   # one draft further out
     assert f.pick("2026 5.01", "2026-03-01") == 20.0
     assert f.pick("2025 1.05", "2025-08-01") is None                 # its draft was held: value the player
-    assert f.pick("2024 1.05", "2024-06-01") is None                 # before any league draft
+    # before the first league draft: that draft's slot prices (Oliver, 2026-11-10)
+    assert f.pick("2024 1.05", "2024-06-01") == 1050.0
+    assert f.pick("2024 1.??", "2024-06-01") == (2000 + 1050) / 2
+    assert abs(f.pick("2025 1.??", "2024-06-01") - (2000 + 1050) / 2 * 0.95) < 1e-9
 
 
 def test_trade_diff_twins_the_ktc_rules():
@@ -127,13 +130,13 @@ def test_committed_pick_table_matches_faab_inputs():
     H = pd.read_csv(FH.HISTORY, dtype={"sid": str, "date": str}) if FH.HISTORY.exists() else pd.DataFrame(columns=["sid", "date", "value"])
     f = FH.FaabIndex(H, FH.pick_price_table(picks))
     n = 0
-    for d in ["2022-03-01", "2023-01-15", "2023-08-01", "2024-02-10", "2025-05-05", "2025-11-20", "2026-06-30"]:
+    for d in ["2021-03-01", "2021-08-01", "2022-03-01", "2023-01-15", "2023-08-01", "2024-02-10", "2025-05-05", "2025-11-20", "2026-06-30"]:
         t = pd.Timestamp(d)
         for lab in [f"{t.year} 1.01", f"{t.year} 2.07", f"{t.year} 3.??", f"{t.year + 1} 1.??", f"{t.year + 2} 2.??",
                     f"{t.year + 1} 4.03"]:
             a, b = picks.value(lab, t), f.pick(lab, t.date())
             if b is None:
-                continue                     # consumed / before any draft: faab_history defers to the drafted player
+                continue                     # consumed: faab_history defers to the drafted player
             assert abs(a - b) < 1e-6, (lab, d, a, b)
             n += 1
     assert n >= 25, n

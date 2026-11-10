@@ -67,7 +67,7 @@ def latest_status(R, players):
 
 # Same-day events a board reads by DATE only, so a trade earlier that day could see them before they happened: the
 # NFL draft's rounds (rounds 1-2 rookies count from the Thursday, e_x_draft_comp; day-3 picks price rookies) and the
-# league's own rookie draft (draft prices and rookies count from the day of the pick, faab_formula). Anything else a
+# league's own rookie draft (draft prices count from the day of the pick, faab_formula). Anything else a
 # board reads was known before its day: league prices strictly before it (smooth_route), KTC the day before
 # (add_anchor), weekly stats from the Tuesday after the games (add_x).
 NFL_DRAFT_ROUNDS_ET = {0: 20, 1: 19, 2: 12}       # hour (US Eastern) each NFL draft day starts: Thu 8pm, Fri 7pm, Sat noon

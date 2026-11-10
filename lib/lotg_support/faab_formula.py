@@ -26,6 +26,7 @@ import pandas as pd
 from sklearn.isotonic import IsotonicRegression
 
 from . import faab_frame as kp
+from .faab_features import NFL_DRAFT
 
 KO = {int(k): pd.Timestamp(v) for k, v in kp.KO.items()}
 P = {'oldqb': -0.6, 'oldrb': -0.2, 'h': 2.5, 'leg_cap': 0.4, 'kappa': 1.0, 'top_lo': 1200, 'top_hi': 2200, 'young_floor': 1.0,
@@ -59,6 +60,10 @@ def yqb_exp(d, size):
     return yqb(d, size) * np.clip((3 - d.exp.fillna(0).values) / 2, 0, 1)
 
 
+STARTUP_SEASON = 2020    # the startup draft priced veterans and rookies on one board: not a rookie-draft price
+UNDRAFTED_PICK = 300.0     # NFL overall pick an undrafted rookie counts as (past the 7th round)
+
+
 class Formula:
     """V_raw on any date from the base timeline TL (sid, date, Lf, a_y and the frame columns)"""
 
@@ -79,6 +84,12 @@ class Formula:
         dr = pa[pa["Addition type"] == "Draft"].assign(Season=lambda x: x.Season.astype(str))
         rp = rookie_picks[rookie_picks.Number.astype(str).str.fullmatch(r"\d\.\d\d")].assign(Year=lambda x: x.Year.astype(str))
         self.m = rp.merge(dr[["Player", "Season", "sid", "Price paid (FAAB)"]], left_on=["Player Picked", "Year"], right_on=["Player", "Season"], how="left")
+        # a rookie's league draft price as his NFL draft capital predicts it (for the days between the NFL draft and
+        # the league's rookie draft): each rookie class's prices against NFL overall pick
+        dov = self.TL.drop_duplicates("sid").set_index("sid")
+        rk = self.DR[(self.DR.Season.astype(int) == self.DR.sid.map(dov.dyear).values) & (self.DR.Season.astype(int) > STARTUP_SEASON)].copy()
+        rk["dovr"] = rk.sid.map(dov.dovr).fillna(UNDRAFTED_PICK).values; self.ROOKIE_DR = rk.dropna(subset=["Price paid (FAAB)"])
+        self._xdp = {}
         self.SLOT_OF = self.m.dropna(subset=["sid"]).assign(sid=lambda x: x.sid.astype(str)).drop_duplicates("sid", keep="last").set_index("sid").Number
         E = evidence.copy(); E["date"] = pd.to_datetime(E.date); E["sid"] = E.sid.astype(str); self.E_ALL = E
         # past finishes for the legacy term: positional rank among 8+ game seasons, historic years
@@ -156,11 +167,19 @@ class Formula:
         if g_now != g:
             nowr = self._by_date[g_now].drop_duplicates("sid").set_index("sid")
             for c in ["Lf", "a_y", "a_date", "age"]: d[c] = nowr[c].reindex(d.index).values
+        # a rookie is valued from his NFL draft on, not only from the league's rookie draft (Oliver, 2026-11-10: a
+        # value is calculable for any player at any time); a player not yet drafted into the NFL has no value
         dy = d.dyear.fillna(0).astype(int)
-        d = d[(dy < date.year) | ((dy == date.year) & (date >= self.DRAFT_DAY.reindex(dy).fillna(pd.Timestamp(f"{date.year}-07-15")).values))]
+        nfl = pd.to_datetime(dy.map(lambda y: NFL_DRAFT.get(y, f"{max(y, 1900)}-05-01"))).values
+        d = d[(dy < date.year) | ((dy == date.year) & (np.datetime64(date) >= nfl))]
         d["st"] = np.minimum(d.exp.fillna(0), 3)
         dp = self.DR[self.DR.d <= date].drop_duplicates("sid", keep="last").set_index("sid")["Price paid (FAAB)"]
         d["dprice"] = d.index.map(dp)
+        # this year's rookies before the league's rookie draft: the price their NFL draft capital predicts
+        dd_ = self.DRAFT_DAY.get(date.year)
+        pre = (d.dyear.fillna(0).astype(int).values == date.year) & d.dprice.isna().values & (dd_ is None or date < dd_)
+        d["dp_est"] = pre
+        if pre.any(): d.loc[pre, "dprice"] = self.expected_dprice(date, d.dovr.values[pre])
         inj, bp, start = self.injuries_at(sd, d); d["injury"] = inj.reindex(d.index).fillna("")
         s_ko = KO[weeks_done(sd)[0]]
         for sid, t0 in start.items():   # injured: the best of now, just before the injury and preseason
@@ -172,6 +191,19 @@ class Formula:
         d.loc[d.injury != "", ["c_ppg", "c_gp"]] = np.nan
         d["bp"] = bp.reindex(d.index).fillna(""); d["a_y"] = d.a_y.astype(float)
         return d
+
+    def expected_dprice(self, date, dovr):
+        """the league price a rookie at NFL overall pick `dovr` (NaN = undrafted) is expected to go for: an isotonic
+        (later pick, lower price) fit of the rookie drafts held before `date` (not the 2020 startup), or the first
+        one before any was held"""
+        rk = self.ROOKIE_DR[self.ROOKIE_DR.d < pd.Timestamp(date)]
+        if not len(rk): rk = self.ROOKIE_DR[self.ROOKIE_DR.Season == self.ROOKIE_DR.Season.min()]
+        key = (len(rk), rk.Season.max() if len(rk) else None)
+        if key not in self._xdp:
+            iso = IsotonicRegression(increasing=False, out_of_bounds="clip").fit(rk.dovr.values, np.log1p(rk["Price paid (FAAB)"].values.astype(float)))
+            self._xdp[key] = iso
+        x = np.nan_to_num(np.asarray(dovr, dtype=float), nan=UNDRAFTED_PICK)
+        return np.expm1(self._xdp[key].predict(x))
 
     def snap_of(self, date):
         return max([x for x in self.SNAPS if x <= np.datetime64(date)], default=self.SNAPS[0])
@@ -260,7 +292,9 @@ class Formula:
         prodf = np.where((cg < 3) | np.isnan(now), 1.0, np.clip((np.nan_to_num(now) - lo) / (hi - lo), 0, 1))
         young = (d.st.values <= 1) & (dp > 0)
         L = np.where(young, smax(L, np.log1p(P["young_floor"] * dp * prodf)), L)
-        r0 = (d.st.values == 0) & (dp > 0); L = np.where(r0, (1 - P["rookie_w"]) * L + P["rookie_w"] * np.log1p(dp), L)
+        # an estimated (pre-league-draft) price is a floor only: it never pulls a rookie the stats rate higher down
+        est = d.dp_est.values.astype(bool) if "dp_est" in d else np.zeros(len(d), dtype=bool)
+        r0 = (d.st.values == 0) & (dp > 0) & ~est; L = np.where(r0, (1 - P["rookie_w"]) * L + P["rookie_w"] * np.log1p(dp), L)
         L = L + 0.15 * np.clip((L - np.log1p(1200)) / (np.log1p(2000) - np.log1p(1200)), 0, 1)
         prod = np.where(cg >= 3, d.c_ppg.values.astype(float), d.n_ppg_l0.values.astype(float))
         hold = (d.age.values <= 26.5) & (d.st.values >= 2) & (np.nan_to_num(LAST) >= 2000) & (np.nan_to_num(prod) >= d.pos.map(TOP5).values.astype(float))
