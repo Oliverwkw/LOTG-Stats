@@ -584,3 +584,11 @@ if __name__ == "__main__":
         fn()
         print("  ok")
     print("\nall faab value checks passed")
+
+
+def test_rb_old_hi_docks_a_32_plus_rb_valued_over_1000():
+    b = dict(pos="RB", age=32.8, exp=10.0, injury="", V_raw=950.0)
+    rows = [b, dict(b, age=31.9), dict(b, pos="WR"), b, b]
+    t = _final(rows, [1269, 1269, 1269, 875, 600], rb_old_hi=-0.1)["rb_old_hi"]
+    assert np.isclose(t[0], -0.1) and t[1] == 0 and t[2] == 0 and np.isclose(t[3], -0.05, atol=0.01) and t[4] == 0
+    assert F.load_params().get("rb_old_hi") == -0.1   # Oliver 2026-11-10 (Henry a mid-low first)

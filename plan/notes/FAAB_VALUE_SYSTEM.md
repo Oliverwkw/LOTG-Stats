@@ -299,6 +299,15 @@ Grid on the committed inputs (start = NFL draft -30/0/+14 days, Mar 1, May 1, Ju
 $292. Trades 0.863 -> 0.847 vs round 5c; far-off 54 -> 53. Lift 0.6: trades 0.856, Conner $292 (even); 0.25: 0.829, $230.
 The window is computed from the date in `faab_value`, so it needs no rebuild.
 
+### Round 5e: old RBs at first-round prices (Oliver 2026-11-10)
+
+After the 2026-11-10 rebuild, Henry's "low first" call failed at $1,269 (the 1.02 on the 2026 pick board). Oliver: the call
+is a mid-low first, so it is now its own call, 1.07-1.04 ($783-1,135). New final-stage rule `rb_old_hi` -0.1: an RB 32+
+valued $1,000+ (fading in from $750) is docked, because the league won't pay first-round money for a back that old
+however well he runs (the drop comes without warning). -0.1 is the smallest strength that passes the call. Today it
+reaches only Henry's 9 vote/call-board rows (no trade or cut row moves), so it is a judgment rule like `boom_week`.
+Calls 128 -> 129 of 129.
+
 ## Votes that count as calls (2026-11-10)
 
 Oliver's rule: a rating-page vote that is unanimous, with 3+ teams agreeing, counts as a call. A team is one person;
