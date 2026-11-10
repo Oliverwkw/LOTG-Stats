@@ -278,6 +278,26 @@ players (best x1.4): trade error 0.883 vs 0.819, far-off 54 vs 49, because the s
 rules (vet floor, bands, the $25 pad), so cheap players drop only to ~x0.77. try-rule now clears its cached
 characteristics for `F.` constants (it reported trades +0.0000 for SUMMER_TO_DRAFT before).
 
+## Votes that count as calls (2026-11-10)
+
+Oliver's rule: a rating-page vote that is unanimous, with 3+ teams agreeing, counts as a call. A team is one person;
+each team's latest answer counts. As of the 2026-11-10 pull, 29 items (a price check on one player on one board, or
+one pair) had 3+ teams answering, and 10 were unanimous (`faab_calls.VOTE_CALLS`). "About right" = within 15% of the
+value shown (the vote page's band), then the usual 5% call tolerance. On the committed inputs 7 pass and 3 fail:
+DJ Moore about $266 (board $126), Tyler Warren about $909 (board $745), Eli Stowers below $142 (board $213).
+
+Proposed rules for those three, wired in but **off** (module constants at 0) until Oliver picks strengths:
+
+| Constant | Proposed | What | Why |
+|---|---|---|---|
+| `OUT_CLEAN` | 0.5 | Spare this share of `inj_out` (x0.55) for a player who missed no games over two seasons and has played | An Out tag on a durable player is most likely a short absence. Today `inj_out` (x0.55) is harsher than `inj_ir` (x0.69) |
+| `OUT_LONG` | 1.0 | ... and grow the spare up to the whole discount with 34+ games since his last absence | The longer his run without missing time, the more likely the tag is a one-off (Moore: 92 games) |
+| `ROOKIE_LOST` | -0.4 | A rookie on IR/PUP with at most 1 NFL game who has missed 75%+ of his team's games | He loses his rookie year: no role and no tape, so he is worth less than his draft price alone |
+
+Together: calls 126 -> 129 of 129. No trade or cut row moves, so the trades can't test these. They are judgment
+rules, like `boom_week`. Softening `inj_out` for everyone fails: it loses Addison, Hunter > Addison, Monangai and the
+Hurts calls.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

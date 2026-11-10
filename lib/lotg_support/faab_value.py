@@ -284,6 +284,8 @@ def characteristics(R, youth_age=26.0):
     fp_c = col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"); fp_0 = col(R, "e_x_l0_xfp_pg") + col(R, "e_x_l0_fpoe_pg")
     pk = col(R, "e_x_draft_pick"); top_pick = np.where(np.isnan(pk), 0, np.clip((16 - pk) / 15, 0, 1))
     pick_boom = top_pick * (exp_ <= 4) * np.where((cur_gp >= 3) & ~np.isnan(fp_c) & ~np.isnan(fp_0), np.clip((fp_c - fp_0) / 6, 0, 1.5), 0.0)
+    # trial (votes 2026-11-10): an Out tag on a player with a clean record (no games missed over two seasons, has played)
+    out_clean = ((np.nan_to_num(col(R, "e_x_inj_rate_2y")) == 0) & (np.nan_to_num(col(R, "e_x_l0_games")) + np.nan_to_num(col(R, "e_x_cur_games")) > 0)).astype(float)
     # RBs fall off a cliff from 29, whatever their value
     # ... and it is the hurt ones who fall: scaled by injury history and being hurt now (a durable, healthy vet RB holds up)
     hurt = 0.3 + 0.7 * np.clip(np.nan_to_num(col(R, "e_x_inj_rate_2y")) / 0.15, 0, 2) + 0.7 * np.isin(inj, ["IR", "PUP", "Out", "Doubtful"])
@@ -376,7 +378,7 @@ def characteristics(R, youth_age=26.0):
                 availability=availability, efficiency=efficiency, opening=opening, team_q=np.clip(team_q, -1.5, 1.5), new_team_burst=new_team_burst, share_talent=share_talent,
                 xfp_z=xfp_z, qbq=qbq, elite=elite, track=track, recurring=recurring, steady=steady, pedigree=pedigree, spike=np.clip(spike / 0.5, 0, 1.5) * (1 - 0.4 * np.clip(boom_bust_early(R, cur_gp), 0, 1.5)) * (R.pos.values != "QB") * np.clip((29.0 - np.nan_to_num(age, nan=30)) / 3.0, 0, 1), team_up=trend, severe=severe.astype(float), usage=usage, youth_usage=youth * np.clip(usage, 0, 3) / 3, youth_role=youth * role, two_way=two_way, aw_college=np.clip(np.nan_to_num(awc), 0, 2) * early,
                 aw_nfl=np.clip(np.nan_to_num(awn), 0, 3), prone=np.nan_to_num(col(R, "e_x_inj_rate_2y")),
-                ir=np.isin(inj, ["IR", "PUP"]).astype(float), out=np.isin(inj, ["Out", "Doubtful"]).astype(float),
+                ir=np.isin(inj, ["IR", "PUP"]).astype(float), out=np.isin(inj, ["Out", "Doubtful"]).astype(float) * (1.0 - OUT_CLEAN * out_clean * (1.0 + OUT_LONG * np.clip(np.nan_to_num(col(R, "e_x_gp_since_inj")) / 34.0, 0, 1))),
                 te=(R.pos.values == "TE").astype(float), vet_age=np.clip((np.nan_to_num(age, nan=25) - R.pos.map(VET_AGE).fillna(30).values) / 2, 0, 1),
                 un=np.nan_to_num(col(R, "un_x")))
 RULE_KEYS = {"r1_wr": "r1_wr", "rookie_r1": "rookie_r1", "young_elite": "young_elite", "young_upside": "young_upside", "overtaken": "overtaken", "qb_paid": "qb_paid", "te_one_off": "te_one_off", "undrafted": "undrafted", "qb_starter": "qb_starter", "qb_pedigree": "qb_pedigree", "young_starter": "young_starter", "carry": "carry", "one_game": "one_game", "boom_bust": "boom_bust", "td_dep": "td_dep", "off_field": "off_field", "summer": "summer", "old_cliff": "old_cliff", "vet_move": "vet_move", "ypc_bad": "ypc_bad", "rookie_backup": "rookie_backup", "duds": "duds", "peak_share": "peak_share", "slump": "slump", "journeyman": "journeyman", "bust": "bust", "rb_multi": "rb_multi",
@@ -417,6 +419,9 @@ QB_TOUGH_MIN = 2                 # qb_tough: at least this many straight seasons
 YPG_THR, YPG_SPAN, YPG_MIN_V = 230.0, 40.0, 1000.0   # qb_ypg: passing yards a game under THR (full SPAN below), QBs worth $1,000+
 SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games on half the snaps -> at most his league draft price
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
+OUT_CLEAN = 0.0                  # trial: share of the inj_out discount spared for a clean injury record (0 = off)
+OUT_LONG = 0.0                   # trial: ... that share grows by this x (games since his last absence / 34, capped at 1)
+ROOKIE_LOST = 0.0                # trial (log units, <= 0): a rookie on IR/PUP with <= 1 NFL game and 75%+ of team games missed (rookie year lost)
 SUMMER_TO_DRAFT = 0.0            # summer: 1 = the shift ends the day after the league draft, 0 = runs to kickoff - 3 days
 RB_HOLD_TOP = 15                 # rb_hold: last season's RB rank (total PPR) at or above this
 RB_HOLD_LO, RB_HOLD_HI = 400.0, 1000.0   # ... base value range, fading over the 25% past each end (Conner $667 on 2025-08-02)
@@ -450,6 +455,8 @@ def final_terms(R, v, p, X):
     T["rb_inj"] = p.get("rb_inj", 0.0) * (pos == "RB") * (age >= RB_INJ_AGE) * ~back * np.clip(np.nan_to_num(col(R, "e_x_bodyparts_3y")) / 2.0, 0, 1.5)
     # a veteran RB's big weeks are last season's before his 3rd game: the spike bonus (a breakout) counts less for him
     T["spike_vet_rb"] = p.get("spike_vet_rb", 0.0) * X["spike"] * (pos == "RB") * (cur_g < 3) * (exp_ >= 3)
+    # a rookie whose rookie year is being lost on IR/PUP (at most 1 NFL game, 75%+ of his team's games missed): no role, no tape
+    T["rookie_lost"] = ROOKIE_LOST * (exp_ == 0) * np.isin(R.injury.fillna("").values, ["IR", "PUP"]) * (cur_g <= 1) * (np.nan_to_num(col(R, "e_x_inj_rate_2y")) >= 0.75)
     # a QB who misses games (out-or-doubtful share of his weeks, 2 seasons; 25% = full): superflex needs him every week
     T["qb_inj"] = p.get("qb_inj", 0.0) * (pos == "QB") * np.clip(np.nan_to_num(col(R, "e_x_inj_rate_2y")) / 0.25, 0, 1.5)
     # a veteran WR whose team's league owner just paid for a same-team rookie WR (e_x_rookie_backup, $250 = 1, capped at
