@@ -559,8 +559,8 @@ def test_vote_calls_name_board_players_and_read_their_own_day():
     B["DJ Moore"] = 126.0; assert dict(LC.calls(B))[key] > 0
 
 
-def test_out_spare_and_rookie_lost_are_off_by_default():
-    assert F.OUT_CLEAN == 0 and F.OUT_LONG == 0 and F.ROOKIE_LOST == 0
+def test_out_spare_and_rookie_lost_are_on_at_olivers_strengths():
+    assert F.OUT_CLEAN == 0.5 and F.OUT_LONG == 1.0 and F.ROOKIE_LOST == -0.4
 
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:

@@ -419,9 +419,9 @@ QB_TOUGH_MIN = 2                 # qb_tough: at least this many straight seasons
 YPG_THR, YPG_SPAN, YPG_MIN_V = 230.0, 40.0, 1000.0   # qb_ypg: passing yards a game under THR (full SPAN below), QBs worth $1,000+
 SNAP_CAP_GAMES = 2               # snap_cap: fewer than this many career games on half the snaps -> at most his league draft price
 SNAP_CAP_POS = ("QB",)          # ... at these positions (every position: trades worse, +0.005)
-OUT_CLEAN = 0.0                  # trial: share of the inj_out discount spared for a clean injury record (0 = off)
-OUT_LONG = 0.0                   # trial: ... that share grows by this x (games since his last absence / 34, capped at 1)
-ROOKIE_LOST = 0.0                # trial (log units, <= 0): a rookie on IR/PUP with <= 1 NFL game and 75%+ of team games missed (rookie year lost)
+OUT_CLEAN = 0.5                  # an Out tag on a clean record (no games missed over two seasons, has played): half its discount spared
+OUT_LONG = 1.0                   # ... rising to all of it with 34+ games since his last absence (Oliver 2026-11-10, votes)
+ROOKIE_LOST = -0.4               # a rookie on IR/PUP with <= 1 NFL game and 75%+ of team games missed: rookie year lost (x0.67, Oliver 2026-11-10)
 SUMMER_TO_DRAFT = 0.0            # summer: 1 = the shift ends the day after the league draft, 0 = runs to kickoff - 3 days
 RB_HOLD_TOP = 15                 # rb_hold: last season's RB rank (total PPR) at or above this
 RB_HOLD_LO, RB_HOLD_HI = 400.0, 1000.0   # ... base value range, fading over the 25% past each end (Conner $667 on 2025-08-02)

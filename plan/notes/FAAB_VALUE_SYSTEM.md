@@ -286,9 +286,9 @@ one pair) had 3+ teams answering, and 10 were unanimous (`faab_calls.VOTE_CALLS`
 value shown (the vote page's band), then the usual 5% call tolerance. On the committed inputs 7 pass and 3 fail:
 DJ Moore about $266 (board $126), Tyler Warren about $909 (board $745), Eli Stowers below $142 (board $213).
 
-Proposed rules for those three, wired in but **off** (module constants at 0) until Oliver picks strengths:
+Rules for those three (module constants; Oliver approved these strengths on 2026-11-10):
 
-| Constant | Proposed | What | Why |
+| Constant | Strength | What | Why |
 |---|---|---|---|
 | `OUT_CLEAN` | 0.5 | Spare this share of `inj_out` (x0.55) for a player who missed no games over two seasons and has played | An Out tag on a durable player is most likely a short absence. Today `inj_out` (x0.55) is harsher than `inj_ir` (x0.69) |
 | `OUT_LONG` | 1.0 | ... and grow the spare up to the whole discount with 34+ games since his last absence | The longer his run without missing time, the more likely the tag is a one-off (Moore: 92 games) |
