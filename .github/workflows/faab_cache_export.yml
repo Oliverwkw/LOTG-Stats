@@ -1,0 +1,40 @@
+name: FAAB cache export (temporary, speed-up work)
+
+# Temporary: uploads the FAAB pipeline cache (read-only restore, never saved) as an artifact so the speed-up work
+# can profile the real rebuild offline. Runs only on pushes to this branch. Removed before merge.
+
+on:
+  push:
+    branches: [claude/project-thread-vvc403]
+    paths: [".github/workflows/faab_cache_export.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Restore pipeline cache (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-none
+          restore-keys: faab-
+      - name: List
+        run: du -sh .cache/faab .cache/ktc_proxy data/ktc_cache; ls -la .cache/faab/pipeline | head -50
+      - uses: actions/upload-artifact@v4
+        with:
+          name: faab_cache
+          retention-days: 3
+          compression-level: 1
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          include-hidden-files: true
