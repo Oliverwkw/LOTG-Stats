@@ -95,7 +95,9 @@ def _d(x) -> date:
 
 
 class FaabIndex:
-    def __init__(self, history: pd.DataFrame, pick_prices: Optional[pd.DataFrame] = None):
+    def __init__(self, history: pd.DataFrame, pick_prices: Optional[pd.DataFrame] = None, schedule=None):
+        """schedule: a faab_pick_schedule.Schedule (default: the committed one)"""
+        self._schedule = schedule
         h = history.copy()
         h["sid"] = h.sid.astype(str).str.replace(r"\.0$", "", regex=True)
         h["d"] = pd.to_datetime(h.date)
@@ -178,14 +180,14 @@ class FaabIndex:
         return out
 
     def pick(self, label, d, pid=None) -> Optional[float]:
-        """faab_inputs.Picks.value on the exported table: the exact slot once the order is set, the odds-weighted slot
-        price while its deciding season is next up or under way (faab_pick_slots), else its round's average; 5th round on $20; 5% off a year per draft further out. None once the
-        pick's own draft has been held (value the drafted player); before the first league draft, that draft's prices. pid = the player later
-        taken with it, used only to find its original team (the build masks a future pick's slot to "??")."""
+        """faab_inputs.Picks.value on the exported table: the fixed weekly schedule (faab_pick_schedule), the exact slot
+        once the order is set, the odds-weighted slot price while its deciding season is next up or under way
+        (faab_pick_slots), else its round's average; 5th round on $20. None once the pick's own draft has been held
+        (value the drafted player). pid = the player later taken with it, used only to find its original team (the
+        build masks a future pick's slot to "??")."""
         mm = PICK.match(str(label).strip())
         t = _d(d)
-        sv = self.slot_values(t)
-        if mm is None or not sv:
+        if mm is None:
             return None
         y, rn, sl = int(mm.group(1)), int(mm.group(2)), mm.group(3)
         dd = self.draft_days.get(y)
@@ -195,11 +197,16 @@ class FaabIndex:
             return None
         if rn >= 5:
             return 20.0
+        if self._schedule is None:
+            from . import faab_pick_schedule as PSCHED
+            self._schedule = PSCHED.load()
+        sv = self._schedule.table(y, pd.Timestamp(t))
+        if not sv:
+            return None
         rnd: Dict[int, list] = {}
         for k, v in sv.items():
             rnd.setdefault(int(k[0]), []).append(v)
         ravg = {r: float(np.mean(v)) for r, v in rnd.items()}
-        nxt = t.year if t.month <= 8 else t.year + 1
         if sl and y == t.year and t.month <= 8:
             v = sv.get(f"{rn}.{sl}", ravg.get(rn))
         else:
@@ -210,7 +217,7 @@ class FaabIndex:
         f = o.price(label, pd.Timestamp(t), sv, ravg, pid=pid) if o is not None else None
         if f is not None:
             v = f
-        return float(v) * 0.95 ** max(0, y - nxt)
+        return float(v)
 
     def slot_odds(self):
         """the pick-slot fade-in (faab_pick_slots) on the committed exports, roster strength from this history"""
