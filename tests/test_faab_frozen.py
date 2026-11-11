@@ -170,6 +170,28 @@ def test_freeze_is_stable():
     assert len(m) == len(a) and np.array_equal(m.L.values, m.L_c.values)
 
 
+def test_supply_context_counts_and_classes():
+    """the supply step's football context: depth counts leave the row's own player out and read only the latest
+    Tuesday at or before the row; draft classes count NFL rounds 1-2 at the position in the last three drafts held"""
+    if FZ is None: print("  [SKIP] no scikit-learn"); return
+    U = pd.DataFrame(dict(sid=["a", "b", "c", "d", "a", "b"], pos=["WR"] * 4 + ["WR", "WR"],
+                          date=pd.to_datetime(["2024-10-01"] * 4 + ["2024-10-08"] * 2)))
+    uval = np.array([5000.0, 3500.0, 2000.0, 100.0, 4000.0, 1000.0])
+    rows = pd.DataFrame(dict(sid=["a", "z"], pos=["WR", "WR"], date=pd.to_datetime(["2024-10-03", "2024-10-03"])))
+    c = FZ.supply_ctx(rows, np.array([5000.0, 2500.0]), U, uval, levels=(4500.0, 3000.0, 1500.0))
+    assert c[0].tolist() == [1, 0, 1, 2]           # a: first; above 4500 none but himself, 3000: b, 1500: b, c
+    assert c[1].tolist() == [3, 1, 2, 3]           # z (not in the universe): a and b above him
+    assert np.array_equal(FZ.supply_rank(rows, np.array([5000.0, 2500.0]), U, uval), c[:, 0])
+    tab = FZ.class_table(pd.DataFrame(dict(season=[2022, 2023, 2024, 2024, 2024, 2025], round=[1, 2, 1, 3, 2, 1],
+                                           position=["WR", "WR", "WR", "WR", "RB", "WR"])))
+    r = pd.DataFrame(dict(pos=["WR", "WR", "RB"], dyear=[2024.0, np.nan, 2024.0],
+                          date=pd.to_datetime(["2024-10-01", "2025-03-01", "2024-10-01"])))
+    cls3, own = FZ.class_ctx(r, tab)
+    assert cls3.tolist() == [3.0, 3.0, 1.0] and own[0] == 1.0 and np.isnan(own[1]) and own[2] == 1.0
+    later = r.assign(date=pd.to_datetime(["2025-10-01", "2026-03-01", "2025-10-01"]))
+    assert FZ.class_ctx(later, tab)[0].tolist() == [3.0, 3.0, 1.0]   # 2023-2025 at WR: 2023 + 2024 + 2025
+
+
 def test_committed_manifest_passes_the_audit():
     p = _ROOT / "data" / "faab_value" / "frozen" / "manifest.json"
     if not p.exists(): print("  [SKIP] no committed frozen base"); return

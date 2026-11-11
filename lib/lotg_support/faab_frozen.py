@@ -51,10 +51,11 @@ UNIVERSE_START = pd.Timestamp("2020-04-07")   # the first Tuesday of the KTC pan
                                               # translator's training rows need a universe from then)
 RANK_CAP = {"QB": 40, "RB": 70, "WR": 100, "TE": 35}
 T_OFF = 100.0                                 # the supply step works on log(S + 100)
-SUPPLY_COLS = ["posc", "age", "exp", "tS1", "u_rank"]
+DEPTH_LEVELS = (4500.0, 3000.0, 1500.0)      # the position's depth: players valued above each (elite / starter / flex)
+SUPPLY_COLS = ["posc", "age", "exp", "tS1", "u_rank", "n4500", "n3000", "n1500", "cls3", "own_cls"]
 SUPPLY_KW = dict(max_iter=150, learning_rate=0.05, max_leaf_nodes=15, min_samples_leaf=300, random_state=0,
                  categorical_features=[0])
-VERSION = 1
+VERSION = 2                                   # 2: supply depth counts + draft classes, rank capped
 
 
 def t_(x):
@@ -63,6 +64,27 @@ def t_(x):
 
 def t_inv(z):
     return np.clip(np.exp(np.asarray(z, dtype=float)) - T_OFF, 0, 9999)
+
+
+def ucols(b):
+    """a bag's supply-context columns on a row: the rank, then the depth counts (supply_ctx)"""
+    return [f"u{b}"] + [f"u{b}_{int(lv)}" for lv in DEPTH_LEVELS]
+
+
+def _Z(rows, s1, u, cols):
+    """the supply step's inputs: the translator (tS1), the rank (u_rank; u_cap = capped at the position's RANK_CAP:
+    deeper than that the rank mostly counts how many fringe players the universe holds, which grows as the league's
+    all-time rostered pool does), the depth counts and the draft classes (ctx_cls3 / ctx_own on the rows)"""
+    u = np.asarray(u, dtype=float).reshape(len(rows), -1)
+    cap = pd.Series(rows.pos.values).map(RANK_CAP).values.astype(float)
+    d = dict(posc=rows.posc.values, age=rows.age.values, exp=rows.exp.values, tS1=t_(s1), u_rank=u[:, 0],
+             u_cap=np.fmin(u[:, 0], cap))
+    for i, lv in enumerate(DEPTH_LEVELS):
+        d[f"n{int(lv)}"] = u[:, 1 + i] if u.shape[1] > 1 + i else np.nan
+    nan = np.full(len(rows), np.nan)
+    d["cls3"] = rows.ctx_cls3.values if "ctx_cls3" in rows else nan
+    d["own_cls"] = rows.ctx_own.values if "ctx_own" in rows else nan
+    return pd.DataFrame(d)[list(cols)]
 
 
 # ------------------------------------------------------------------ the translator's target
@@ -139,14 +161,16 @@ def universe(F):
     return F[keep.values]
 
 
-def supply_rank(rows, s, U, uval):
-    """1 + the number of universe players at the row's position, on the latest universe Tuesday at or before the row's
-    date, whose translator value is above the row's (the row's own player left out). `s` and `uval` must come from
-    the same model (the row's fold)."""
+def supply_ctx(rows, s, U, uval, levels=DEPTH_LEVELS):
+    """the supply context of each row, on the latest universe Tuesday at or before its date, among the universe players
+    at his position (his own player left out): column 0 = his rank (1 + the number valued above him), then one column
+    per depth level = how many are valued above it (how deep the position is at the elite / starter / flex levels that
+    week). `s` and `uval` must come from the same model (the row's fold)."""
     ud = np.unique(U.date.values.astype("datetime64[ns]"))
     rd = pd.to_datetime(rows.date).values.astype("datetime64[ns]")
     j = np.searchsorted(ud, rd, side="right") - 1
-    out = np.full(len(rows), np.nan)
+    lv = np.asarray(levels, dtype=float)
+    out = np.full((len(rows), 1 + len(lv)), np.nan)
     Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).values
     gi = pd.Series(np.arange(len(U))).groupby([Ud, Up]).indices
     own = dict(zip(zip(Us, Ud), uval))
@@ -159,8 +183,51 @@ def supply_rank(rows, s, U, uval):
         asc = np.sort(uval[g])
         cnt = len(asc) - np.searchsorted(asc, s[ix], side="right")
         ov = np.array([own.get((x, u), -np.inf) for x in rs[ix]])
-        out[ix] = 1 + cnt - (ov > s[ix])
+        out[ix, 0] = 1 + cnt - (ov > s[ix])
+        above = len(asc) - np.searchsorted(asc, lv, side="right")
+        out[ix, 1:] = above[None, :] - (ov[:, None] > lv[None, :])
     return out
+
+
+def supply_rank(rows, s, U, uval):
+    """the rank column of supply_ctx (1 + the number of universe players at the position valued above the row's)"""
+    return supply_ctx(rows, s, U, uval, levels=())[:, 0]
+
+
+# ------------------------------------------------------------------ draft-class context
+def class_table(picks):
+    """NFL rounds 1-2 picks per (draft year, position) from a draft-picks table (season, round, position): the incoming
+    early-round talent at each position. Draft results are football facts (no hindsight column is read)."""
+    p = picks[(picks["round"] <= 2) & picks.position.isin(list(RANK_CAP))]
+    return p.groupby(["season", "position"]).size().astype(float)
+
+
+def class_table_from_universe(U):
+    """the same table from the universe's own players (their draft year and round), when no draft-picks table is given:
+    a league's universe holds every early-round skill player (rostered in a superflex dynasty league)"""
+    u = U.drop_duplicates("sid"); u = u[(u.dround <= 2) & u.dyear.notna()]
+    return u.groupby([u.dyear.astype(int).values, u.pos.values]).size().astype(float)
+
+
+def class_ctx(rows, table):
+    """per row: `ctx_cls3` = NFL round 1-2 picks at his position in the last three drafts held by the row's date (the
+    talent arriving at the position: more of it, less scarcity), `ctx_own` = those in his own draft class at his
+    position (classmates competing for the same roles; NaN when he was undrafted or before 2000)"""
+    from .faab_features import NFL_DRAFT
+    d = pd.to_datetime(pd.Series(rows.date).values); yr = d.year.values
+    held = np.array([x >= pd.Timestamp(NFL_DRAFT.get(int(y), f"{int(y)}-05-01")) for x, y in zip(d, yr)], dtype=bool)
+    last = np.where(held, yr, yr - 1); pos = np.asarray(rows.pos.values)
+    tab = table.to_dict()
+    cls3 = np.array([sum(tab.get((int(y) - i, p), 0.0) for i in range(3)) for y, p in zip(last, pos)], dtype=float)
+    dy = pd.to_numeric(pd.Series(rows.dyear).values, errors="coerce") if "dyear" in rows else np.full(len(rows), np.nan)
+    own = np.array([tab.get((int(y), p), 0.0) if not np.isnan(y) and y >= 2000 and y <= l else np.nan
+                    for y, p, l in zip(dy, pos, last)], dtype=float)
+    return cls3, own
+
+
+def add_class_ctx(rows, table):
+    rows = rows.copy(); rows["ctx_cls3"], rows["ctx_own"] = class_ctx(rows, table)
+    return rows
 
 
 # ------------------------------------------------------------------ fits run in worker processes
@@ -191,14 +258,17 @@ class FrozenBase:
 
     # ---- fit
     @classmethod
-    def fit(cls, Fd, LR, U, football, bags=None, workers=None, log=print, ens=None, ld_kw=None, supply_kw=None):
+    def fit(cls, Fd, LR, U, football, bags=None, workers=None, log=print, ens=None, ld_kw=None, supply_kw=None, classes=None):
         """Fd: the KTC panel frame (stats + ktc); LR: league rows (faab_base.league_rows); U: the supply universe
-        (universe()); football: a faab_base.Football already fit (its curves are stored)"""
+        (universe()); football: a faab_base.Football already fit (its curves are stored); classes: NFL round 1-2 picks
+        per (draft year, position) (class_table; default: from the universe's own players)"""
         import time
         t0 = time.time(); nb = B.BAGS if bags is None else bags; ens = B.ENS if ens is None else ens
         skw = dict(SUPPLY_KW, **(supply_kw or {}))
         Fd = Fd[Fd.ktc.notna() & (Fd.ktc > 0)].reset_index(drop=True)
         Fd = football.add_pv(Fd.copy())
+        classes = class_table_from_universe(U) if classes is None else classes
+        Fd = add_class_ctx(Fd, classes)
         scale = KtcScale.fit(Fd); Fd["yp"] = scale.target(Fd)
         FC = [c for c in dict.fromkeys([c for c in B.feats(Fd) if not c.startswith("e_x_")] + B.PVF
                                        + [c for c in Fd.columns if c.startswith("e_x_")]) if c not in kp.FORBIDDEN]
@@ -211,14 +281,14 @@ class FrozenBase:
         U = football.add_pv(U.copy()).reset_index(drop=True)
         UP = {(b, k): T[b][k].predict(U) for b in range(nb) for k in range(5)}
         log(f"frozen fit: supply universe {len(U)} rows predicted ({time.time() - t0:.0f}s)")
-        LRp = football.add_pv(LR.copy()).reset_index(drop=True)
+        LRp = add_class_ctx(football.add_pv(LR.copy()).reset_index(drop=True), classes)
         P, sup = [], {}
         for b in range(nb):
-            fd = folds[b]; S1 = np.zeros(len(Fd)); u = np.zeros(len(Fd))
+            fd = folds[b]; S1 = np.zeros(len(Fd)); u = np.zeros((len(Fd), 1 + len(DEPTH_LEVELS)))
             for k in range(5):
                 m = fd == k
-                S1[m] = T[b][k].predict(Fd[m]); u[m] = supply_rank(Fd[m], S1[m], U, UP[(b, k)])
-            Z = pd.DataFrame(dict(posc=Fd.posc.values, age=Fd.age.values, exp=Fd.exp.values, tS1=t_(S1), u_rank=u))
+                S1[m] = T[b][k].predict(Fd[m]); u[m] = supply_ctx(Fd[m], S1[m], U, UP[(b, k)])
+            Z = _Z(Fd, S1, u, SUPPLY_COLS)
             r = t_(Fd.yp.values) - Z.tS1.values
             g = [B.HistGradientBoostingRegressor(**skw).fit(Z[fd != k], r[fd != k]) for k in range(5)]
             S = np.zeros(len(Fd))
@@ -227,7 +297,7 @@ class FrozenBase:
             sup[b] = g
             kt = Fd.assign(S=S, fold=fd, sqS=np.sqrt(S))
             o = LRp.assign(fold=B.fold_of(LRp.sid, b))
-            o["S"] = cls._S_rows(o, T[b], g, U, UP, b)
+            o["S"] = cls._S_rows(o, T[b], g, U, UP, b, cols=SUPPLY_COLS)
             o["sqS"] = np.sqrt(o.S.clip(0))
             o = B.add_anchor(o, o); kt = B.add_anchor(kt, o)
             o["ktc"] = scale.normalize(o.pos.values, o.date.values, o.ktc.values)    # KTC at pickup on the rank scale
@@ -255,6 +325,7 @@ class FrozenBase:
             bagd.append(dict(trans=T[b], supply=sup[b], ld=ld, cv=cv, qS=qS, qP=qP, iso=iso))
         import sklearn
         meta = dict(version=VERSION, freeze_date=str(_dt.date.today()), bags=nb, FC=FC, COLS=COLS, SUPPLY_COLS=SUPPLY_COLS,
+                    depth_levels=list(DEPTH_LEVELS),
                     football=football.curves(), rank_cap=RANK_CAP, rank_curve={p: list(map(float, c)) for p, c in scale.curve.items()},
                     data_sha256=_sha(Fd[["sid", "date", "yp"] + FC], LRp[["sid", "date", "y", "w", "ch", "price"]]),
                     rows=dict(panel=len(Fd), league=len(LRp), universe=len(U)),
@@ -266,17 +337,21 @@ class FrozenBase:
 
     # ---- S on any rows (translator + supply)
     @staticmethod
-    def _S_rows(rows, Tb, gb, U, UP, b, S1=None, u=None):
+    def _S_rows(rows, Tb, gb, U, UP, b, S1=None, u=None, cols=SUPPLY_COLS):
+        """S = the translator + the supply step; u: the rows' supply context (supply_ctx), else computed from U / UP"""
         fd = B.fold_of(rows.sid, b); S = np.zeros(len(rows))
         for k in range(5):
             m = fd == k
             if not m.any(): continue
             r = rows[m]
             s1 = Tb[k].predict(r) if S1 is None else S1[m]
-            uu = supply_rank(r, s1, U, UP[(b, k)]) if u is None else u[m]
-            Z = pd.DataFrame(dict(posc=r.posc.values, age=r.age.values, exp=r.exp.values, tS1=t_(s1), u_rank=uu))
+            uu = supply_ctx(r, s1, U, UP[(b, k)]) if u is None else u[m]
+            Z = _Z(r, s1, uu, cols)
             S[m] = t_inv(Z.tS1.values + gb[k].predict(Z))
         return S
+
+    def ucols(self, b):
+        return ucols(b)
 
     # ---- apply
     def football(self, seasons):
@@ -286,28 +361,30 @@ class FrozenBase:
         """the translator on the supply universe, every (bag, fold)"""
         return {(b, k): self.bags[b]["trans"][k].predict(U) for b in range(len(self.bags)) for k in range(5)}
 
-    def context(self, F, hist, U, UP, football):
+    def context(self, F, hist, U, UP, football, classes=None):
         """every date-derived input on the rows: the replacement level and production value (ctx_repl, PV ...), the
         league-price anchors (a_*), and per bag the supply rank (u{b}) and the anchor's S (aS{b}); `_S1_{b}` caches the
         translator for apply_rows. hist: league rows with sid, date, price, ch and S{b} per bag (league_history)."""
         F = football.add_pv(F.copy())
+        F = add_class_ctx(F, class_table_from_universe(U) if classes is None else classes)
         a = B.anchor_columns(F, hist)
         for k, v in a.items(): F[k] = v
         for b in range(len(self.bags)):
-            fd = B.fold_of(F.sid, b); S1 = np.zeros(len(F)); u = np.zeros(len(F))
+            fd = B.fold_of(F.sid, b); S1 = np.zeros(len(F)); u = np.zeros((len(F), 1 + len(DEPTH_LEVELS)))
             for k in range(5):
                 m = fd == k
                 if not m.any(): continue
-                S1[m] = self.bags[b]["trans"][k].predict(F[m]); u[m] = supply_rank(F[m], S1[m], U, UP[(b, k)])
-            F[f"_S1_{b}"] = S1; F[f"u{b}"] = u
+                S1[m] = self.bags[b]["trans"][k].predict(F[m]); u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
+            F[f"_S1_{b}"] = S1
+            for i, c in enumerate(ucols(b)): F[c] = u[:, i]
             F[f"aS{b}"] = np.where(F.a_hi.values >= 0, hist[f"S{b}"].values[np.maximum(F.a_hi.values, 0)], np.nan)
         return F
 
-    def league_history(self, LR, U, UP, football):
+    def league_history(self, LR, U, UP, football, classes=None):
         """the league rows the anchors read, with each bag's S"""
-        h = football.add_pv(LR.copy()).reset_index(drop=True)
+        h = add_class_ctx(football.add_pv(LR.copy()).reset_index(drop=True), class_table_from_universe(U) if classes is None else classes)
         for b, bg in enumerate(self.bags):
-            h[f"S{b}"] = self._S_rows(h, bg["trans"], bg["supply"], U, UP, b)
+            h[f"S{b}"] = self._S_rows(h, bg["trans"], bg["supply"], U, UP, b, cols=self.meta["SUPPLY_COLS"])
         return h[["sid", "date", "price", "ch"] + [f"S{b}" for b in range(len(self.bags))]]
 
     def apply_rows(self, F):
@@ -316,7 +393,7 @@ class FrozenBase:
         COLS = self.meta["COLS"]
         for b, bg in enumerate(self.bags):
             S1 = F[f"_S1_{b}"].values if f"_S1_{b}" in F else self._S1(F, bg["trans"], b)
-            S = self._S_rows(F, bg["trans"], bg["supply"], None, None, b, S1=S1, u=F[f"u{b}"].values)
+            S = self._S_rows(F, bg["trans"], bg["supply"], None, None, b, S1=S1, u=F[ucols(b)].values, cols=self.meta["SUPPLY_COLS"])
             Fb = F.assign(S=S, sqS=np.sqrt(np.clip(S, 0, None)),
                           a_dS=np.sqrt(np.clip(S, 0, None)) - np.sqrt(np.clip(F[f"aS{b}"].values, 0, None)))
             fd = B.fold_of(F.sid, b); L = np.zeros(len(F))
@@ -337,14 +414,15 @@ class FrozenBase:
             if m.any(): S1[m] = Tb[k].predict(F[m])
         return S1
 
-    def apply(self, F, LR, U, seasons, log=print, chunk="YS"):
+    def apply(self, F, LR, U, seasons, log=print, chunk="YS", classes=None):
         """the base (L, S and the context columns) on every row of F, a chunk of dates at a time"""
         import time
         t0 = time.time()
         fb = self.football(seasons)
         Uc = fb.add_pv(U.copy()).reset_index(drop=True)
         UP = self.universe_values(Uc)
-        hist = self.league_history(LR, Uc, UP, fb)
+        classes = class_table_from_universe(Uc) if classes is None else classes
+        hist = self.league_history(LR, Uc, UP, fb, classes)
         log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
         d = pd.to_datetime(F.date)
         edges = list(pd.date_range(d.min().normalize() - pd.offsets.YearBegin(1), d.max() + pd.offsets.YearBegin(1), freq=chunk))
@@ -352,7 +430,7 @@ class FrozenBase:
         for lo, hi in zip(edges[:-1], edges[1:]):
             m = ((d >= lo) & (d < hi)).values
             if not m.any(): continue
-            C = self.context(F[m], hist, Uc, UP, fb)
+            C = self.context(F[m], hist, Uc, UP, fb, classes)
             C["L"], C["S"] = self.apply_rows(C)
             C["sqS"] = np.sqrt(C.S.clip(0)); C["fold"] = B.fold_of(C.sid, 0)
             C["a_dS"] = C.sqS.values - np.sqrt(np.clip(C["aS0"].values, 0, None))

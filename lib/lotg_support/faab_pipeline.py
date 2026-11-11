@@ -308,6 +308,14 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     return len(E)
 
 
+def draft_classes():
+    """NFL rounds 1-2 picks per (draft year, position) from nflverse's draft picks (the frozen base's class context);
+    None (the base then counts the universe's own players) when the file is not cached"""
+    from . import faab_frozen as FZ
+    f = D.CACHE / "draft_picks.parquet"
+    return FZ.class_table(pd.read_parquet(f, columns=["season", "round", "position"])) if f.exists() else None
+
+
 def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=None, refreeze=False, frozen=None):
     """everything. The base is the frozen one (faab_frozen, data/faab_value/frozen/): applied to every grid date from
     the 2020 startup draft on, reading no KTC. `refreeze=True` (or `full=True`, or no manifest at all) fits it first,
@@ -331,18 +339,19 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     F_all = X.add_x(I.grid_frame(pa, E, start=FZ.UNIVERSE_START, end=end, dates=ED))
     U = FZ.universe(F_all)
     seasons = B.load_seasons(last)
+    classes = draft_classes()
     log(f"frames: league {len(o0)}, grid {len(F_all)}, supply universe {len(U)} ({time.time() - t0:.0f}s)")
     if refreeze:
         Fd = X.add_x(I.ktc_panel())           # KTC is read here only: the translator's training scale
         fb = B.Football(seasons).fit(B.season_done(pd.Timestamp(end) if end else pd.Timestamp.today().normalize()))
-        FB = FZ.FrozenBase.fit(Fd, LR, U, fb, log=log)
+        FB = FZ.FrozenBase.fit(Fd, LR, U, fb, log=log, classes=classes)
         FB.save(fdir); del Fd
         log(f"froze the base into {fdir} ({sum(f.stat().st_size for f in fdir.glob('*')) / 1e6:.1f} MB, {time.time() - t0:.0f}s)")
     else:
         FB = FZ.FrozenBase.load(FZ.ensure(fdir, log=log))
         log(f"frozen base {fdir} (frozen {FB.meta.get('freeze_date')}, {FB.meta['bags']} bags)")
     LRv = LR[LR.date <= (pd.Timestamp(end) if end else LR.date.max())]
-    Bk = FB.apply(F_all[F_all.date >= FZ.GRID_START], LRv, U, seasons, log=log)
+    Bk = FB.apply(F_all[F_all.date >= FZ.GRID_START], LRv, U, seasons, log=log, classes=classes)
     del F_all
     # rows that exist only for an evidence date's full board are smoothed after the others, so adding them changes no
     # other row's value (each is smoothed with the rows before it)
@@ -357,6 +366,11 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
         tl = pd.concat([tl, t2[[(a, d) in k2 for a, d in zip(t2.sid.astype(str).values, t2.date.values.astype("datetime64[ns]"))]]], ignore_index=True)
     TL = Bk.merge(tl[["sid", "date", "Ls", "Lf", "a_y", "a_date"]], on=["sid", "date"], how="left")
     log(f"base: {len(TL)} rows ({time.time() - t0:.0f}s)")
+    try:        # the base's own columns, cached for diagnostics (git-ignored; nothing reads it back)
+        bc = [c for c in ("sid", "date", "pos", "age", "exp", "L", "S", "Ls", "Lf", "a_y", "ctx_repl", "PV", "u0", "aS0") if c in TL]
+        TL[bc].to_parquet(WORK / ("base.parquet" if end is None else "base_partial.parquet"))
+    except Exception as e:      # noqa: BLE001 - a diagnostics cache only
+        log(f"base cache not written ({type(e).__name__})")
     PW = pd.read_csv(ROOT / "exports" / "player_week.csv", usecols=["Player", "Year", "Week", "Injury?"], low_memory=False)
     TRK = pd.read_csv(ROOT / "data" / "injury_tracker.csv", dtype={"player_id": str})
     F = FM.Formula(TL, pa, pd.read_csv(ROOT / "exports" / "rookie_picks.csv"), E, seasons, PW, TRK, holding=FB.holding)
