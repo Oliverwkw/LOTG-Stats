@@ -1,6 +1,6 @@
 # Injury-tracker coverage report
 
-Captured **9 week(s)** across seasons 2026 — 2274 player-snapshots total.
+Captured **10 week(s)** across seasons 2026 — 2525 player-snapshots total.
 
 ## Week gaps (played but never captured)
 
@@ -19,5 +19,6 @@ Captured **9 week(s)** across seasons 2026 — 2274 player-snapshots total.
 | 2026 | 7 | 256 | 19 | 62 | 0 | 33/222/1 | 48/0/33 |
 | 2026 | 8 | 252 | 19 | 58 | 0 | 34/217/1 | 39/0/35 |
 | 2026 | 9 | 253 | 19 | 65 | 0 | 18/233/2 | 49/0/20 |
+| 2026 | 10 | 251 | 2 (not final) | 39 | 0 | 30/220/1 | – |
 
-_injury coverage: 9 week(s) captured, 2274 snapshots, 0 played-week gap(s)._
+_injury coverage: 10 week(s) captured, 2525 snapshots, 0 played-week gap(s)._
