@@ -1646,11 +1646,14 @@ class Site:
                 "largest": sorted(sizes.items(), key=lambda kv: -kv[1])[:5]}
 
 
-def copy_shell(out: Path, shell: Path = SHELL) -> None:
+def copy_shell(out: Path, shell: Path = SHELL, stamp: Optional[str] = None) -> None:
     """Copy the page shell; index.html asks for app.js / style.css with a hash of
     their contents (`app.js?v=…`), so a deploy is never hidden behind the copy a
-    browser cached (GitHub Pages lets browsers keep files for 10 minutes)."""
+    browser cached (GitHub Pages lets browsers keep files for 10 minutes). It also
+    carries this build's stamp (window.SITE_BUILD), which the page adds to every
+    data request, so the code never runs against another build's cached data."""
     import hashlib
+    stamp = stamp or time.strftime("%Y%m%d%H%M%S", time.gmtime())
     for f in shell.iterdir():
         if f.is_file():
             shutil.copy2(f, out / f.name)
@@ -1661,6 +1664,7 @@ def copy_shell(out: Path, shell: Path = SHELL) -> None:
             if (shell / name).exists():
                 v = hashlib.sha1((shell / name).read_bytes()).hexdigest()[:10]
                 html_text = re.sub(rf'(["\']){re.escape(name)}(["\'])', rf"\g<1>{name}?v={v}\g<2>", html_text)
+        html_text = html_text.replace('<script src="app.js', f'<script>window.SITE_BUILD="{stamp}"</script>\n<script src="app.js', 1)
         index.write_text(html_text, encoding="utf-8")
 
 
