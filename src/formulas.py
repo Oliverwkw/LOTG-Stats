@@ -1989,14 +1989,14 @@ for _base, _sheet, _how, _note in _POS_TWINS:
 # FAAB Value twins of the columns in KTC value units (formula_equations.KTC_UNIT_STATS).
 _FAAB_TWIN_TEXT = ("The same as '{k}' with every asset at its FAAB value (the league's FAAB dollars from the FAAB value "
                    "system: stats only, every rule applied, on the last grid date on or before the checkpoint) instead "
-                   "of its KTC; a pick is its FAAB pick price (the slot's median price in the league's earlier drafts; "
+                   "of its KTC; a pick is its FAAB pick price (one fixed weekly schedule, the same in every year: the "
+                   "slot's draft-day price × a factor by weeks to that class's NFL draft; "
                    "until its order is set, the slot prices weighted by its original team's projected odds that day, "
                    "as for the KTC Price paid, or its round's average two drafts out) until its draft, then the drafted player; FAAB moved in a trade counts its own dollars.")
 _FAAB_TWIN_NOTE = ("Blank where the KTC column is blank for a future checkpoint, before 2021 (the FAAB history starts "
-                   "then), for a player the history never valued, and for a pick before the league's first rookie draft "
-                   "(no earlier draft prices). Values move when the weekly FAAB rebuild or a refit changes the history. "
-                   "The FAAB values are trained on the KTC scale and pick prices come from KTC-priced drafts, so they are "
-                   "not fully independent of KTC.")
+                   "then), and for a player the history never valued. Values move when the weekly FAAB rebuild or a refit changes the history. "
+                   "The FAAB values are trained on the KTC scale, and the pick schedule's base and weekly shape were set "
+                   "from KTC-priced drafts and KTC's pick history (stored, so KTC no longer moves them).")
 _by_key = {(r["Stat"], r["Sheet"]): r for r in _ROWS}
 for _k in formula_equations.KTC_UNIT_STATS:
     _r = _by_key[_k]

@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from . import faab_frame as kp
+from . import faab_pick_schedule as PSCHED
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPORTS = ROOT / "exports"
@@ -106,11 +107,14 @@ def drops(pa, exports=EXPORTS):
 
 
 class Picks:
-    """rookie-pick prices on a date: the median price of each slot over the league's drafts held before it"""
+    """rookie-pick prices on a date, from the fixed weekly schedule (faab_pick_schedule). slot_values (the median price
+    of each slot over the drafts held before a date) is kept for pick_prices.csv and for freezing the schedule's base"""
 
-    def __init__(self, pa, exports=EXPORTS, slots=None):
-        """slots: a faab_pick_slots.SlotOdds (default: on these exports, roster strength from the FAAB history)"""
+    def __init__(self, pa, exports=EXPORTS, slots=None, schedule=None):
+        """slots: a faab_pick_slots.SlotOdds (default: on these exports, roster strength from the FAAB history);
+        schedule: a faab_pick_schedule.Schedule (default: the committed one)"""
         self._pa, self._exports, self._slots = pa, exports, slots
+        self.schedule = schedule if schedule is not None else PSCHED.load()
         pa = pa.copy(); pa["d"] = pd.to_datetime(pa.Date.astype(str).str[:10])
         dr = pa[pa["Addition type"] == "Draft"]
         self.draft_day = dr.groupby("Season").d.min(); self.draft_day.index = self.draft_day.index.astype(int)
@@ -136,21 +140,24 @@ class Picks:
         return self._slots or None
 
     def value(self, label, d):
-        """a pick's price on date d: the exact slot once its order is set; before that, while its deciding season is
-        next up or under way, the slot prices weighted by its original team's projected odds that day
-        (faab_pick_slots, 2026-11-10: the number fades in with the standings); further out its round's average.
-        5th+ = $20; 5% off a year per draft further out"""
-        mm = PICK.match(str(label)); sv_ = self.slot_values(d)
-        if mm is None or not len(sv_): return np.nan
+        """a pick's price on date d, from the fixed weekly schedule (faab_pick_schedule, Oliver 2026-11-11: one
+        standard price per slot and week to its class's NFL draft, the same in every year): the exact slot once its
+        order is set; before that, while its deciding season is next up or under way, the slot prices weighted by its
+        original team's projected odds that day (faab_pick_slots: the number fades in with the standings); further
+        out its round's average. 5th+ = $20."""
+        mm = PICK.match(str(label))
+        if mm is None: return np.nan
         y, rn, sl = int(mm.group(1)), int(mm.group(2)), mm.group(3)
-        rnd = sv_.groupby(sv_.index.str[0].astype(int)).mean()
         if rn >= 5: return 20.0
-        nxt = d.year if d.month <= 8 else d.year + 1
+        tab = self.schedule.table(y, d)
+        if not tab: return np.nan
+        sv_ = pd.Series(tab)
+        rnd = sv_.groupby(sv_.index.str[0].astype(int)).mean()
         S = self.slots
-        v = S.price(label, d, sv_.to_dict(), rnd.to_dict()) if S is not None else None
+        v = S.price(label, d, tab, rnd.to_dict()) if S is not None else None
         if v is None:
-            v = sv_.get(f"{rn}.{sl}", rnd.get(rn, np.nan)) if (sl and y == d.year and d.month <= 8) else rnd.get(rn, np.nan)
-        return v * 0.95 ** max(0, y - nxt)
+            v = tab.get(f"{rn}.{sl}", rnd.get(rn, np.nan)) if (sl and y == d.year and d.month <= 8) else rnd.get(rn, np.nan)
+        return v
 
 
 def league_frame(pa):

@@ -16,7 +16,7 @@ system's own inputs:
     the semifinals over 5-6 / 7-8;
   - after the season's last week: the exact slot (the label's number).
 
-The price is the odds-weighted mean of the slot prices (`faab_inputs.Picks.slot_values`). Nothing reads the slot the
+The price is the odds-weighted mean of the slot prices (the fixed weekly schedule, `faab_pick_schedule`). Nothing reads the slot the
 pick eventually landed in before its order is set; the label's number is used only once it is.
 
 Inputs are the committed exports (team_week, rookie_picks, player_additions) and the FAAB history; any piece

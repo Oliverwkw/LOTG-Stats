@@ -158,10 +158,13 @@ function ownerTeam(o, teams) {
   return teams.find((t) => t.toLowerCase() === String(o).toLowerCase()) || o;
 }
 // a future rookie pick on the board's scale — the FAAB system's own rule
-// (lotg_support.faab_inputs value): its round's average slot value (the slot is
-// not known yet), 5% off a year per draft beyond the next one; 5th round+ = $20
+// (lotg_support.faab_pick_schedule): its round's average slot price on the board's
+// date, from the fixed weekly pick schedule (board.json future_picks); 5th round+ = $20.
+// An older board without future_picks falls back to 5% off a year per draft.
 function futurePickValue(B, year, round) {
   if (round >= 5) return 20;
+  const fp = B.future_picks && B.future_picks[String(year)];
+  if (fp && typeof fp[String(round)] === "number") return fp[String(round)];
   const slots = (B.picks || []).filter((p) => +p.slot.split(".")[0] === round);
   if (!slots.length) return 0;
   const avg = slots.reduce((a, p) => a + p.value, 0) / slots.length;

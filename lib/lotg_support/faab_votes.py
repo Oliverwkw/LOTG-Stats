@@ -282,24 +282,36 @@ def page_board(T, owners, as_of, info, picks=None):
                team=info.get(str(r.sid), {}).get("team") or "", injury=r.injury or "", owner=owners.get(str(r.sid), ""),
                value=int(round(r.V)), rank=int(r["rank"])) for _, r in T.iterrows()]
     return dict(as_of=str(pd.Timestamp(as_of).date()), teams=TEAMS, guest=GUEST, players=pl,
-                picks=[dict(slot=k, value=int(round(v))) for k, v in (picks or {}).items()])
+                picks=[dict(slot=k, value=int(round(v))) for k, v in (picks or {}).items()],
+                future_picks=future_pick_values(as_of))
 
 
 def slot_values(exports, as_of, rounds=4):
-    """rookie-draft slot -> the league's median price for it, over drafts held before as_of (exports/rookie_picks
-    joined to the Draft rows of exports/player_additions); made non-increasing down the draft so a later slot
-    never reads dearer than an earlier one"""
-    exports = Path(exports)
-    rp = pd.read_csv(exports / "rookie_picks.csv", usecols=["Year", "Number", "Player Picked"], dtype=str)
-    pa = pd.read_csv(exports / "player_additions.csv", usecols=["Player", "Season", "Addition type", "Price paid (FAAB)", "Date"], dtype=str)
-    rp = rp[rp.Number.str.fullmatch(r"\d\.\d\d", na=False)]
-    m = rp.merge(pa[pa["Addition type"] == "Draft"], left_on=["Player Picked", "Year"], right_on=["Player", "Season"])
-    held = m.groupby("Year").Date.transform("min").str[:10]
-    m = m[held < str(pd.Timestamp(as_of).date())]
-    v = pd.to_numeric(m["Price paid (FAAB)"], errors="coerce")
-    med = v.groupby(m.Number).median().dropna()
-    med = med[med.index.str[0].astype(int) <= rounds].sort_index()
+    """rookie-draft slot -> its FAAB price on as_of for the next class to be drafted, from the fixed weekly pick
+    schedule (faab_pick_schedule, 2026-11-11), made non-increasing down the draft so a later slot never reads dearer
+    than an earlier one. `exports` is kept for the old call signature."""
+    from . import faab_pick_schedule as PSCHED
+    d = pd.Timestamp(as_of)
+    S = PSCHED.load()
+    y = d.year if d < PSCHED.nfl_draft(d.year) + pd.Timedelta(weeks=PSCHED.LEAGUE_DRAFT_WEEK) else d.year + 1
+    med = pd.Series(S.table(y, d)).sort_index()
+    med = med[med.index.str[0].astype(int) <= rounds]
     return med.cummin().to_dict()
+
+
+def future_pick_values(as_of, years=4, rounds=4):
+    """{class year: {round: its average slot price on as_of}} for the next `years` classes, from the fixed weekly
+    pick schedule (faab_pick_schedule): what an unknown-slot future pick is worth that day"""
+    from . import faab_pick_schedule as PSCHED
+    d = pd.Timestamp(as_of)
+    S = PSCHED.load()
+    y0 = d.year if d < PSCHED.nfl_draft(d.year) + pd.Timedelta(weeks=PSCHED.LEAGUE_DRAFT_WEEK) else d.year + 1
+    out = {}
+    for y in range(y0, y0 + years):
+        t = pd.Series(S.table(y, d))
+        g = t.groupby(t.index.str[0].astype(int)).mean()
+        out[str(y)] = {str(r): int(round(v)) for r, v in g.items() if r <= rounds}
+    return out
 
 
 def owners_from_snapshot(season_dir):

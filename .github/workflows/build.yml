@@ -378,6 +378,15 @@ jobs:
         # exports/raw/weekly_digest.html and updates the local snapshot; the
         # snapshot is only COMMITTED on the Tuesday send run (below), so the
         # week-over-week baseline rotates exactly once per week at email time.
+        #
+        # The rotated snapshot is ALSO copied outside the checkout, to
+        # $RUNNER_TEMP, and the rotation step restores it from there. The exports
+        # commit below can `git reset --hard origin/main` when main moved
+        # mid-build, and that reset puts data/digest/ back to the committed copy.
+        # Run 835 (Tue 2026-11-10) lost its rotation exactly that way to a FAAB
+        # rebuild pushed mid-build: the email went out, the stale baseline was
+        # left committed, the 17:47 catch-up's guard saw no fresh stamp, and the
+        # league got the same digest twice.
         continue-on-error: true
         env:
           PYTHONPATH: src:lib
@@ -387,6 +396,11 @@ jobs:
             --exports exports \
             --snapshot data/digest/ranks_snapshot.json --write-snapshot \
             --out exports/raw/weekly_digest.html 2>&1 | tee exports/raw/digest.log
+          status=$?
+          if [ "${status}" -eq 0 ] && [ -f data/digest/ranks_snapshot.json ]; then
+            cp data/digest/ranks_snapshot.json "${RUNNER_TEMP}/rotated_ranks_snapshot.json"
+          fi
+          exit "${status}"
 
       - name: Commit refreshed exports on roster change (or weekly cadence)
         # The build above rewrote ALL of exports/ (the snapshot replay cache +
@@ -583,9 +597,14 @@ jobs:
         #   * the digest diffs against that snapshot, so the second run finds no
         #     movement, renders the empty "No leaderboard changes this week."
         #     digest, and --skip-empty drops it before SMTP.
-        # The one uncovered case is a first run that sent and then FAILED before
-        # rotating — but the F3 ordering below means a send failure fails the job
-        # before the rotation, so nothing was mailed in that case either.
+        # That holds only if the first run's rotation actually LANDS on main.
+        # Run 835 (2026-11-10) broke it: a FAAB rebuild pushed mid-build, the
+        # exports commit's reconcile reset data/digest/ to origin/main, the stale
+        # baseline was committed, and run 836 mailed the same digest again. So
+        # the rotation now restores the snapshot from $RUNNER_TEMP (written by
+        # the digest step) and retries its own push on a moved main.
+        # A send failure fails the job before the rotation (F3 ordering below),
+        # so nothing was mailed in that case and a re-send is correct.
         if: ${{ github.ref == 'refs/heads/main' && (env.TUESDAY_SEND == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.send_email == 'true')) }}
         env:
           DIGEST_KEY: ${{ secrets.DIGEST_KEY }}
@@ -617,6 +636,13 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' && env.TUESDAY_SEND == 'true' }}
         run: |
           set -euo pipefail
+          # Restore the snapshot the digest step rotated: a reconcile reset in the
+          # exports commit may have put the committed (stale) copy back.
+          rotated="${RUNNER_TEMP}/rotated_ranks_snapshot.json"
+          if [ -f "${rotated}" ]; then
+            mkdir -p data/digest
+            cp "${rotated}" data/digest/ranks_snapshot.json
+          fi
           if [ ! -f data/digest/ranks_snapshot.json ]; then
             echo "No digest snapshot (offseason / digest skipped); nothing to rotate."
             exit 0
@@ -633,7 +659,20 @@ jobs:
             echo "Digest snapshot unchanged; nothing to commit."
           else
             git commit -m "Weekly digest snapshot rotation (run ${{ github.run_number }}) [skip ci]"
-            git push
+            # Retry on a main that moved since the exports push. Rebasing is safe
+            # here: this commit touches only data/digest/, which nothing else
+            # writes. A lost push would leave the stale baseline committed and
+            # let the catch-up cron mail the same digest again.
+            pushed=""
+            for attempt in 1 2 3; do
+              if git push; then pushed=1; break; fi
+              echo "rotation push rejected (attempt ${attempt}/3) — rebasing onto origin/main."
+              git pull --rebase origin main
+            done
+            if [ -z "${pushed}" ]; then
+              echo "::error::could not push the rotated digest snapshot; the catch-up cron may re-send this digest"
+              exit 1
+            fi
           fi
 
       - name: Dump debug logs on failure
