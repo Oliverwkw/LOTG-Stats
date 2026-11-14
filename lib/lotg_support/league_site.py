@@ -1149,6 +1149,8 @@ class Site:
                 if c in t.columns:
                     side[c] = _clean(pd.to_numeric(r[c], errors="coerce"),
                                      NF.decimals(NF.col_number_format(c)))
+            # every column of the trades sheet, for the trade's own page and for sorting
+            side["all"] = {c: _clean(r[c], NF.decimals(NF.col_number_format(c))) for c in self._trade_all_cols()}
             grp["sides"].append(side)
         out = sorted(groups.values(), key=lambda g: g["time"], reverse=True)
         keys = {id(g): k for k, g in groups.items()}
@@ -1160,9 +1162,19 @@ class Site:
             g["sides"].sort(key=lambda s: -(s.get("Trade impact score") or 0))
         return out
 
+    def _trade_all_cols(self) -> List[str]:
+        """The trades sheet's columns minus ids, links and the row's own identity."""
+        skip = re.compile(r"(ID|IDs)( |$)|^Link |^Team's traded with|^(Team|Date|Season)$")
+        return [c for c in self.trades.columns if not skip.search(str(c))]
+
     def trade_meta(self) -> Dict[str, object]:
-        return {"fmt": {c: column_format(c) for c in TRADE_SIDE_COLUMNS},
-                "labels": {c: _display(c, "trades") for c in TRADE_SIDE_COLUMNS},
+        allc = self._trade_all_cols()
+        numeric = [c for c in allc if pd.to_numeric(self.trades[c], errors="coerce").notna().sum() >= 3
+                   and not pd.api.types.is_bool_dtype(self.trades[c])]
+        cols = list(dict.fromkeys(TRADE_SIDE_COLUMNS + allc))
+        return {"fmt": {c: column_format(c) for c in cols},
+                "labels": {c: _display(c, "trades") for c in cols},
+                "all_cols": allc, "sortable": numeric,
                 "ktc": KTC_TIMELINE, "faab": FAAB_TIMELINE}
 
     # -- draft
@@ -1402,7 +1414,10 @@ class Site:
         put("h2h.json", self.h2h())
         put("all_time.json", self.all_time_standings())
         put("watch.json", self.record_watch())
+        # the full sheet columns go in their own file: only the trades pages need them
+        full = {t["id"]: [side.pop("all", {}) for side in t["sides"]] for t in self._trades}
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
+        put("trades_full.json", full)
         put("draft.json", self.draft())
         put("picks.json", self.held_picks())
         rostered = []

@@ -32,7 +32,26 @@ const tslug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace
 const teamLink = (t) => t ? `<a href="#/team/${tslug(t)}">${esc(t)}</a>` : "—";
 let NAMES = {}, NAMES_BY_ID = {};   // player name -> page key, from search.json
 const playerLink = (n) => NAMES[n] ? `<a href="#/player/${NAMES[n]}">${esc(n)}</a>` : esc(n);
-const assetLink = (a) => NAMES[a] ? playerLink(a) : esc(a);
+const assetLink = (a) => assetHtml(a);
+// picks as links: a drafted one opens its pick page, a future one its owner's picks
+let PICKROWS = null;   // "2025 1.05" -> ["rookie_picks", row]
+const loadPickRows = () => PICKROWS ? Promise.resolve(PICKROWS) : load("draft.json").then((d) => {
+  PICKROWS = {};
+  for (const [key, sheet] of [["rookie", "rookie_picks"], ["startup", "non_rookie_picks"]]) {
+    const t = d[key]; if (!t) continue;
+    const yi = t.cols.indexOf("Year"), ni = t.cols.indexOf("Number"), ri = t.cols.indexOf("_row");
+    for (const r of t.rows) { const y = String(r[yi]).match(/\d{4}/); if (y) PICKROWS[`${y[0]} ${r[ni]}`] = PICKROWS[`${y[0]} ${r[ni]}`] || [sheet, r[ri]]; }
+  }
+  return PICKROWS;
+});
+function assetHtml(a) {
+  if (NAMES[a]) return playerLink(a);
+  const m = /^(\d{4}) (\d+\.\d+)(?:\((.+)\))?$/.exec(a);
+  if (m && PICKROWS && PICKROWS[`${m[1]} ${m[2]}`]) { const [sh, row] = PICKROWS[`${m[1]} ${m[2]}`]; return `<a href="#/pick/${sh}/${row}">${esc(a)}</a>`; }
+  const f = /^(\d{4}) (\d)\((.+)\)$/.exec(a);
+  if (f) return `<a href="#/team/${tslug(f[3])}" title="${esc(f[3])}'s ${esc(f[1])} round ${esc(f[2])} pick, not drafted yet">${esc(a)}</a>`;
+  return esc(a);
+}
 const nflLink = (t) => t && t !== "NFL" && t !== "FA" ? `<a href="#/nfl/${esc(t)}">${esc(t)}</a>` : esc(t || "");
 
 // ---------- definitions: tap or hover a stat's name for its formula (formulas.csv),
@@ -373,7 +392,7 @@ function tiles(summary, labels, specs, keys, sheet) {
     return `<div class="tile"${d ? ` data-def="${esc(d)}" data-deflabel="${esc(labels[k] || k)}"` : ""}><b>${fmt(specs[k], summary[k])}</b><span>${esc(labels[k] || k)}${d ? ' <span class="defbtn">ⓘ</span>' : ""}</span></div>`; }).join("")}</div>`;
 }
 
-function tradeCard(t, meta) {
+function tradeCard(t, meta, full) {
   const F = meta.fmt, L = meta.labels;
   const best = t.sides[0];
   const ktcNow = (s) => { for (let i = meta.ktc.length - 1; i >= 0; i--) { const v = s[meta.ktc[i][1]]; if (typeof v === "number") return [meta.ktc[i][0], v]; } return null; };
@@ -381,16 +400,17 @@ function tradeCard(t, meta) {
     const k = ktcNow(s);
     return `<div class="side"><h4>${teamLink(s.team)} ${k ? `<span class="grade ${k[1] >= 0 ? "pos" : "neg"}" title="KTC value difference, latest available (${esc(k[0])})">${signed(F["KTC value difference at deal time"], k[1])} KTC</span>` : ""}</h4>
       <div class="small muted">Got</div><ul>${s.got.map((a) => `<li>${assetLink(a)}</li>`).join("") || '<li class="muted">nothing</li>'}</ul>
+      ${t.sides.length > 2 || full ? `<div class="small muted">Sent</div><ul>${s.sent.map((a) => `<li>${assetLink(a)}</li>`).join("") || '<li class="muted">nothing</li>'}</ul>` : ""}
       <div class="ktc">${meta.ktc.map(([lab, c]) => `<span>${esc(lab)}: <b class="${(s[c] ?? 0) > 0 ? "pos" : (s[c] ?? 0) < 0 ? "neg" : ""}">${s[c] === null || s[c] === undefined ? "—" : signed(F[c], s[c])}</b></span>`).join("")}</div>
       ${meta.faab ? `<div class="ktc" title="FAAB Value difference: the same received − sent gap in the league's FAAB dollars (FAAB value system)"><span class="muted">FAAB $</span>${meta.faab.map(([lab, c]) => `<span>${esc(lab)}: <b class="${(s[c] ?? 0) > 0 ? "pos" : (s[c] ?? 0) < 0 ? "neg" : ""}">${s[c] === null || s[c] === undefined ? "—" : signed(F[c], s[c])}</b></span>`).join("")}</div>` : ""}
       <div class="ktc">${["Trade impact score", "Wins added", "Net points", "O-Score"].map((c) => `<span title="${esc(L[c])}">${esc(L[c])}: <b>${fmt(F[c], s[c])}</b></span>`).join("")}</div>
     </div>`;
   }).join("");
-  return `<div class="trade" id="trade-${t.id}"><div class="small muted"><a href="#/trades/${t.id}">Trade #${t.id}</a> · ${esc(t.date)}${t.sides.length > 1 && (best["Trade impact score"] ?? 0) > (t.sides[1]["Trade impact score"] ?? 0) ? ` · impact edge: ${esc(best.team)}` : ""}</div><div class="sides">${sides}</div></div>`;
+  return `<div class="trade${full ? "" : " go"}" id="trade-${t.id}"${full ? "" : ` data-go="trades/${t.id}"`}><div class="small muted"><a href="#/trades/${t.id}">Trade #${t.id}</a> · ${esc(t.date)}${t.sides.length > 1 && (best["Trade impact score"] ?? 0) > (t.sides[1]["Trade impact score"] ?? 0) ? ` · impact edge: ${esc(best.team)}` : ""}</div><div class="sides">${sides}</div></div>`;
 }
 
 async function team(slug, _q, live) {
-  const [t, tr, PK, B] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard()]);
+  const [t, tr, PK, B] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard(), loadPickRows()]);
   const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
@@ -454,7 +474,7 @@ async function team(slug, _q, live) {
 }
 
 async function player(key, _q, live) {
-  const [p, tr, B] = await Promise.all([load(`player/${key}.json`), load("trades.json"), loadBoard()]);
+  const [p, tr, B] = await Promise.all([load(`player/${key}.json`), load("trades.json"), loadBoard(), loadPickRows()]);
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const d = p.draft;
   const fv = B && B.players.find((x) => x.name === p.name);
@@ -665,39 +685,56 @@ async function h2h() {
 }
 
 async function trades(id, query) {
-  const [tr, meta] = await Promise.all([load("trades.json"), load("meta.json")]);
+  const [tr, meta, FULL] = await Promise.all([load("trades.json"), load("meta.json"), load("trades_full.json"), loadPickRows()]);
+  for (const t of tr.trades) (FULL[t.id] || []).forEach((all, i) => { if (t.sides[i]) t.sides[i].all = all; });
   if (id) {
     const t = tr.trades.find((x) => String(x.id) === String(id));
-    $app.innerHTML = `<p><a href="#/trades">← All trades</a></p>${t ? tradeCard(t, tr.meta) : "<p>Not found.</p>"}
-      <p class="muted small">KTC value difference = value received minus value sent on KeepTradeCut (superflex), at the deal and later; the FAAB $ row is the same gap in the league's FAAB dollars (the FAAB value system, from 2021). Trade impact score, wins added and net points come from the trades sheet.</p>`;
+    if (!t) throw new Error("No trade " + id);
+    const M = tr.meta;
+    const rows = M.all_cols.filter((c) => t.sides.some((s) => s.all && s.all[c] !== null && s.all[c] !== undefined));
+    const cell = (c, v) => v === null || v === undefined ? "—" : typeof v === "string" ? v.split("; ").map(assetLink).join("; ") : fmt(M.fmt[c], v);
+    $app.innerHTML = `<p><a href="#/trades">← All trades</a></p>${tradeCard(t, M, true)}
+      <div class="card"><h2>Everything on the trades sheet</h2><div class="scroll"><table class="tall"><thead><tr><th class="l pin pin0">Stat</th>${t.sides.map((s) => `<th class="l">${teamLink(s.team)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((c) => { const d = defOf(c, "trades"); return `<tr><td class="l pin pin0"${d ? ` data-def="${esc(d)}" data-deflabel="${esc(M.labels[c] || c)}"` : ""}>${esc(M.labels[c] || c)}${d ? ' <span class="defbtn">ⓘ</span>' : ""}</td>${t.sides.map((s) => `<td class="l">${cell(c, s.all && s.all[c])}</td>`).join("")}</tr>`; }).join("")}</tbody></table></div>
+        <p class="muted small">One column per team in the deal. KTC value difference = value received minus value sent on KeepTradeCut (superflex); the FAAB $ figures are the same gap in the league's FAAB dollars.</p></div>`;
+    pinColumns(document.querySelector(".tall").parentElement);
     return;
   }
   const params = new URLSearchParams(query || "");
-  let team = params.get("team") || "", season = params.get("season") || "", sort = "date", q = "";
+  let team = params.get("team") || "", season = params.get("season") || "", q = "";
+  let sort = params.get("sort") || "date", dir = params.get("dir") || "hi", limit = 60;
+  const M = tr.meta;
   function draw() {
     let ts = tr.trades.filter((t) => (!team || t.sides.some((s) => s.team === team)) && (!season || String(t.season) === season)
       && (!q || t.sides.some((s) => s.got.concat(s.sent).some((a) => a.toLowerCase().includes(q)))));
-    const swing = (t) => Math.max(...t.sides.map((s) => { for (let i = tr.meta.ktc.length - 1; i >= 0; i--) { const v = s[tr.meta.ktc[i][1]]; if (typeof v === "number") return Math.abs(v); } return 0; }));
-    const impact = (t) => Math.max(...t.sides.map((s) => Math.abs(s["Trade impact score"] || 0)));
-    if (sort === "ktc") ts = ts.slice().sort((a, b) => swing(b) - swing(a));
-    if (sort === "impact") ts = ts.slice().sort((a, b) => impact(b) - impact(a));
-    const shown = ts.slice(0, 60);
-    document.getElementById("tl").innerHTML = `<p class="muted small">${ts.length} trades${ts.length > shown.length ? `, showing ${shown.length}` : ""}</p>` + shown.map((t) => tradeCard(t, tr.meta)).join("");
+    // a trade ranks by its best side for "highest", its worst side for "lowest"
+    const key = (t) => { const v = t.sides.map((s) => s.all && s.all[sort]).filter((x) => typeof x === "number"); return v.length ? (dir === "hi" ? Math.max(...v) : Math.min(...v)) : null; };
+    if (sort === "date") ts = dir === "hi" ? ts : ts.slice().reverse();
+    else ts = ts.filter((t) => key(t) !== null).sort((a, b) => dir === "hi" ? key(b) - key(a) : key(a) - key(b));
+    const shown = ts.slice(0, limit);
+    document.getElementById("tl").innerHTML = `<p class="muted small">${ts.length} trades${sort !== "date" ? ` by ${esc(M.labels[sort] || sort)}, ${dir === "hi" ? "highest" : "lowest"} first (a trade ranks by its ${dir === "hi" ? "best" : "worst"} side)` : ""}</p>` +
+      shown.map((t) => (sort !== "date" ? `<p class="small" style="margin:10px 0 2px"><b>${fmt(M.fmt[sort], key(t))}</b> <span class="muted">${esc(M.labels[sort] || sort)}</span></p>` : "") + tradeCard(t, M)).join("") +
+      (ts.length > shown.length ? `<button class="b" id="tmore">Show more (${ts.length - shown.length} left)</button>` : "");
+    const more = document.getElementById("tmore");
+    if (more) more.onclick = () => { limit += 60; draw(); };
   }
   const seasons = [...new Set(tr.trades.map((t) => t.season))].sort().reverse();
   $app.innerHTML = `<h1>Trade history</h1>
     <div class="controls">
       <select id="ft"><option value="">All teams</option>${meta.teams.map((t) => `<option ${t === team ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
       <select id="fs"><option value="">All seasons</option>${seasons.map((s) => `<option ${String(s) === season ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
-      <select id="fo"><option value="date">Newest first</option><option value="ktc">Biggest KTC swing</option><option value="impact">Biggest impact score</option></select>
+      <select id="fo" title="Order by"><option value="date">Date</option>${M.sortable.map((c) => `<option value="${esc(c)}" ${c === sort ? "selected" : ""}>${esc(M.labels[c] || c)}</option>`).join("")}</select>
+      <span class="seg" style="margin:0"><button data-dir="hi" aria-pressed="${dir === "hi"}">Highest / newest</button><button data-dir="lo" aria-pressed="${dir === "lo"}">Lowest / oldest</button></span>
       <input class="f" id="fq" type="search" placeholder="Player or pick">
     </div>
-    <p class="muted small">Each side shows the KTC value difference (received − sent) at the deal, at season end, 1 and 2 years later, and the same gap in FAAB dollars (from 2021); the badge is the latest KTC one available. Trades from this season have only the deal-time value so far.</p>
+    <p class="muted small">Order by any stat on the trades sheet. Each side shows the KTC value difference (received − sent) at the deal, at season end, 1 and 2 years later, and the same gap in FAAB dollars; the badge is the latest KTC one available. Tap a trade for everything the sheet has on it.</p>
     <div id="tl"></div>`;
   document.getElementById("ft").onchange = (e) => { team = e.target.value; draw(); };
   document.getElementById("fs").onchange = (e) => { season = e.target.value; draw(); };
-  document.getElementById("fo").onchange = (e) => { sort = e.target.value; draw(); };
+  document.getElementById("fo").onchange = (e) => { sort = e.target.value; limit = 60; draw(); };
+  $app.querySelectorAll("[data-dir]").forEach((b) => b.onclick = () => { dir = b.dataset.dir; limit = 60; $app.querySelectorAll("[data-dir]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("fq").oninput = (e) => { q = e.target.value.trim().toLowerCase(); draw(); };
+  document.getElementById("tl").onclick = (e) => { if (e.target.closest("a") || e.target.closest("button")) return; const c = e.target.closest("[data-go]"); if (c) location.hash = "#/" + c.dataset.go; };
   draw();
 }
 
@@ -1067,6 +1104,12 @@ document.getElementById("searchForm").onsubmit = (e) => { e.preventDefault(); lo
 let typing;
 document.getElementById("q").oninput = (e) => { clearTimeout(typing); typing = setTimeout(() => { if (e.target.value.trim().length > 1) location.hash = "#/search/" + encodeURIComponent(e.target.value); }, 250); };
 window.addEventListener("hashchange", route);
+// any card marked data-go (trade cards and the like) opens on a tap anywhere in it
+$app.addEventListener("click", (e) => {
+  if (e.target.closest("a, button, input, select, summary, .defbtn")) return;
+  const c = e.target.closest(".trade[data-go]");
+  if (c) location.hash = "#/" + c.dataset.go;
+});
 load("sheets/index.json").then((ix) => {
   for (const m of ix.sheets) DEFS[m.sheet] = m.defs || {};
   DEFS._any = Object.assign({}, ...ix.sheets.map((m) => m.defs || {}));
