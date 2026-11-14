@@ -33,6 +33,24 @@ KO = {2014: "2014-09-04", 2015: "2015-09-10", 2016: "2016-09-08", 2017: "2017-09
       2023: "2023-09-07", 2024: "2024-09-05", 2025: "2025-09-04", 2026: "2026-09-10",
       2027: "2027-09-09"}  # 2027 is a placeholder — confirm before relying on it
 POS = {"QB": 0, "RB": 1, "WR": 2, "TE": 3}
+# NFL salary cap per club by league year (March to February), $M. A contract's guaranteed money is divided by the cap
+# of the row's league year, so a 2021 deal and a 2026 deal compare as shares of what a team can spend, not as dollars
+# that grow with the cap (a nominal-dollar input lets a model read the calendar through it). apy_cap_pct (k_apy) is
+# already a share of the cap at signing, so it is not divided again.
+NFL_CAP = {2020: 198.2, 2021: 182.5, 2022: 208.2, 2023: 224.8, 2024: 255.4, 2025: 279.2,
+           2026: 301.2}   # 2026: NFL.com, "NFL announces 2026 salary cap set at $301.2 million per team"
+# TODO: add each new league year's cap when the NFL announces it (late February / March). Until then a later year
+# reads the latest known cap, with a warning (nfl_cap).
+_CAP_WARNED: set = set()
+
+
+def nfl_cap(league_year):
+    """the cap ($M) of each league year; a year outside NFL_CAP reads the nearest known one (warned once)"""
+    ys = np.asarray(league_year, dtype=int); lo, hi = min(NFL_CAP), max(NFL_CAP)
+    for y in set(int(v) for v in np.unique(ys)) - set(NFL_CAP) - _CAP_WARNED:
+        _CAP_WARNED.add(y)
+        print(f"faab_frame.NFL_CAP has no {y} cap: using {NFL_CAP[hi if y > hi else lo]} (add it)", file=sys.stderr)
+    return np.array([NFL_CAP[int(np.clip(y, lo, hi))] for y in ys], dtype=float)
 
 
 # ----------------------------------------------------------------------------- data
@@ -309,6 +327,8 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
         kc["k_apy"][i], kc["k_gtd"][i], kc["k_years"][i], kc["k_yrs_left"][i] = r
     for n, v in kc.items():
         df[n] = v
+    ly = np.where(df.date.dt.month >= 3, df.date.dt.year, df.date.dt.year - 1)   # the row's league year
+    df["k_gtd"] = df.k_gtd.values / nfl_cap(ly)                                  # guaranteed $M -> share of the cap
 
     # d_: depth-chart rank as of the date (weekly charts to 2024, daily ESPN snapshots 2025+)
     snapdates, Dg, Da = T["snapdates"], T["Dg"], T["Da"]
@@ -344,7 +364,8 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     df.loc[m.index[ok], "s_snap_cur"] = m.cum[ok].values
     df.loc[m.index[ok], "s_snap_l3"] = m.l3[ok].values
 
-    # e_: career to date + calendar (e_t tracks drift in KTC's overall level)
+    # e_: career to date + time of year. No absolute time: `e_t` (years since 2020) tracked KTC's drift and was removed
+    # with the frozen base (2026-11-10); month / day of year are football's calendar, not the year.
     cp = T["cp"]
     best, games, elite = [], [], []
     memo = {}
@@ -361,14 +382,19 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
             memo[(g, lcs)] = r
         best.append(r[0]); games.append(r[1]); elite.append(r[2])
     df["e_career_best"] = best; df["e_career_games"] = games; df["e_n_elite"] = elite
-    df["e_t"] = (df.date - pd.Timestamp("2020-01-01")).dt.days / 365.25
     df["e_doy"] = df.date.dt.dayofyear
     return df.sort_values(["sid", "date"]).reset_index(drop=True)
 
 
+# Inputs no model may read: absolute time (a date, the year, a season number, a snapshot, a weight on time) and KTC
+# itself. The frozen base's feature audit (tests/test_faab_frozen.py) checks every stored feature list against this.
+FORBIDDEN = {"e_t", "date", "lcs", "cur", "dyear", "yexp_now", "snap", "season", "year", "era", "recency", "ktc", "bd",
+             "per", "rowid", "Season", "ktc_n", "yp"}
+
+
 def features(df):
-    return (["posc", "age", "dovr", "dround", "undrafted", "exp", "month"]
-            + [c for c in df.columns if c[:2] in ("n_", "c_", "k_", "d_", "s_", "e_")])
+    return [c for c in (["posc", "age", "dovr", "dround", "undrafted", "exp", "month"]
+                        + [c for c in df.columns if c[:2] in ("n_", "c_", "k_", "d_", "s_", "e_")]) if c not in FORBIDDEN]
 
 
 # --------------------------------------------------------------------------- models
@@ -380,11 +406,6 @@ def _gbm(**kw):
              random_state=0, categorical_features=[0])
     p.update(kw)
     return HistGradientBoostingRegressor(**p)
-
-
-def _recency(d, half_life_years=1.0):
-    t = (d.date - pd.Timestamp("2020-01-01")).dt.days.values / 365.25
-    return 0.5 ** ((t.max() - t) / half_life_years)
 
 
 STATS_ENSEMBLE = [  # (target, gbm kwargs) — averaged
@@ -404,7 +425,7 @@ class StatsModel:
         self.models = []
         for t, kw in self.ens:
             y = np.sqrt(d.ktc.values) if t == "sqrt" else d.ktc.values
-            self.models.append((t, _gbm(**kw).fit(d[self.F], y, sample_weight=_recency(d))))
+            self.models.append((t, _gbm(**kw).fit(d[self.F], y)))     # every date weighs the same (no recency weight)
         return self
 
     def predict(self, d):
@@ -458,7 +479,7 @@ class AnchoredModel:
         self.F = F + ["ranc", "gap", "sest", "res_anc", "dsest", "g_since", "g_frac"]
 
     def fit(self, x):
-        self.m = _gbm(max_iter=800).fit(x[self.F], np.sqrt(x.ktc) - x.ranc, sample_weight=_recency(x))
+        self.m = _gbm(max_iter=800).fit(x[self.F], np.sqrt(x.ktc) - x.ranc)
         return self
 
     def predict(self, x):
