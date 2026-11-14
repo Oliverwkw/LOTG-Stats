@@ -119,3 +119,14 @@ button.b.mini{padding:2px 7px;font-size:11px;margin-left:4px}
 .secnav button{font:inherit;font-size:13px;font-weight:600;white-space:nowrap;border-radius:999px;padding:5px 11px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
 details.more summary{color:var(--accent)}
 section.card h3{margin-top:18px}
+table.watch td{white-space:normal;vertical-align:top}
+table.watch td:first-child{min-width:150px}
+.depthgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.depth{background:var(--bg);border-radius:10px;padding:8px 12px}
+.depth h3{margin:4px 0}
+.depth ol{margin:0;padding-left:20px}
+.depth li{margin:3px 0}
+.wlist{list-style:none;padding:0;margin:0}
+.wlist li{padding:8px 0;border-bottom:1px solid var(--line)}
+.wtop{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wp{white-space:nowrap}
