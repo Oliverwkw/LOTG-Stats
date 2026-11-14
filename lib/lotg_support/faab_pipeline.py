@@ -387,9 +387,11 @@ def formula_frames(F, workers=None):
     so the dates are spread over `workers` forked processes (default faab_base.WORKERS; 1 = in this process): the
     same frames, ~4x sooner on a 4-core runner. Forked (the formula's base timeline is shared, not copied); the
     children run no OpenMP code."""
-    from . import faab_base as B
     global _FORMULA
-    n = max(1, int(workers or B.WORKERS)); _FORMULA = F
+    if not workers:     # faab_base needs scipy / scikit-learn: import it only for its default worker count
+        from . import faab_base as B
+        workers = B.WORKERS
+    n = max(1, int(workers)); _FORMULA = F
     try:
         if n == 1 or len(F.GRID) < 2 * n:
             return [_formula_at(g) for g in F.GRID]
