@@ -326,7 +326,7 @@ def _record_boards_follow_the_digest():
                     ranks = [x[3] for x in rows]
                     assert ranks == sorted(ranks) and all(x <= S.RECORD_DEPTH for x in ranks)
         if sheet in ("team_week", "player_week"):
-            assert r["scopes"] == ["all", *S.WEEK_KINDS]
+            assert r["scopes"] == ["all", *S.WEEK_KINDS, *S.EXTRA_VIEWS]
     tr = _load("records/trades.json")
     for c in tr["columns"]:
         for b in c["scopes"].values():

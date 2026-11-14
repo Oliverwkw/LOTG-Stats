@@ -79,6 +79,15 @@ RECORD_DEPTH = 5
 # 2026-11-02), and the toilet losers game is not the toilet bowl.
 WEEK_KINDS = {"reg": "Regular season", "playoffs": "Playoffs", "third": "3rd place game",
               "toilet": "Toilet bowl", "trash": "Toilet losers game"}
+# Views on top of the five week types (they overlap them, so they never enter a
+# sum that must add up to the whole): the final alone, a subset of the playoffs.
+EXTRA_VIEWS = {"final": "Final"}
+
+
+def in_view(view: str, week_name) -> bool:
+    return view == "final" and str(week_name) == "Final"
+
+
 KIND_RECORD = {"playoffs": "Playoff record", "third": "Third place game record",
                "toilet": "Toilet bowl record", "trash": "Toilet losers game record"}
 
@@ -592,6 +601,9 @@ def _kind_records(x: pd.DataFrame) -> Dict[str, int]:
     for k in WEEK_KINDS:
         y = x[x.Kind == k]
         out[k + "w"], out[k + "l"] = int(y.W.sum()), int((~y.W).sum())
+    for k in EXTRA_VIEWS:
+        y = x[x["Week Name"].map(lambda n, k=k: in_view(k, n))]
+        out[k + "w"], out[k + "l"] = int(y.W.sum()), int((~y.W).sum())
     return out
 
 
@@ -625,6 +637,22 @@ def _season_key(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+# formulas.csv defines a few identity columns once for every sheet, in one sheet's
+# words ("Team: the team that actually MADE the selection" is the pick sheets').
+# The site says what they mean on each sheet.
+_IDENTITY_DEFS = {
+    "Team": {"*": "The fantasy team (manager) this row is about.",
+             "rookie_picks": None, "non_rookie_picks": None,       # their own definition is right
+             "trades": "The team on this side of the trade (the trades sheet has one row per team).",
+             "add_drops": "The team that made the add/drop.",
+             "player_week": "The fantasy team that rostered the player that week."},
+    "Opponent": {"*": "The team played that week."},
+    "Year": {"*": "Season."}, "Week": {"*": "Week of the season (1-based)."},
+    "Week Name": {"*": "The week as the league names it: Week N in the regular season, or the playoff / consolation game."},
+    "Player": {"*": "The player this row is about."},
+}
+
+
 def _defs_by_sheet() -> Dict[str, Dict[str, str]]:
     """formulas.csv -> {sheet: {column: definition}}; a row whose Sheet lists
     several sheets ("team_year / team_all_time") defines the column on each."""
@@ -636,6 +664,11 @@ def _defs_by_sheet() -> Dict[str, Dict[str, str]]:
         text = " ".join(str(x) for x in (r.get("Formula"), r.get("Notes")) if isinstance(x, str) and x.strip())
         for sheet in str(r.get("Sheet", "")).split("/"):
             out.setdefault(sheet.strip(), {})[str(r["Stat"])] = text
+    for col, per in _IDENTITY_DEFS.items():
+        for sheet in list(out):
+            text = per.get(sheet, per["*"]) if sheet in per or "*" in per else None
+            if text:
+                out[sheet][col] = text
     return out
 
 
@@ -696,6 +729,21 @@ def nfl_players(extra_ids: Iterable[str] = (), ages: Optional[Dict[str, float]] 
             name = v.get("full_name") or f"{v.get('first_name', '')} {v.get('last_name', '')}".strip()
             out[pid] = [name, v.get("position"), v.get("team"), ages.get(pid)]
     return out
+
+
+# The weekly award flags shown on a matchup (team_week / player_week "...?" columns).
+TEAM_AWARDS = ["Highest score?", "Lowest score?", "Largest blowout?", "Narrowest victory?",
+               "Most efficient?", "Least efficient?", "Podium?", "Top half of league?", "One-man army?",
+               "Most bench points?", "Most injured?", "Boom week?", "Bust week?",
+               "Loss from hardship?", "Win from bye?", "Loss from bye?"]
+PLAYER_AWARDS = ["Player of the week?", "QB of the week?", "RB of the week?", "WR of the week?",
+                 "TE of the week?", "Benchwarmer of the week?", "Bench QB of the week?",
+                 "Bench RB of the week?", "Bench WR of the week?", "Bench TE of the week?",
+                 "Highest starter on team?", "Lowest starter on team?", "Captain?"]
+
+
+def _award_name(col: str) -> str:
+    return col[:-1] if col.endswith("?") else col
 
 
 # ---------------------------------------------------------------- builders
@@ -842,6 +890,7 @@ class Site:
         if "Week Name" in df.columns:
             kinds = df["Week Name"].map(week_kind)
             scopes.update({k: df.index[kinds == k] for k in WEEK_KINDS})
+            scopes.update({k: df.index[df["Week Name"].map(lambda n, k=k: in_view(k, n))] for k in EXTRA_VIEWS})
         deal = None
         if sheet == "trades":
             partners = [c for c in df.columns if c.startswith("Team's traded with")]
@@ -881,7 +930,7 @@ class Site:
                 entry["scopes"][scope] = out
             cols.append(entry)
         return {"sheet": sheet, "labels": list(labels), "flag": flag_text, "live_season": self.season,
-                "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS},
+                "scopes": [k for k in scopes], "scope_names": {"all": "All weeks", **WEEK_KINDS, **EXTRA_VIEWS},
                 "depth": RECORD_DEPTH, "columns": cols}
 
     def roster_team(self) -> Dict[str, str]:
@@ -953,13 +1002,17 @@ class Site:
                 mine["n"] = num.values
                 mine = mine.sort_values(["o", "n", "Points"], ascending=[True, True, False])
                 teams[str(r.Team)] = {
+                    "awards": [_award_name(c) for c in TEAM_AWARDS
+                               if c in r.index and str(r[c]).lower() == "true"],
                     "opp": _clean(r.Opponent), "pf": _clean(pd.to_numeric(r.PF, errors="coerce"), 2),
                     "pa": _clean(pd.to_numeric(r["Points against"], errors="coerce"), 2),
                     "win": str(r["Win?"]).lower() == "true",
                     "max": _clean(pd.to_numeric(r.get("Max PF"), errors="coerce"), 2),
                     "players": [[p.Player, self.slugs.get(str(p.Player)), _clean(p.Position),
                                  _clean(p["Position started in (if starter)"]) if p.st else None,
-                                 _clean(p.Points, 2), bool(p.st), _clean(p.get("NFL team"))]
+                                 _clean(p.Points, 2), bool(p.st), _clean(p.get("NFL team")),
+                                 [_award_name(c) for c in PLAYER_AWARDS
+                                  if c in p.index and str(p[c]).lower() == "true"]]
                                 for _, p in mine.iterrows()]}
             put(f"week/{int(y)}-{int(w)}.json", {"year": int(y), "week": int(w),
                                                   "week_name": str(g["Week Name"].iloc[0]), "teams": teams})
@@ -1004,6 +1057,53 @@ class Site:
             out[sheet] = rows
         return out
 
+    # -- the All-time standings page: every team_all_time column but head to head
+    def all_time_standings(self) -> Dict[str, object]:
+        """team_all_time minus its per-opponent columns ("Record vs X", "Win % vs
+        X", best / worst team record against): those live on Head to head."""
+        opp = re.compile(r"^(Record|Win %) vs (" + "|".join(map(re.escape, self.teams)) + r")$")
+        h2h_cols = {"Highest Win % vs a team", "Team for highest Win %", "Lowest Win % vs a team",
+                    "Team for lowest Win %"}
+        cols = [c for c in self.ta.columns if not opp.match(str(c)) and c not in h2h_cols]
+        return _table(self.ta, cols, "team_all_time")
+
+    # -- the home page's live record watch: where this week's numbers would rank
+    def record_watch(self) -> Dict[str, object]:
+        """Every all-time value of the stats a live week can set, sorted, plus
+        each board's top 5 with who holds it. The page reads this week's scores
+        from Sleeper and ranks them against these. Team PF here includes the
+        semifinal +5 (live Sleeper points do not; noted on the page)."""
+        tw = self.tw.copy()
+        for c in ("PF", "Points against", "Margin"):
+            tw[c] = pd.to_numeric(tw[c], errors="coerce")
+        win = tw["Win?"].astype(str).str.lower().eq("true")
+        lab = lambda d: [[str(r.Team), int(r.Year), str(r["Week Name"]), _clean(r.Opponent)] for _, r in d.iterrows()]
+
+        def board_of(series: pd.Series, frame: pd.DataFrame, high: bool = True) -> dict:
+            s = series.dropna().sort_values(ascending=not high, kind="mergesort")
+            top = frame.loc[s.index[:5]]
+            return {"values": [round(float(v), 2) for v in s], "top": [[round(float(v), 2), *l]
+                                                                        for v, l in zip(s[:5], lab(top))]}
+        games = tw[tw.Team < tw.Opponent.astype(str)]          # one row per game
+        pw = self.pw.copy()
+        pw["Points"] = pd.to_numeric(pw.Points, errors="coerce")
+        st = pw[pw["Starter/Bench"].astype(str) == "Starter"].dropna(subset=["Points"])
+        st = st.sort_values("Points", ascending=False, kind="mergesort")
+        return {
+            "team": {
+                "Most points in a week": board_of(tw.PF, tw),
+                "Fewest points in a week": board_of(tw.PF, tw, high=False),
+                "Most points in a loss": board_of(tw.PF[~win], tw),
+                "Fewest points in a win": board_of(tw.PF[win], tw, high=False),
+                "Biggest margin of victory": board_of(tw.Margin[win], tw),
+                "Most combined points in a game": board_of((games.PF + games["Points against"]), games),
+            },
+            "player": {"Most points by a starter": {
+                "values": [round(float(v), 2) for v in st.Points.head(400)], "count": int(len(st)),
+                "top": [[round(float(r.Points), 2), str(r.Player), str(r.Team), int(r.Year), str(r["Week Name"])]
+                        for _, r in st.head(5).iterrows()]}},
+        }
+
     # -- head to head
     def games(self) -> pd.DataFrame:
         g = self.tw[["Team", "Opponent", "Year", "Week", "Week Name", "Win?", "PF", "Points against"]].copy()
@@ -1027,7 +1127,7 @@ class Site:
                           for _, r in x.sort_values(["Year", "Week"], ascending=False).iterrows()],
                 "last": f"{int(last.Year)} {last['Week Name']}: {'W' if last.W else 'L'} "
                         f"{last.PF:.2f}-{last['Points against']:.2f}"}
-        return {"teams": self.teams, "cells": cells, "kinds": WEEK_KINDS,
+        return {"teams": self.teams, "cells": cells, "kinds": {**WEEK_KINDS, **EXTRA_VIEWS},
                 "note": "PF includes the semifinal +5 bonus (team PF does; player points do not)."}
 
     # -- trades
@@ -1300,6 +1400,8 @@ class Site:
             put(f"records/{sheet}.json", self.records(sheet))
         timings["records"] = round(time.time() - t, 1)
         put("h2h.json", self.h2h())
+        put("all_time.json", self.all_time_standings())
+        put("watch.json", self.record_watch())
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
         put("draft.json", self.draft())
         put("picks.json", self.held_picks())
