@@ -1,7 +1,9 @@
 """Rebuild the FAAB value inputs from public data — a thin command line over `lotg_support.faab_pipeline`.
 
     python scripts/faab_rebuild.py                 # fetch, rebuild (finished snapshots reused), write data/faab_value/
-    python scripts/faab_rebuild.py --full          # refit every quarterly snapshot from scratch (~9 h: 5 fold bags x 24+ quarters)
+    python scripts/faab_rebuild.py --refreeze      # fit the frozen base once on all history and write data/faab_value/frozen/
+                                                   # (a reviewed change, like a params.json refit; --full is the same)
+    python scripts/faab_rebuild.py --frozen DIR    # read (or with --refreeze write) the frozen base in DIR instead
     python scripts/faab_rebuild.py --no-fetch      # use the cached downloads
     python scripts/faab_rebuild.py --end 2021-03-15 --out /tmp/x   # a short window, written elsewhere (smoke test)
     python scripts/faab_rebuild.py --max-minutes 270   # stop fitting new snapshots after 270 min (exit 3; resume next run)
@@ -26,7 +28,9 @@ from lotg_support import faab_pipeline as P  # noqa: E402
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--full", action="store_true")
+    ap.add_argument("--full", action="store_true", help="the same as --refreeze")
+    ap.add_argument("--refreeze", action="store_true", help="fit the frozen base on all history and store it")
+    ap.add_argument("--frozen", help="the frozen base's folder (default data/faab_value/frozen)")
     ap.add_argument("--no-fetch", action="store_true")
     ap.add_argument("--end")
     ap.add_argument("--out")
@@ -41,7 +45,7 @@ def main(argv=None):
         n = P.history_only(out=Path(a.out) if a.out else None, log=lambda m: print(m, flush=True))
         sys.exit(0 if n else 4)
     R = P.rebuild(full=a.full, fetch=not a.no_fetch, end=a.end, out=Path(a.out) if a.out else None, max_minutes=a.max_minutes,
-                  log=lambda m: print(m, flush=True))
+                  refreeze=a.refreeze, frozen=a.frozen, log=lambda m: print(m, flush=True))
     if R is None:
         sys.exit(3)          # incomplete (time budget): the workflow keeps the cache and skips the commit
 

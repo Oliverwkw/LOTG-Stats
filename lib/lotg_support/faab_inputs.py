@@ -192,12 +192,12 @@ def ktc_panel(repo=ROOT):
     return Fd
 
 
-def grid_dates(start="2021-01-01", end=None):
+def grid_dates(start="2020-09-09", end=None):
     days = pd.date_range(start, end or pd.Timestamp.today().normalize(), freq="D")
     return days[((days.month >= 9) | (days.month == 1) | ((days.month == 2) & (days.day <= 15))) | (days.dayofweek == 1)]
 
 
-def grid_frame(pa, extra, start="2021-01-01", end=None, dates=()):
+def grid_frame(pa, extra, start="2020-09-09", end=None, dates=()):
     """every player the league has rostered, on every grid date and every board day the evidence is read on (`dates`,
     faab_pipeline.evidence_dates), plus `extra`'s own (sid, date) rows"""
     sids = sorted(set(pa.sid.dropna().astype(str)))

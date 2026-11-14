@@ -1,24 +1,21 @@
-"""Walk-forward base value for the FAAB system (the `Lf` the formula and rules start from).
+"""Pieces of the FAAB base value (the `Lf` the formula and rules start from): football priors, the production value,
+the league-price curves and models, anchors to a player's last league price, and the causal smoothing / routing.
 
-Every fitted piece is refit at each quarterly snapshot R on data dated before R and used only for dates in
-[R, next R): aging curves and replacement levels (NFL seasons complete before R), the stats translator S (stats ->
-KTC's superflex scale, KTC panel rows before R, out of fold by player so a player's own KTC never feeds his S), the
-KTC-scale -> league-price map, and the league-price model with its curves (league prices before R). Then each
-player's values are smoothed across dates and routed toward his last league price, causally.
+The base is FROZEN (lotg_support.faab_frozen, 2026-11-10): every fitted piece here is fit once on all history and
+stored; a normal rebuild only applies it. Nothing in this module reads the date as an input: the replacement level is
+a function of the row's last five complete NFL seasons (football context), the aging curves are fit once, and every
+row weighs the same whatever its date (the quarterly refits, the era weight, the 1-year recency weight and the
+"2022 on" / "last 3 years" windows were removed with the quarterly snapshot loop).
 
-KTC is the translator's training target only; no value is ever read from KTC on the date being valued.
+KTC is a training scale only (the translator's target and the KTC-scale -> league-price maps, fit once); no value is
+ever read from KTC when a row is valued.
 
-Moved from the research scripts (common / anchor / chain / pv / v3 / v4 / v7-v10 / tl_base / wf_base2) with the
-logic unchanged; `REPRO` switches restore two research-era behaviours exactly, for reproduction checks only:
-  - aging_cap_2024: the survivor aging curve kept seasons <= 2024 regardless of the snapshot (it let the last
-    complete season count as all drop-offs at 2021-23 snapshots, and would freeze the curve from 2027);
-  - fold_map: the stored fold assignment; production uses a stable hash of the Sleeper id.
+Moved from the research scripts (common / anchor / chain / pv / v3 / v4 / v7-v10 / tl_base / wf_base2).
 """
 from __future__ import annotations
 
 import hashlib
 import os
-import time
 
 import numpy as np
 import pandas as pd
@@ -28,13 +25,12 @@ from sklearn.isotonic import IsotonicRegression
 
 from . import faab_frame as kp
 
-REPRO = dict(aging_cap_2024=False, fold_map=None)
 # Out-of-fold predictions for top players moved 30-40% with nothing but the fold assignment (Gibbs's base $3,539 ->
 # $2,204 on the same data, 2026-10; across six assignments he was bimodal, ~$2,200 or ~$3,540, by which comparable
-# players shared his held-out fold). Each quarter is therefore fit under BAGS assignments and a player's base is the
+# players shared his held-out fold). The base is therefore fit under BAGS assignments and a player's base is the
 # mean of his log values. Measured on the 2026-10 quarter's top 150: two single draws differ by a median 15%, two
 # independent 3-bag means by 9% (the 1/sqrt(n) the noise predicts); 5 bags leave ~7%.
-BAGS = int(os.environ.get("FAAB_BAGS", "5"))     # FAAB_BAGS=1: a quick smoke run
+BAGS = int(os.environ.get("FAAB_BAGS", "5"))     # bags fit by a refreeze (applying uses every stored bag)
 DEMAND = {"QB": 16, "RB": 24, "WR": 32, "TE": 9}   # weekly starters league-wide (1 QB + SF, 2 RB, 3 WR, 1 TE, 2 FLEX)
 ENS = [("sqrt", dict(max_leaf_nodes=63, learning_rate=0.05, max_iter=800)), ("raw", dict(max_iter=500))]
 CFG = (0.3, 0.0, 2.5); A_PV = 0.67; NM = "pv_main"
@@ -42,14 +38,10 @@ PVF = ["PV", "pv_ppg", "lPV"]
 AF = ["a_lp", "a_gap", "a_g", "a_dS", "a_free", "a_trade"]
 LO, HI = np.log1p(100), np.log1p(1000)
 BOOST = (0.4, 0.0, 0.35)
+REPL_YEARS = 5                 # the replacement level reads the row's last five complete NFL seasons
 
 
 # ------------------------------------------------------------------ small helpers (common)
-def era_weight(d):
-    d = pd.to_datetime(d)
-    return np.select([d < "2021-01-01", d < "2021-07-01", d < "2022-01-01"], [0.25, 0.5, 0.75], 1.0)
-
-
 def feats(df):
     return kp.features(df)
 
@@ -61,20 +53,24 @@ def gbm(**kw):
     return HistGradientBoostingRegressor(**p)
 
 
-def folds(groups, k=5, seed=0):
-    u = pd.Series(groups).unique(); rng = np.random.RandomState(seed); rng.shuffle(u)
-    f = {g: i % k for i, g in enumerate(u)}
-    return np.array([f[g] for g in groups])
-
-
 def fold_of(sids, bag=0):
-    """out-of-fold group by player: a stable hash of the Sleeper id (and the bag), or the stored map in reproduction
-    mode (bag 0)"""
+    """out-of-fold group by player: a stable hash of the Sleeper id (and the bag)"""
     sids = pd.Series(sids).astype(str)
     salt = "" if bag == 0 else f"{bag}:"
-    stable = sids.map(lambda s: int(hashlib.md5((salt + s).encode()).hexdigest(), 16) % 5)
-    fm = REPRO.get("fold_map")
-    return (sids.map(fm).fillna(stable) if (fm and bag == 0) else stable).astype(int).values
+    return sids.map(lambda s: int(hashlib.md5((salt + s).encode()).hexdigest(), 16) % 5).astype(int).values
+
+
+def season_done(R):
+    """last NFL season whose regular season ended before R"""
+    return max(y for y, k in kp.KO.items() if pd.Timestamp(k) + pd.Timedelta(weeks=19) <= R)
+
+
+def seasons_done(dates):
+    """season_done for every date (vectorised over the unique dates)"""
+    d = pd.to_datetime(pd.Series(dates)).values.astype("datetime64[ns]")
+    ys = np.array(sorted(kp.KO)); ends = np.array([pd.Timestamp(kp.KO[y]) + pd.Timedelta(weeks=19) for y in ys], dtype="datetime64[ns]")
+    j = np.searchsorted(ends, d, side="right") - 1
+    return np.where(j >= 0, ys[np.clip(j, 0, None)], ys[0] - 1)
 
 
 # ------------------------------------------------------------------ NFL seasons, aging, production value (pv / v7 / v8 / v9)
@@ -106,8 +102,9 @@ def aging_curves(s):
     return cur
 
 
-def production_value(df, repl, cur, years=5, disc=0.75, games=15):
-    pos = df.pos.values; R = np.array([repl.get(p, 10) for p in pos])
+def production_value(df, R, cur, years=5, disc=0.75, games=15):
+    """R: each row's replacement level (Football.repl_rows)"""
+    pos = df.pos.values; R = np.asarray(R, dtype=float)
     w0 = np.where(df.c_gp.fillna(0).values > 0, 0.8, 1.0)
     num, den = np.zeros(len(df)), np.zeros(len(df))
     for gp, ppg, w in (("c_gp", "c_ppg", 1.0), ("n_gp_l0", "n_ppg_l0", w0), ("n_gp_l1", "n_ppg_l1", 0.4), ("n_gp_l2", "n_ppg_l2", 0.15)):
@@ -124,37 +121,74 @@ def production_value(df, repl, cur, years=5, disc=0.75, games=15):
 
 
 class Football:
-    """the snapshot's football priors: replacement levels, per-game aging curve, survivor aging curve (with
-    drop-offs), and the career table the ceiling reads. Refit from seasons complete before each snapshot."""
+    """the football priors: the per-game aging curve and the survivor aging curve (with drop-offs), FIT ONCE on the
+    seasons complete at the freeze (`fit`, or `set_curves` from the stored base), and each row's replacement level,
+    which is not a fit: the mean over the row's last five complete seasons of each position's Nth-best PPG among 6+
+    game seasons (N = league-wide weekly starters, DEMAND). A row's level is football context (how deep the position
+    was), so an identical player with an identical league around him gets the identical level in any year."""
 
     def __init__(self, seasons):
         self.ALL = seasons
         self.SEAS = seasons[seasons.games >= 6]
         self.CAR = set(self.SEAS.player_id)
-        self.repl, self.cur, self.cur2 = {}, {}, {}
+        self.cur, self.cur2 = {}, {}
+        self._repl = {}
         self._memo()
 
     def _memo(self):
-        """memo tables for the pure per-row pieces (cleared on fit: they read the curves). The block calls add_pv on
-        the same rows once per fold bag and per frame (panel, league rows, grid), so most rows repeat exactly."""
+        """memo tables for the pure per-row pieces (cleared when the curves change). add_pv runs on the same rows
+        repeatedly (panel, league rows, grid), so most rows repeat exactly."""
         self._af, self._ceil, self._seas_by = {}, {}, None
 
     def fit(self, last):
+        """the aging curves on the seasons through `last` (the survivor curve needs the season after: through last - 1)"""
         self._memo()
         s = self.ALL[self.ALL.season <= last]
-        self.repl = {p: float(np.mean([g[g.games >= 6].ppg.sort_values(ascending=False).iloc[n]
-                                         for _, g in s[(s.position == p) & (s.season >= last - 4)].groupby("season")]))
-                     for p, n in DEMAND.items()}
         self.cur = aging_curves(s)
         self.cur2 = self._aging_v2(s, last)
+        self.fit_last = int(last)
         return self
+
+    def curves(self):
+        return dict(cur={k: list(map(float, v)) for k, v in self.cur.items()},
+                    cur2={k: list(map(float, v)) for k, v in self.cur2.items()}, fit_last=getattr(self, "fit_last", None))
+
+    def set_curves(self, c):
+        self._memo()
+        self.cur = {k: np.array(v, dtype=float) for k, v in c["cur"].items()}
+        self.cur2 = {k: np.array(v, dtype=float) for k, v in c["cur2"].items()}
+        self.fit_last = c.get("fit_last")
+        return self
+
+    def repl_for(self, last):
+        """{pos: replacement PPG} from the seasons last-4..last (the ones in the data)"""
+        r = self._repl.get(last)
+        if r is None:
+            s = self.ALL[(self.ALL.season <= last) & (self.ALL.season >= last - REPL_YEARS + 1)]
+            r = {}
+            for p, n in DEMAND.items():
+                v = [g[g.games >= 6].ppg.sort_values(ascending=False).iloc[n] for _, g in s[s.position == p].groupby("season")
+                     if (g.games >= 6).sum() > n]
+                r[p] = float(np.mean(v)) if v else 10.0
+            self._repl[last] = r
+        return r
+
+    def repl_rows(self, df):
+        """each row's replacement level: from the last five NFL seasons complete by its date"""
+        last = seasons_done(df.date.values)
+        out = np.full(len(df), 10.0)
+        pos = df.pos.values
+        for y in np.unique(last):
+            r = self.repl_for(int(y)); m = last == y
+            out[m] = [r.get(p, 10.0) for p in pos[m]]
+        return out
 
     def _aging_v2(self, ALL, last):
         """per-game survivor curve + the extra cliff risk by age (season totals with drop-offs counted)"""
         a = ALL[(ALL.games >= 12) & (ALL.ppg >= 8)][["player_id", "season", "position", "fantasy_points_ppr", "age"]].dropna(subset=["age"])
         nxt = ALL[["player_id", "season", "fantasy_points_ppr", "games"]].assign(season=lambda d: d.season - 1).rename(columns={"fantasy_points_ppr": "pts_next", "games": "g_next"})
         m = a.merge(nxt, on=["player_id", "season"], how="left")
-        m = m[m.season <= (2024 if REPRO["aging_cap_2024"] else last - 1)]
+        m = m[m.season <= last - 1]
         m["pts_next"] = m.pts_next.fillna(0); m["g_next"] = m.g_next.fillna(0)
         m["ab"] = np.clip(np.round(m.age), 21, 35)
         cur = {}
@@ -178,14 +212,14 @@ class Football:
 
     def career_ceiling_aged(self, df, top=2):
         """the mean of a player's best `top` seasons (6+ games, through lcs), each aged to his current age. Per player
-        the seasons are read from a dict of arrays (in SEAS's row order, as the boolean filter read them before
-        2026-11-10) and each (player, lcs, pos, age) result is memoised: the same arithmetic, ~100x faster."""
+        the seasons are read from a dict of arrays (in SEAS's row order) and each (player, lcs, pos, age) result is
+        memoised."""
         if self._seas_by is None:
             S = self.SEAS
             self._seas_by = {g: (x.season.values, x.ppg.values, x.age.values) for g, x in S.groupby("player_id", sort=False)}
         out = np.full(len(df), np.nan); by = self._seas_by; memo = self._ceil
         for i, (g, lcs, pos, age) in enumerate(zip(df.gsis.values, df.lcs.values, df.pos.values, df.age.values)):
-            if g not in self.CAR or g not in by: continue        # (a NaN id is in neither: the old filter matched nothing)
+            if g not in self.CAR or g not in by: continue        # (a NaN id is in neither)
             k = (g, lcs, pos, age)
             r = memo.get(k, memo)
             if r is memo:
@@ -198,8 +232,8 @@ class Football:
             if r is not None: out[i] = r
         return out
 
-    def pv8_level(self, df, ceil_w):
-        pos = df.pos.values; R = np.array([self.repl.get(p, 10) for p in pos])
+    def pv8_level(self, df, ceil_w, R):
+        pos = df.pos.values
         w0 = np.where(df.c_gp.fillna(0).values > 0, 0.8, 1.0)
         num, den = np.zeros(len(df)), np.zeros(len(df))
         for gp, ppg, w in (("c_gp", "c_ppg", 1.0), ("n_gp_l0", "n_ppg_l0", w0), ("n_gp_l1", "n_ppg_l1", 0.4), ("n_gp_l2", "n_ppg_l2", 0.15)):
@@ -219,12 +253,13 @@ class Football:
             level = np.where(np.isnan(ceil), level, (1 - ceil_w) * level + ceil_w * np.maximum(ceil, level))
         return level, R, pos, 17 * availability(df), den > 0, df.age.fillna(25).values
 
-    def pv9(self, df, ceil_w=0.3, beta=0.0, h=2.5, out_now=None, cap=0.35):
+    def pv9(self, df, ceil_w=0.3, beta=0.0, h=2.5, out_now=None, cap=0.35, R=None):
         """production value on a continuous clock: f = share of the current season played (0 in the offseason).
         Season y is f years nearer; its discount is 0.75^(y - f) and its aging runs y - f years. (beta = 0: the
         research legacy term is off in this configuration.)"""
         assert beta == 0.0, "legacy boost is not ported (CFG has beta = 0)"
-        level, R, pos, games, has, age = self.pv8_level(df, ceil_w)
+        R = self.repl_rows(df) if R is None else R
+        level, R, pos, games, has, age = self.pv8_level(df, ceil_w, R)
         out = np.zeros(len(df), bool) if out_now is None else np.asarray(out_now, bool)
         cw = np.nan_to_num(df.c_weeks.values.astype(float)); f = np.where(cw > 0, np.clip(cw / 18, 0, 1), 0.0)
         lr = np.array([[np.clip(np.polyval(self.cur2[p], a_ + k), -1.0, 0.3) if p in self.cur2 else 0.0 for k in range(7)] for p, a_ in zip(pos, age)])
@@ -238,9 +273,13 @@ class Football:
         pv[~has] = np.nan
         return np.log1p(pv)
 
-    def add_pv(self, F):
-        F["PV"], F["pv_ppg"] = production_value(F, self.repl, self.cur); F["lPV"] = np.log1p(F.PV)
-        F[NM] = self.pv9(F, *CFG)
+    def add_pv(self, F, R=None):
+        """PV / pv_ppg / lPV / pv_main on F. R: each row's replacement level (default: from its date, repl_rows); the
+        frozen base stores it on the row as `ctx_repl` so the value is a function of the row's columns only"""
+        R = self.repl_rows(F) if R is None else np.asarray(R, dtype=float)
+        F["ctx_repl"] = R
+        F["PV"], F["pv_ppg"] = production_value(F, R, self.cur); F["lPV"] = np.log1p(F.PV)
+        F[NM] = self.pv9(F, *CFG, R=R)
         return F
 
 
@@ -261,21 +300,38 @@ def track_record(df, full=34.0):
 
 
 # ------------------------------------------------------------------ anchor, hybrid, smoothing/routing (anchor / chain)
-def add_anchor(rows, hist):
-    """anchor = the player's most recent league price strictly before the row's date"""
-    h = hist.sort_values("date")[["sid", "date", "price", "S", "ch"]].rename(columns={"date": "a_date", "price": "a_price", "S": "a_S", "ch": "a_ch"})
-    h["a_date"] = h.a_date.astype("datetime64[ns]")
-    r = rows[["sid", "date"]].copy(); r["rid"] = np.arange(len(r)); r["date"] = r.date.astype("datetime64[ns]")
+def anchor_index(rows, hist):
+    """for each row, the position in `hist` of the player's most recent league price strictly before the row's date
+    (-1: none), with that price's date"""
+    h = pd.DataFrame(dict(sid=hist.sid.values, a_date=pd.to_datetime(hist.date.values).astype("datetime64[ns]"), hi=np.arange(len(hist))))
+    r = pd.DataFrame(dict(sid=rows.sid.values, date=pd.to_datetime(rows.date.values).astype("datetime64[ns]"), rid=np.arange(len(rows))))
     r["q"] = r.date - pd.Timedelta(days=1)
     m = kp.merge_asof(r.sort_values("q"), h.sort_values("a_date"), left_on="q", right_on="a_date", by="sid").set_index("rid").sort_index()
+    return m.hi.fillna(-1).astype(int).values, m.a_date.values, m.date.values
+
+
+def anchor_columns(rows, hist):
+    """the league-price anchor columns that do not depend on the translator: a_lp, a_gap, a_g, a_free, a_trade, and
+    `a_hi` (the anchor's position in hist, -1 = none) for the anchor's S (a_dS, per bag)"""
+    hi, a_date, date = anchor_index(rows, hist)
+    ok = hi >= 0; j = np.where(ok, hi, 0)
+    price = np.where(ok, hist.price.values[j].astype(float), np.nan); ch = np.where(ok, hist.ch.values[j], None)
+    gap = np.where(ok, (date - a_date) / np.timedelta64(1, "D"), np.nan)
+    out = dict(a_lp=np.log1p(price), a_gap=gap,
+               a_g=np.where(ok, kp.nfl_weeks_between(np.where(ok, a_date, date), date), np.nan),
+               a_free=np.where(ok, (ch == "free").astype(float), np.nan), a_trade=np.where(ok, (ch == "trade").astype(float), np.nan),
+               a_hi=hi)
+    return out
+
+
+def add_anchor(rows, hist):
+    """anchor = the player's most recent league price strictly before the row's date (hist has sid, date, price, S, ch)"""
     out = rows.copy()
-    out["a_lp"] = np.log1p(m.a_price.values)
-    gap = (m.date - m.a_date).dt.days.values
-    out["a_gap"] = gap
-    out["a_g"] = np.where(np.isnan(gap), np.nan, kp.nfl_weeks_between(np.where(np.isnan(gap), m.date, m.a_date), m.date))
-    out["a_dS"] = np.sqrt(out.S.clip(0).values) - np.sqrt(np.clip(m.a_S.values, 0, None))
-    out["a_free"] = (m.a_ch.values == "free").astype(float); out.loc[np.isnan(gap), "a_free"] = np.nan
-    out["a_trade"] = (m.a_ch.values == "trade").astype(float); out.loc[np.isnan(gap), "a_trade"] = np.nan
+    a = anchor_columns(rows, hist)
+    for k, v in a.items():
+        if k != "a_hi": out[k] = v
+    aS = np.where(a["a_hi"] >= 0, hist.S.values[np.maximum(a["a_hi"], 0)], np.nan)
+    out["a_dS"] = np.sqrt(out.S.clip(0).values) - np.sqrt(np.clip(aS, 0, None))
     return out
 
 
@@ -320,7 +376,9 @@ def _pchip_from_iso(x, y, w, xs):
 
 
 def fit_curve(o):
-    a = o[(o.date >= "2022-01-01") & o.ktc.notna()]
+    """KTC-scale -> league price (log1p $) over every league row with a KTC value (all years: the 'from 2022 on'
+    window went with the frozen base; o.ktc is the position-rank-normalised KTC, faab_frozen.KtcScale)"""
+    a = o[o.ktc.notna()]
     return _pchip_from_iso(a.ktc, a.y, a.w, np.r_[0, np.linspace(500, 9500, 19), 9999])
 
 
@@ -343,15 +401,6 @@ def LG8(rows, cv, fS, fP, a, pvcol):
     return np.where(np.isnan(lp), ls, (1 - ae) * ls + ae * np.nan_to_num(lp))
 
 
-def ld_models(o, k_, cols, pw, seeds):
-    ms = []
-    for sd in seeds:
-        ms.append(gbm(random_state=sd, max_features=0.6).fit(o[cols], o.y, sample_weight=o.w))
-        X = pd.concat([o[cols], k_[cols]]); y = np.r_[o.y.values, k_.y.values]; w = np.r_[o.w.values, k_.w.values * pw]
-        ms.append(gbm(random_state=sd, max_features=0.6).fit(X, y, sample_weight=w))
-    return ms
-
-
 def ld_pred(ms, X, cols):
     return np.clip(np.mean([m.predict(X[cols]) for m in ms], 0), 0, None)
 
@@ -372,159 +421,33 @@ def gated_boost(df, L, b, lo=10.0, hi=100.0):
     return L + g * rookie_boost(df, b)
 
 
-# ------------------------------------------------------------------ walk-forward (wf_base2)
 def league_rows(o0, PA):
-    """league prices with channel, log price and era weight"""
+    """league prices with channel and log price. Every date weighs the same (the era weight that counted 2020 rows a
+    quarter went with the frozen base); a $0 add counts half."""
     obs = o0.join(PA[["Addition type", "Season", "Price paid (FAAB)"]], on="rowid")
     obs["price"] = obs["Price paid (FAAB)"]; t = obs["Addition type"]
     obs["ch"] = np.select([t.eq("Commissioner"), t.eq("Draft") & obs.Season.eq(2020), t.eq("Draft"), t.eq("Trade"), t.eq("Waiver") & obs.price.gt(0)],
                           ["comm", "startup", "draft", "trade", "waiver"], "free")
     obs = obs[obs.ch != "comm"].copy(); obs.loc[obs.ch == "free", "price"] = 0.0
-    obs["y"] = np.log1p(obs.price); obs["w"] = era_weight(obs.date) * np.where(obs.ch == "free", 0.5, 1.0)
+    obs["y"] = np.log1p(obs.price); obs["w"] = np.where(obs.ch == "free", 0.5, 1.0)
     return obs
 
 
-class WalkForward:
-    """one quarterly snapshot's models, fit on data before R, applied to rows in [R, R1)"""
-
-    def __init__(self, FC, football, bag=0):
-        self.FC = FC; self.fb = football; self.bag = bag
-
-    def with_S(self, df, Sfold):
-        self.fb.add_pv(df); df["fold"] = fold_of(df.sid, self.bag); df["S"] = np.nan
-        for k in range(5):
-            m = df.fold == k
-            if m.any(): df.loc[m, "S"] = Sfold[k].predict(df[m])
-        df["sqS"] = np.sqrt(df.S.clip(0)); return df
-
-    def obs_prep(self, LR, Fd, R, R1, Sfold):
-        hist = self.with_S(LR[LR.date < R1].copy(), Sfold)
-        obs = hist[hist.date < R].copy(); kt = self.with_S(Fd[Fd.date < R].copy(), Sfold)
-        obs = add_anchor(obs, obs); kt = add_anchor(kt, obs)
-        a = obs[obs.ktc.notna()]; a = a[a.date >= "2022-01-01"] if (a.date >= "2022-01-01").sum() >= 150 else a
-        iso = IsotonicRegression(out_of_bounds="clip").fit(a.ktc, a.y); kt["y"] = iso.predict(kt.ktc); kt["w"] = era_weight(kt.date)
-        return obs.reset_index(drop=True), kt.reset_index(drop=True), hist
-
-    @staticmethod
-    def curve_rows(o):
-        a = o[o.ktc.notna()]; return a[a.date >= "2022-01-01"] if (a.date >= "2022-01-01").sum() >= 150 else a
-
-    def block(self, R, R1, F_all, LR, Fd, log=print):
-        t0 = time.time()
-        Fd_R = self.fb.add_pv(Fd[Fd.date < R].copy()); Fd_R["fold"] = fold_of(Fd_R.sid, self.bag)
-        Sfold = [kp.StatsModel(self.FC, ensemble=ENS).fit(Fd_R[Fd_R.fold != k]) for k in range(5)]
-        obs, kt, hist = self.obs_prep(LR, Fd, R, R1, Sfold)
-        F = self.with_S(F_all[(F_all.date >= R) & (F_all.date < R1)].copy(), Sfold)
-        F = add_anchor(F, hist)
-        COLS = list(dict.fromkeys(["posc"] + [c for c in feats(obs) if c != "posc"] + ["sqS"] + AF + PVF))
-        L = np.zeros(len(F)); ref_all = kt[kt.date >= R - pd.Timedelta(days=3 * 365)]
-        for k in range(5):
-            m = (F.fold == k).values
-            if not m.any(): continue
-            o, kk = obs[obs.fold != k], kt[kt.fold != k]
-            ms = ld_models(o, kk, COLS, 0.03, (0, 1, 2)); LD = ld_pred(ms, F[m], COLS)
-            cv = fit_curve(self.curve_rows(o).assign(date=pd.Timestamp("2022-06-01"))); ref = ref_all[ref_all.fold != k]
-            qS, qP = qpos_fit_col(ref.assign(S=ref.S.clip(0)), "S"), qpos_fit_col(ref, NM)
-            L[m] = hybrid(LD, LG8(F[m], cv, qS, qP, A_PV, NM))
-        F["L"] = gated_boost(F, L, BOOST, 2, 30); F["snap"] = R
-        log(f"snapshot {R.date()}{f' bag {self.bag}' if self.bag else ''}: {len(F)} rows, obs {len(obs)}, panel {len(Fd_R)}, {time.time() - t0:.0f}s")
-        return F
-
-
-def bagged_block(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print, workers=None):
-    """the snapshot's block under `bags` fold assignments; L (and S) averaged across them, the rest from bag 0.
-
-    The same arithmetic as running WalkForward(FC, football, b).block(...) for each bag (bagged_block_serial), with
-    the model fits spread over `workers` processes (default WORKERS: one per CPU; 1 = in this process): first the
-    5 x bags stats translators, then the 5 x bags x 3 seeds league-price model pairs. scikit-learn's boosted trees
-    gain nothing from extra threads on these sizes and give the same trees on any thread count, so one fit per core
-    is ~4x faster on a 4-core runner with every model, and so every value, unchanged (2026-11-10)."""
-    bags = BAGS if bags is None else bags
-    t0 = time.time()
-    with _Pool(workers) as pool:
-        # 1. the stats translator S for each (bag, fold), on the KTC panel before R (add_pv is the same in every bag)
-        Fd_R = football.add_pv(Fd[Fd.date < R].copy())
-        folds = [fold_of(Fd_R.sid, b) for b in range(bags)]
-        Xs = Fd_R[FC]; ys = {t: (np.sqrt(Fd_R.ktc.values) if t == "sqrt" else Fd_R.ktc.values) for t, _ in ENS}
-        wts = Fd_R.date.values
-        pool.share(_SM=(Xs, ys, wts, folds, ENS))
-        fits = pool.map(_fit_stats, [(b, k) for b in range(bags) for k in range(5)])
-        Sfold = {b: [fits[b * 5 + k] for k in range(5)] for b in range(bags)}
-        # 2. per bag: S on the league rows, the panel and the block's rows; anchors; the league-price model's rows
-        W = [WalkForward(FC, football, b) for b in range(bags)]
-        P = []
-        for b in range(bags):
-            obs, kt, hist = W[b].obs_prep(LR, Fd, R, R1, Sfold[b])
-            F = W[b].with_S(F_all[(F_all.date >= R) & (F_all.date < R1)].copy(), Sfold[b])
-            F = add_anchor(F, hist)
-            COLS = list(dict.fromkeys(["posc"] + [c for c in feats(obs) if c != "posc"] + ["sqS"] + AF + PVF))
-            P.append((obs, kt, F, COLS))
-        ld_tasks = [(b, k, sd) for b in range(bags) for k in range(5) if (P[b][2].fold == k).values.any() for sd in LD_SEEDS]
-        pool.share(_LD=[(o[COLS], o.y.values, o.w.values, o.fold.values, k_[COLS], k_.y.values, k_.w.values, k_.fold.values)
-                        for o, k_, _, COLS in P])
-        got = dict(zip(ld_tasks, pool.map(_fit_ld, ld_tasks)))
-    # 3. per bag and fold, exactly WalkForward.block's tail
-    out = []
-    for b in range(bags):
-        obs, kt, F, COLS = P[b]
-        L = np.zeros(len(F)); ref_all = kt[kt.date >= R - pd.Timedelta(days=3 * 365)]
-        for k in range(5):
-            m = (F.fold == k).values
-            if not m.any(): continue
-            o = obs[obs.fold != k]
-            ms = [x for sd in LD_SEEDS for x in got[(b, k, sd)]]; LD = ld_pred(ms, F[m], COLS)
-            cv = fit_curve(W[b].curve_rows(o).assign(date=pd.Timestamp("2022-06-01"))); ref = ref_all[ref_all.fold != k]
-            qS, qP = qpos_fit_col(ref.assign(S=ref.S.clip(0)), "S"), qpos_fit_col(ref, NM)
-            L[m] = hybrid(LD, LG8(F[m], cv, qS, qP, A_PV, NM))
-        F["L"] = gated_boost(F, L, BOOST, 2, 30); F["snap"] = R
-        log(f"snapshot {R.date()}{f' bag {b}' if b else ''}: {len(F)} rows, obs {len(obs)}, panel {len(Fd_R)}, {time.time() - t0:.0f}s"
-            f" (all bags, {pool.n} worker{'s' if pool.n > 1 else ''})")
-        out.append(F)
-    F = out[0]
-    if bags <= 1: return F
-    F["L"] = np.mean([x.L.values for x in out], axis=0); F["S"] = np.mean([x.S.values for x in out], axis=0); F["bags"] = bags
-    return F
-
-
-def bagged_block_serial(FC, football, R, R1, F_all, LR, Fd, bags=None, log=print):
-    """the reference: each bag's WalkForward.block in turn (the rebuild before 2026-11-10); bagged_block must match it"""
-    bags = BAGS if bags is None else bags
-    F = WalkForward(FC, football, 0).block(R, R1, F_all, LR, Fd, log=log)
-    if bags <= 1: return F
-    Ls, Ss = [F.L.values], [F.S.values]
-    for b in range(1, bags):
-        Fb = WalkForward(FC, football, b).block(R, R1, F_all, LR, Fd, log=log)
-        Ls.append(Fb.L.values); Ss.append(Fb.S.values)
-    F["L"] = np.mean(Ls, axis=0); F["S"] = np.mean(Ss, axis=0); F["bags"] = bags
-    return F
-
-
-# ------------------------------------------------------------------ the parallel fits (bagged_block)
-LD_SEEDS = (0, 1, 2)          # ld_models' seeds in WalkForward.block
+# ------------------------------------------------------------------ the parallel fits
+LD_SEEDS = (0, 1, 2)          # the league-price models' seeds
 WORKERS = int(os.environ.get("FAAB_WORKERS", "0")) or (os.cpu_count() or 1)
 _SHARED: dict = {}
 
 
-def _fit_stats(task):
-    """one (bag, fold) stats translator: kp.StatsModel(FC, ensemble=ENS).fit(Fd_R[fold != k]), from shared arrays"""
-    b, k = task
-    X, ys, dates, folds, ens = _SHARED["_SM"]
-    m = folds[b] != k
-    d = X[m]
-    w = kp._recency(pd.DataFrame({"date": dates[m]}))
-    sm = kp.StatsModel(list(X.columns), ensemble=ens)
-    sm.models = [(t, kp._gbm(**kw).fit(d, ys[t][m], sample_weight=w)) for t, kw in ens]
-    return sm
-
-
 def _fit_ld(task):
-    """one (bag, fold, seed) pair of ld_models' league-price models"""
+    """one (bag, fold, seed) pair of league-price models: league rows alone, and league rows + the KTC panel at 3%"""
     b, k, sd = task
     oX, oy, ow, of, kX, ky, kw, kf = _SHARED["_LD"][b]
+    kwargs = _SHARED.get("_LD_KW", {})
     mo, mk = of != k, kf != k
-    a = gbm(random_state=sd, max_features=0.6).fit(oX[mo], oy[mo], sample_weight=ow[mo])
+    a = gbm(random_state=sd, max_features=0.6, **kwargs).fit(oX[mo], oy[mo], sample_weight=ow[mo])
     X = pd.concat([oX[mo], kX[mk]]); y = np.r_[oy[mo], ky[mk]]; w = np.r_[ow[mo], kw[mk] * 0.03]
-    return [a, gbm(random_state=sd, max_features=0.6).fit(X, y, sample_weight=w)]
+    return [a, gbm(random_state=sd, max_features=0.6, **kwargs).fit(X, y, sample_weight=w)]
 
 
 def _worker_init(shared):
@@ -560,8 +483,3 @@ class _Pool:
         with ProcessPoolExecutor(min(self.n, len(tasks)), mp_context=mp.get_context("spawn"), initializer=_worker_init,
                                  initargs=(self.shared,)) as ex:
             return list(ex.map(fn, tasks))
-
-
-def season_done(R):
-    """last NFL season whose regular season ended before R"""
-    return max(y for y, k in kp.KO.items() if pd.Timestamp(k) + pd.Timedelta(weeks=19) <= R)
