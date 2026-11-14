@@ -236,6 +236,11 @@ function futurePickValue(B, year, round) {
   return avg * Math.pow(0.95, Math.max(0, year - next));
 }
 const ORD = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
+// a year's picks as numbered squares: outlined = own pick, filled = acquired
+function pickDots(picks, team) {
+  if (!picks.length) return '<span class="muted">—</span>';
+  return `<span class="dots">${picks.slice().sort((a, b) => a.r - b.r).map((p) => `<span class="dot${p.o === team ? "" : " acq"}" title="${esc(ORD[p.r] || p.r)} round${p.o === team ? "" : ", from " + esc(p.o)}${p.v != null ? " · " + money(p.v) : ""}">${p.r}</span>`).join("")}</span>`;
+}
 // the nearest rookie-pick comparison, as the rating page words it
 function pickText(B, v) {
   const S = (B.picks || []).filter((p) => p.value > 0);
@@ -421,7 +426,7 @@ async function team(slug, _q, live) {
   const leagueAvg = (k) => { const v = Object.values(t.league_ages).map((a) => k ? a.by_pos?.[k] : a.avg).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const ageRows = ["QB", "RB", "WR", "TE"].map((p) => [p, ages.by_pos?.[p], leagueAvg(p)]);
   const ri = idx(t.roster, "slug");
-  let roster = dataTable(t.roster, { hide: ["slug"], links: { Player: (v, r) => ri >= 0 && r[ri] ? `<a href="#/player/${r[ri]}">${esc(v)}</a>` : esc(v) } });
+  let roster = dataTable(t.roster, { hide: ["slug"], defs: "player_week", links: { Player: (v, r) => ri >= 0 && r[ri] ? `<a href="#/player/${r[ri]}">${esc(v)}</a>` : esc(v), "NFL team": (v) => nflLink(v) } });
   let rosterNote = "Bench includes taxi and IR. Age is the player's age for this season. Lineup roles are the last built week's.";
   const lr = live && live.rosterOf[t.team];
   if (lr) {
@@ -438,7 +443,7 @@ async function team(slug, _q, live) {
     const gone = [...built.keys()].filter((pid) => !lr.players.includes(pid)).map((pid) => built.get(pid)[0]);
     roster = table([
       { k: "name", label: "Player", left: true, html: (r) => `${NAMES_BY_ID[r.pid] ? `<a href="#/player/${esc(r.pid)}">${esc(r.name)}</a>` : esc(r.name)}${r.isNew ? ' <span class="chip live">new since the build</span>' : ""}` },
-      { k: "pos", label: "Pos", left: true }, { k: "nfl", label: "NFL", left: true },
+      { k: "pos", label: "Pos", left: true }, { k: "nfl", label: "NFL", left: true, html: (r) => nflLink(r.nfl) },
       { k: "age", label: "Age", spec: { d: 2 } }, { k: "role", label: "Now", left: true },
     ], rows);
     rosterNote = `${rows.length} players on Sleeper now (Now = current lineup role).${gone.length ? ` Gone since the last build: ${gone.map(esc).join(", ")}.` : ""} Ages are this season's, for players the build has seen.`;
@@ -463,7 +468,10 @@ async function team(slug, _q, live) {
       </div>
     </div>
     <div class="card"><h2>Future picks held (${mine.length}) ${liveNote(live)}</h2>
-      ${PK.years.map((y) => `<p><b>${y}</b> ${mine.filter((p) => p.y === y).map((p) => `<span class="chip">${ORD[p.r] || p.r}${p.o === t.team ? "" : " (" + esc(p.o) + ")"}${p.v != null ? " · " + money(p.v) : ""}</span>`).join("") || '<span class="muted">none</span>'}</p>`).join("")}
+      ${table([{ k: "y", label: "Draft", left: true }, { k: (r) => r.ps.length, label: "Picks", html: (r) => pickDots(r.ps, t.team) },
+        { k: (r) => r.ps.map((p) => p.o === t.team ? "" : `${ORD[p.r]} from ${p.o}`).filter(Boolean).join(", "), label: "Acquired", left: true },
+        { k: (r) => r.ps.reduce((a, p) => a + (p.v || 0), 0), label: "Value", html: (r) => B ? money(r.ps.reduce((a, p) => a + (p.v || 0), 0)) : "—" }],
+        PK.years.map((y) => ({ y, ps: mine.filter((p) => p.y === y) })))}
       ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
     <div class="card"><h2>This season</h2>${dataTable(t.weeks, { hide: ["Week"], links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } })}</div>
     <div class="card"><h2>Seasons</h2>${dataTable(t.seasons, { defs: "team_year" })}</div>
@@ -485,7 +493,7 @@ async function player(key, _q, live) {
   const enc = encodeURIComponent(p.name);
   $app.innerHTML = `
     <h1>${esc(p.name)}</h1>
-    <p class="muted">${[p.pos, p.nfl, ((t) => t ? "on " + teamLink(t) : "not on a roster now")(live && /^\d+$/.test(key) ? live.owner[key] : p.team)].filter(Boolean).join(" · ")} ${live ? liveNote(live) : ""}
+    <p class="muted">${[p.pos, nflLink(p.nfl), ((t) => t ? "on " + teamLink(t) : "not on a roster now")(live && /^\d+$/.test(key) ? live.owner[key] : p.team)].filter(Boolean).join(" · ")} ${live ? liveNote(live) : ""}
       ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}${typeof d.faab === "number" ? ` (FAAB value on draft day ${money(d.faab)})` : ""}` : ""}</p>
     ${fv ? `<div class="card"><b>FAAB value ${money(fv.value)}</b> <span class="muted">· #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span> · <a href="#/faab">board</a> · <a href="rate/">rate it</a></div>` : ""}
     ${tiles(p.summary, p.summary_labels, p.summary_fmt, null, "player_all_time")}
@@ -802,12 +810,18 @@ async function faab(_, query, live) {
   const positions = [...new Set(rows.map((r) => r.pos))].filter(Boolean);
   function draw() {
     const ql = q.toLowerCase();
-    const rs = rows.filter((r) => (!pos || r.pos === pos) && (!owner || (owner === "FA" ? !r.own : r.own === owner))
+    let rs = rows.filter((r) => (!pos || r.pos === pos) && (!owner || (owner === "FA" ? !r.own : r.own === owner))
       && (!ql || r.name.toLowerCase().includes(ql)));
-    document.getElementById("fb").innerHTML = `<p class="muted small">${rs.length} players</p>` + table([
-      { k: "rank", label: "#" },
-      { k: "name", label: "Player", left: true, html: (r) => playerLink(r.name) },
-      { k: "pos", label: "Pos", left: true }, { k: "team", label: "NFL", left: true },
+    // a team's board includes its future picks, valued on the same scale
+    if (owner && owner !== "FA" && (!pos || pos === "PICK") && !ql) {
+      rs = rs.concat((held[owner] || []).map((p) => ({ pick: true, name: `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === owner ? "" : " (" + p.o + ")"}`, pos: "PICK", value: p.v, rank: null })))
+        .sort((a, b) => b.value - a.value);
+    }
+    const np = rs.filter((r) => r.pick).length;
+    document.getElementById("fb").innerHTML = `<p class="muted small">${rs.length - np} players${np ? ` · ${np} picks` : ""}${owner && owner !== "FA" ? ` · ${esc(owner)}: ${money(rs.reduce((a, r) => a + (r.value || 0), 0))} in all` : ""}</p>` + table([
+      { k: "rank", label: "#", html: (r) => r.rank ?? "" },
+      { k: "name", label: "Player", left: true, html: (r) => r.pick ? `<span class="chip">${esc(r.name)}</span>` : playerLink(r.name) },
+      { k: "pos", label: "Pos", left: true }, { k: "team", label: "NFL", left: true, html: (r) => r.pick ? "" : nflLink(r.team) },
       { k: "age", label: "Age", spec: { d: 1 } },
       { k: "own", label: "Owner", left: true, html: (r) => (r.own ? teamLink(r.own) : '<span class="muted">Free agent</span>') },
       { k: "injury", label: "Injury", left: true, html: (r) => (r.injury ? `<span class="chip live">${esc(r.injury)}</span>` : "") },
@@ -820,26 +834,28 @@ async function faab(_, query, live) {
     <div class="card"><p>The model prices every player in league FAAB (the house 100-dollar budget scale). It uses stats only: general rules fitted to this league's trades, cuts and calls, with no hand-set prices. The league's answers on the rating page show which rules fit. They are a capped signal and never move a player's value directly.</p>
       <p><a class="chip" style="font-size:14px;padding:6px 12px;background:var(--accent);color:var(--accent-ink)" href="rate/">Rate the board →</a> <span class="muted small">Pick which of two players is worth more and say whether each value looks right. It takes a minute.</span></p>
       <details><summary>Answer here without leaving this page</summary><iframe src="rate/" title="LOTG value check" loading="lazy" style="width:100%;height:1100px;border:1px solid var(--line);border-radius:12px;background:var(--bg)"></iframe></details></div>
-    <div class="card"><h2>Roster value by team ${liveNote(live)}</h2>${table([
-      { k: "t", label: "Team", left: true, html: (r) => `<a href="#/faab?owner=${encodeURIComponent(r.t)}" onclick="">${esc(r.t)}</a>` },
+    <div class="card" id="valuecard"><h2>Roster value by team ${liveNote(live)}</h2>${table([
+      { k: "t", label: "Team", left: true, html: (r) => `<a href="#/team/${tslug(r.t)}">${esc(r.t)}</a> <button class="b mini" data-owner="${esc(r.t)}" title="Show this team's board">board ↓</button>` },
       { k: "total", label: "Total", html: (r) => `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><b>${money(r.total)}</b><div class="bar-h" style="width:90px"><i style="width:${(100 * r.total) / maxT}%"></i></div></div>` },
       { k: "players", label: "Players", html: (r) => money(r.players) },
       { k: "picks", label: `Picks ${PK.years[0]}-${String(PK.years[PK.years.length - 1]).slice(2)}`, html: (r) => `${money(r.picks)} <span class="muted small">${r.np} · ${r.firsts} 1st${r.firsts === 1 ? "" : "s"}</span>` },
       { k: "QB", label: "QB", html: (r) => money(r.QB) }, { k: "RB", label: "RB", html: (r) => money(r.RB) },
       { k: "WR", label: "WR", html: (r) => money(r.WR) }, { k: "TE", label: "TE", html: (r) => money(r.TE) },
       { k: "n", label: "# players" },
+      { k: "np", label: "# picks" },
       { k: (r) => r.top?.value, label: "Most valuable", left: true, html: (r) => (r.top ? `${playerLink(r.top.name)} ${money(r.top.value)}` : "—") },
     ], totals, { sort: 1 })}
       <p class="muted small">Total = rostered players' board values + every rookie pick held for the next ${PK.years.length} drafts (${PK.years[0]}–${PK.years[PK.years.length - 1]}, rounds 1–${PK.rounds}). A future pick is worth its round's average slot value on this board, 5% less for each draft past the next one: the FAAB model's own pick rule. Pick ownership is the build's (trades, the commissioner's off-platform moves, Sleeper).</p></div>
     <div class="card"><h2>Picks held</h2>${table([
       { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
       ...PK.years.map((y) => ({ k: (r) => (held[r.t] || []).filter((p) => p.y === y).reduce((a, p) => a + p.v, 0), label: String(y), left: true,
-        html: (r) => `<div style="white-space:normal;min-width:110px;max-width:190px">${(held[r.t] || []).filter((p) => p.y === y).map((p) => `<span class="chip" title="${money(p.v)}">${ORD[p.r] || p.r}${p.o === r.t ? "" : " " + esc(p.o.slice(0, 6))}</span>`).join("") || '<span class="muted">none</span>'}</div>` })),
+        html: (r) => pickDots((held[r.t] || []).filter((p) => p.y === y), r.t) })),
+      { k: "np", label: "Picks" },
       { k: "picks", label: "Value", html: (r) => money(r.picks) },
-    ], totals, { sort: PK.years.length + 1 })}<p class="muted small">A chip with a team name is that team's pick, acquired. Hover a chip for its value.</p></div>
-    <div class="card"><h2>Board</h2>
+    ], totals, { sort: PK.years.length + 2 })}<p class="muted small">Each square is a pick, numbered by round: outlined = the team's own, filled = acquired (tap or hover for whose). Values are on the FAAB board's pick scale.</p></div>
+    <div class="card" id="boardcard"><h2>Board</h2>
       <div class="controls">
-        <select id="fp"><option value="">All positions</option>${positions.map((p) => `<option ${p === pos ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+        <select id="fp"><option value="">All positions</option>${positions.concat(["PICK"]).map((p) => `<option ${p === pos ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
         <select id="fo"><option value="">All owners</option><option value="FA" ${owner === "FA" ? "selected" : ""}>Free agents</option>${meta.teams.map((t) => `<option ${t === owner ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
         <input class="f" id="fq" type="search" placeholder="Player">
       </div><div id="fb"></div></div>
@@ -847,6 +863,15 @@ async function faab(_, query, live) {
       <p class="muted small">What a rookie-draft slot is worth on the same scale.</p></div>`;
   document.getElementById("fp").onchange = (e) => { pos = e.target.value; draw(); };
   document.getElementById("fo").onchange = (e) => { owner = e.target.value; draw(); };
+  // "board ↓" on a team: filter the board to that team and scroll down to it
+  document.getElementById("valuecard").onclick = (e) => {
+    const b = e.target.closest("[data-owner]");
+    if (!b) return;
+    owner = b.dataset.owner; pos = ""; q = "";
+    document.getElementById("fo").value = owner; document.getElementById("fp").value = "";
+    draw();
+    document.getElementById("boardcard").scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   document.getElementById("fq").oninput = (e) => { q = e.target.value.trim(); draw(); };
   draw();
 }
