@@ -114,3 +114,8 @@ table.tall td.pin{min-width:180px;max-width:220px}
 .dot.acq{background:var(--accent);color:var(--accent-ink)}
 button.b.mini{padding:2px 7px;font-size:11px;margin-left:4px}
 @media (max-width:560px){.dot{width:17px;height:17px;font-size:10px;border-radius:4px}}
+.secnav{position:sticky;top:86px;z-index:4;display:flex;gap:6px;overflow-x:auto;background:var(--bg);padding:8px 0;margin:6px 0 10px;scrollbar-width:none}
+.secnav::-webkit-scrollbar{display:none}
+.secnav button{font:inherit;font-size:13px;font-weight:600;white-space:nowrap;border-radius:999px;padding:5px 11px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+details.more summary{color:var(--accent)}
+section.card h3{margin-top:18px}
