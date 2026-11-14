@@ -52,10 +52,12 @@ UNIVERSE_START = pd.Timestamp("2020-04-07")   # the first Tuesday of the KTC pan
 RANK_CAP = {"QB": 40, "RB": 70, "WR": 100, "TE": 35}
 T_OFF = 100.0                                 # the supply step works on log(S + 100)
 DEPTH_LEVELS = (4500.0, 3000.0, 1500.0)      # the position's depth: players valued above each (elite / starter / flex)
-SUPPLY_COLS = ["posc", "age", "exp", "tS1", "u_rank", "n4500", "n3000", "n1500", "cls3", "own_cls"]
+SUPPLY_COLS = ["posc", "age", "exp", "tS1", "u_rank"]   # the depth counts and draft classes (_Z: n4500 .. own_cls)
+# halve the translator's season drift on the KTC panel but made the league evidence worse (2026-11-14 report), so a
+# refreeze keeps the first frozen base's supply inputs
 SUPPLY_KW = dict(max_iter=150, learning_rate=0.05, max_leaf_nodes=15, min_samples_leaf=300, random_state=0,
                  categorical_features=[0])
-VERSION = 2                                   # 2: supply depth counts + draft classes, rank capped
+VERSION = 1
 
 
 def t_(x):
