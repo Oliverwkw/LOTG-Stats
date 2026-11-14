@@ -38,8 +38,11 @@ th.sorted::after{content:" ▾"}
 th.sorted.asc::after{content:" ▴"}
 td.l,th.l{text-align:left}
 tbody tr:hover{background:var(--bg)}
-td:first-child,th:first-child{position:sticky;left:0;background:var(--card)}
-tbody tr:hover td:first-child{background:var(--bg)}
+.pin{position:sticky;left:0;background:var(--card);z-index:1}
+th.pin{z-index:2}
+.pinlast{box-shadow:6px 0 6px -6px rgba(0,0,0,.25)}
+tbody tr:hover td.pin{background:var(--bg)}
+.matrix td:first-child,.matrix th:first-child{position:sticky;left:0;background:var(--card);z-index:1}
 .chip{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;background:var(--chip);color:var(--muted);margin:0 4px 4px 0}
 .chip.live{background:var(--warn-bg);color:var(--warn)}
 .w{color:var(--good);font-weight:700}
@@ -91,3 +94,11 @@ tr.go{cursor:pointer}
 tr.go:hover td{background:var(--accent-soft)}
 .hist{padding-left:22px;margin:0}
 .hist li{margin:0 0 6px;font-size:14px}
+.hasdef,[data-def]{cursor:help}
+.defbtn{color:var(--accent);font-size:11px;cursor:pointer;padding:0 2px}
+.defpop{position:absolute;z-index:50;display:none;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.chip.award{background:var(--accent-soft);color:var(--accent);margin:0 0 0 4px}
+.watch li{margin:0 0 6px}
+a.stat{color:var(--ink)}
+a.stat:hover{color:var(--accent)}
+button.b{font:inherit;font-weight:600;border-radius:9px;padding:7px 12px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}

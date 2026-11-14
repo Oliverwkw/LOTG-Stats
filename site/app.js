@@ -1,7 +1,8 @@
 // LOTG league site. Everything is precomputed JSON under data/ (built by
 // scripts/build_site.py); this file only fetches and renders. Hash routes:
-// #/  #/teams  #/team/<slug>  #/player/<key>  #/records[/<sheet>]  #/h2h
-// #/trades[/<id>]  #/draft  #/search/<q>
+// #/  #/teams  #/team/<slug>  #/player/<key>  #/records[/<sheet>][?full=<col>]  #/h2h
+// #/trades[/<id>]  #/draft  #/search/<q>  #/faab  #/data[/<sheet>]  #/game/<y>/<w>/<team>
+// #/week/<y>/<w>  #/pick/<sheet>/<row>  #/nfl/<code>
 "use strict";
 
 const $app = document.getElementById("app");
@@ -32,6 +33,33 @@ const teamLink = (t) => t ? `<a href="#/team/${tslug(t)}">${esc(t)}</a>` : "—"
 let NAMES = {}, NAMES_BY_ID = {};   // player name -> page key, from search.json
 const playerLink = (n) => NAMES[n] ? `<a href="#/player/${NAMES[n]}">${esc(n)}</a>` : esc(n);
 const assetLink = (a) => NAMES[a] ? playerLink(a) : esc(a);
+const nflLink = (t) => t && t !== "NFL" && t !== "FA" ? `<a href="#/nfl/${esc(t)}">${esc(t)}</a>` : esc(t || "");
+
+// ---------- definitions: tap or hover a stat's name for its formula (formulas.csv),
+// on every table header, tile and record board. DEFS[sheet][column] = text.
+let DEFS = {};
+const defOf = (col, sheet) => (sheet && DEFS[sheet] && DEFS[sheet][col]) || DEFS._any?.[col] || "";
+const defAttr = (col, sheet) => { const d = defOf(col, sheet); return d ? ` data-def="${esc(d)}" class="hasdef"` : ""; };
+function showDef(el) {
+  let pop = document.getElementById("defpop");
+  if (!pop) { pop = document.createElement("div"); pop.id = "defpop"; pop.className = "defpop"; document.body.appendChild(pop); }
+  pop.innerHTML = `<b>${esc(el.dataset.deflabel || el.textContent.replace(/[▾▴ⓘ]/g, "").trim())}</b><br>${esc(el.dataset.def)}`;
+  const r = el.getBoundingClientRect();
+  pop.style.display = "block";
+  const w = Math.min(320, window.innerWidth - 24);
+  pop.style.width = w + "px";
+  pop.style.left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left)) + "px";
+  pop.style.top = (window.scrollY + r.bottom + 6) + "px";
+}
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-def]");
+  const pop = document.getElementById("defpop");
+  if (el && e.target.closest(".defbtn")) { e.preventDefault(); e.stopPropagation(); showDef(el); return; }
+  if (pop && !e.target.closest("#defpop")) pop.style.display = "none";
+}, true);
+document.addEventListener("mouseover", (e) => { const el = e.target.closest("[data-def]"); if (el && matchMedia("(hover: hover)").matches) showDef(el); });
+document.addEventListener("mouseout", (e) => { const el = e.target.closest("[data-def]"); const pop = document.getElementById("defpop"); if (el && pop && matchMedia("(hover: hover)").matches) pop.style.display = "none"; });
+const defMark = (col, sheet) => defOf(col, sheet) ? ' <span class="defbtn" title="What is this?">ⓘ</span>' : "";
 
 // ---------- sortable table
 let tableSeq = 0;
@@ -53,16 +81,17 @@ function table(cols, rows, opts = {}) {
         return state.asc ? r : -r;
       });
     }
-    const head = cols.map((c, i) => `<th data-i="${i}" class="${c.left ? "l" : ""}${state.by === i ? " sorted" + (state.asc ? " asc" : "") : ""}">${esc(c.label)}</th>`).join("");
-    const body = rs.map((r) => "<tr" + (opts.rowClass ? ` class="${opts.rowClass(r)}"` : "") + ">" + cols.map((c) =>
-      `<td class="${c.left ? "l" : ""}">${c.html ? c.html(r) : fmt(c.spec, val(c, r))}</td>`).join("") + "</tr>").join("");
+    const head = cols.map((c, i) => { const d = c.col ? defOf(c.col, opts.defs) : ""; return `<th data-i="${i}" class="${c.left ? "l" : ""}${state.by === i ? " sorted" + (state.asc ? " asc" : "") : ""}${i < (opts.pin || 1) ? " pin pin" + i : ""}"${d ? ` data-def="${esc(d)}" data-deflabel="${esc(c.label)}"` : ""}>${esc(c.label)}${d ? ' <span class="defbtn">ⓘ</span>' : ""}</th>`; }).join("");
+    const body = rs.map((r) => "<tr" + (opts.rowClass ? ` class="${opts.rowClass(r)}"` : "") + (opts.rowLink ? ` data-go="${esc(opts.rowLink(r) || "")}"` : "") + ">" + cols.map((c, i) =>
+      `<td class="${c.left ? "l" : ""}${i < (opts.pin || 1) ? " pin pin" + i : ""}">${c.html ? c.html(r) : fmt(c.spec, val(c, r))}</td>`).join("") + "</tr>").join("");
     const el = document.getElementById(id);
-    if (el) el.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    if (el) { el.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`; pinColumns(el); }
   }
   setTimeout(() => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener("click", (e) => {
+      if (e.target.closest(".defbtn")) return;
       const th = e.target.closest("th");
       if (!th) return;
       const i = +th.dataset.i;
@@ -73,6 +102,17 @@ function table(cols, rows, opts = {}) {
   });
   return `<div class="scroll" id="${id}"></div>`;
 }
+// keep the first N columns in view while a wide table scrolls sideways: each pinned
+// column sticks at the summed width of the pinned columns before it
+function pinColumns(el) {
+  const ths = [...el.querySelectorAll("thead th.pin")];
+  let left = 0;
+  ths.forEach((th, i) => {
+    el.querySelectorAll(".pin" + i).forEach((c) => { c.style.left = left + "px"; });
+    left += th.offsetWidth;
+  });
+  if (ths.length) el.querySelectorAll(".pin" + (ths.length - 1)).forEach((c) => c.classList.add("pinlast"));
+}
 // a {cols, labels, fmt, rows} table from the generator
 function dataTable(t, opts = {}) {
   if (!t || !t.rows || !t.rows.length) return `<p class="muted small">None.</p>`;
@@ -80,7 +120,7 @@ function dataTable(t, opts = {}) {
   const cols = [];
   t.cols.forEach((c, i) => {
     if (hide.has(c)) return;
-    const col = { k: i, label: t.labels[i], spec: t.fmt[c] };
+    const col = { k: i, label: t.labels[i], spec: t.fmt[c], col: c };
     if (opts.links && opts.links[c]) col.html = (r) => opts.links[c](r[i], r, t.cols);
     if (typeof t.rows[0][i] === "string" || opts.left?.includes(c)) col.left = true;
     cols.push(col);
@@ -91,7 +131,7 @@ const idx = (t, c) => t.cols.indexOf(c);
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl,
 };
 
 // ---------- live layer: rosters and traded picks straight from Sleeper on open.
@@ -122,7 +162,7 @@ function loadLive() {
       }
       const picks = traded.map((p) => [+p.season, +p.round, byRid[p.roster_id], byRid[p.owner_id]]);
       liveStatus = "ok";
-      return { at: new Date(), rosterOf, owner, picks };
+      return { at: new Date(), rosterOf, owner, picks, byRid };
     } catch (e) {
       liveStatus = "failed";
       return null;
@@ -238,26 +278,80 @@ async function home() {
     <h1>${meta.season} season</h1>
     <p class="muted">Through ${esc(meta.week_name)} · rebuilt ${esc(meta.built)}</p>
     <div class="card"><h2>Standings${hasOdds ? " &amp; odds" : ""}</h2>${table(cols, h.standings, { sort: 0, asc: true })}${fcNote}</div>
-    ${hasOdds ? `<div class="card"><h2>Title odds</h2>${table([
-      { k: "team", label: "Team", left: true, html: (r) => teamLink(r.team) },
-      { k: "champion", label: "Title", html: (r) => `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><b>${pct1(r.champion)}</b><div class="bar-h" style="width:90px"><i style="width:${Math.min(100, r.champion)}%"></i></div></div>` },
-      { k: "finals", label: "Final", html: (r) => pct1(r.finals) },
-      { k: "playoffs", label: "Playoffs", html: (r) => pct1(r.playoffs) },
-    ], h.forecast.odds, { sort: 1 })}</div>` : ""}
+    <div class="card" id="watch"><h2>Record watch</h2><p class="muted small">Checking this week's games on Sleeper…</p></div>
     <div class="card"><h2>${esc(meta.week_name)} results</h2><div class="games">${games}</div></div>
     ${B ? `<div class="card"><h2>FAAB values</h2><p class="muted small">Board of ${esc(B.as_of)} · stats-only values in league FAAB</p>
       <ol>${B.players.slice(0, 5).map((x) => `<li>${playerLink(x.name)} <span class="muted small">${esc(x.pos)}</span> <b>${money(x.value)}</b></li>`).join("")}</ol>
       <p><a href="#/faab">Full board →</a> · <a href="rate/">Rate the board</a></p></div>` : ""}
     <div class="card digest"><h2>This week in the digest</h2>
       ${d.lede ? `<p>${esc(d.lede)}</p>` : `<p class="muted">No digest yet.</p>`}${digestHtml}</div>`;
+  recordWatch(meta).catch(() => { const el = document.getElementById("watch"); if (el) el.innerHTML = `<h2>Record watch</h2><p class="muted small">Sleeper is unreachable right now.</p>`; });
+}
+
+// ---------- record watch: this week's live scores against the all-time boards
+const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+// 1-based place a value would take among `values` (best first): ties share a place
+function placeAmong(values, v, high) {
+  let n = 0;
+  for (const x of values) { if (high ? x > v : x < v) n++; else break; }
+  return n + 1;
+}
+async function recordWatch(meta) {
+  const el = () => document.getElementById("watch");
+  const [W, live, nfl] = await Promise.all([load("watch.json"), loadLive(), loadNfl()]);
+  if (!live || !meta.league_id) throw new Error("offline");
+  const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json());
+  const wk = state.week;
+  const mus = await fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${wk}`, { cache: "no-store" }).then((r) => r.json());
+  const games = {};
+  for (const m of mus) if (m.matchup_id) (games[m.matchup_id] = games[m.matchup_id] || []).push(m);
+  const started = mus.some((m) => (m.points || 0) > 0);
+  const lines = [];
+  const holder = (top) => top ? `record ${fmt({ d: 2 }, top[0])}, ${esc(top[1])} ${top[2]} ${esc(top[3])}` : "";
+  const add = (rank, html) => lines.push([rank, html]);
+  for (const pair of Object.values(games)) {
+    if (pair.length !== 2) continue;
+    const [a, b] = pair.map((m) => ({ team: live.byRid[m.roster_id], pts: m.points || 0, m }));
+    for (const [me, op] of [[a, b], [b, a]]) {
+      if (!me.pts) continue;                         // hasn't played yet
+      const T = W.team;
+      const board = (name, v, high, verb) => { const B = T[name]; const r = placeAmong(B.values, v, high);
+        add(r, `${teamLink(me.team)} ${verb || "is on"} <b>${fmt({ d: 2 }, v)}</b>: would be the ${ordinal(r)} ${name.toLowerCase()} <span class="muted small">(${holder(B.top[0])})</span>`); };
+      board("Most points in a week", me.pts, true);
+      if (me.pts < op.pts) board("Most points in a loss", me.pts, true);
+      if (me.pts > op.pts && op.pts) board("Biggest margin of victory", me.pts - op.pts, true, "leads by");
+      if (me.team < op.team && op.pts) board("Most combined points in a game", me.pts + op.pts, true, "and " + esc(op.team) + " are on");
+      for (const [pid, p] of Object.entries(me.m.players_points || {})) {
+        if (!(me.m.starters || []).includes(pid)) continue;
+        const P = W.player["Most points by a starter"];
+        const r = placeAmong(P.values, p, true);
+        if (r <= P.values.length) add(r, `${NAMES_BY_ID[pid] ? `<a href="#/player/${pid}">${esc((nfl[pid] || [])[0] || NAMES_BY_ID[pid])}</a>` : esc((nfl[pid] || [])[0] || pid)} (${teamLink(me.team)}) has <b>${fmt({ d: 2 }, p)}</b>: would be the ${ordinal(r)}-most by a starter <span class="muted small">(record ${fmt({ d: 2 }, P.top[0][0])}, ${esc(P.top[0][1])} ${P.top[0][3]} ${esc(P.top[0][4])})</span>`);
+      }
+    }
+  }
+  lines.sort((x, y) => x[0] - y[0]);
+  const thresholds = Object.entries(W.team).filter(([n]) => !n.startsWith("Fewest")).map(([n, B]) =>
+    `<li>${esc(n)}: <b>${fmt({ d: 2 }, B.top[0][0])}</b> (${esc(B.top[0][1])} ${B.top[0][2]} ${esc(B.top[0][3])}) · 5th ${fmt({ d: 2 }, (B.top[4] || [])[0])}</li>`).join("");
+  if (!el()) return;
+  el().innerHTML = `<h2>Record watch · week ${esc(wk)} ${liveNote(live)}</h2>
+    ${started ? (() => { const top = lines.filter(([r]) => r <= 10); const show = top.length ? top.slice(0, 12) : lines.slice(0, 5);
+        return `${top.length ? "" : `<p class="muted small">Nothing in an all-time top 10 yet. Closest so far:</p>`}<ul class="watch">${show.map(([, h]) => `<li>${h}</li>`).join("")}</ul>`; })()
+      : `<p class="muted">Games haven't started. The marks to beat:</p>`}
+    <details ${started ? "" : "open"}><summary class="small">All-time marks</summary><ul class="small">${thresholds}<li>Most points by a starter: <b>${fmt({ d: 2 }, W.player["Most points by a starter"].top[0][0])}</b> (${esc(W.player["Most points by a starter"].top[0][1])})</li></ul></details>
+    <p class="muted small">Live points from Sleeper, ranked against every week since 2020 (all week types). Team marks include the semifinal +5 bonus; live points do not. <a href="#/records/team_week">Record book →</a></p>`;
 }
 
 async function teams() {
-  const [meta, h] = await Promise.all([load("meta.json"), load("home.json")]);
+  const [meta, h, AT] = await Promise.all([load("meta.json"), load("home.json"), load("all_time.json")]);
   const ts = await Promise.all(meta.teams.map((t) => load(`team/${tslug(t)}.json`)));
-  const rows = ts.map((t) => ({ t: t.team, ...t.summary, age: t.ages.avg }));
+  // default order: titles, then all-time win %
+  const rows = ts.map((t) => ({ t: t.team, ...t.summary, age: t.ages.avg }))
+    .sort((a, b) => (b.Championships ?? 0) - (a.Championships ?? 0) || (b["All time win %"] ?? 0) - (a["All time win %"] ?? 0));
   const S = ts[0]?.summary_fmt || {};
-  $app.innerHTML = `<h1>Teams</h1><div class="card">${table([
+  const order = rows.map((r) => r.t);
+  const ti = AT.cols.indexOf("Team");
+  const allRows = AT.rows.slice().sort((a, b) => order.indexOf(a[ti]) - order.indexOf(b[ti]));
+  $app.innerHTML = `<h1>All-time standings</h1><div class="card">${table([
     { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
     { k: "Championships", label: "Titles" },
     { k: "All time record", label: "Record", left: true },
@@ -267,13 +361,16 @@ async function teams() {
     { k: "Drafting skill", label: "Drafting", spec: S["Drafting skill"] },
     { k: "Trading skill", label: "Trading", spec: S["Trading skill"] },
     { k: "Add/Drop skill", label: "Add/Drop", spec: S["Add/Drop skill"] },
-    { k: "age", label: "Roster age", spec: { d: 2 } },
-  ], rows, { sort: 1 })}</div>`;
+    { k: "age", label: "Current roster age", spec: { d: 2 } },
+  ], rows)}<p class="muted small">Ordered by titles, then all-time win %; tap a header to re-sort. Current roster age = the average age of each team's roster as of the last build, using this season's ages.</p></div>
+  <div class="card"><h2>Every all-time stat</h2>${dataTable({ ...AT, rows: allRows }, { links: { Team: (v) => teamLink(v) }, defs: "team_all_time" })}
+    <p class="muted small">Every team_all_time column except the head-to-head ones (those are on <a href="#/h2h">Head to head</a>). Scroll sideways; the team stays pinned.</p></div>`;
 }
 
-function tiles(summary, labels, specs, keys) {
-  return `<div class="tiles">${(keys || Object.keys(summary)).filter((k) => k in summary).map((k) =>
-    `<div class="tile"><b>${fmt(specs[k], summary[k])}</b><span>${esc(labels[k] || k)}</span></div>`).join("")}</div>`;
+function tiles(summary, labels, specs, keys, sheet) {
+  return `<div class="tiles">${(keys || Object.keys(summary)).filter((k) => k in summary).map((k) => {
+    const d = defOf(k, sheet);
+    return `<div class="tile"${d ? ` data-def="${esc(d)}" data-deflabel="${esc(labels[k] || k)}"` : ""}><b>${fmt(specs[k], summary[k])}</b><span>${esc(labels[k] || k)}${d ? ' <span class="defbtn">ⓘ</span>' : ""}</span></div>`; }).join("")}</div>`;
 }
 
 function tradeCard(t, meta) {
@@ -324,7 +421,7 @@ async function team(slug, _q, live) {
   }
   $app.innerHTML = `
     <h1>${esc(t.team)}</h1>
-    ${tiles(t.summary, t.summary_labels, t.summary_fmt)}
+    ${tiles(t.summary, t.summary_labels, t.summary_fmt, null, "team_all_time")}
     <p class="small">Every row: ${[["team_week", "weeks"], ["team_year", "seasons"], ["team_all_time", "all-time"], ["trades", "trades"], ["add_drops", "add/drops"], ["player_additions", "pickups"], ["rookie_picks", "rookie picks"]].map(([s, n]) => `<a href="#/data/${s}?c=Team&v=${encodeURIComponent(t.team)}">${n}</a>`).join(" · ")} · <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB values</a></p>
     <div class="grid">
       <div class="card"><h2>Head to head</h2>${table([
@@ -367,7 +464,7 @@ async function player(key, _q, live) {
     <p class="muted">${[p.pos, p.nfl, ((t) => t ? "on " + teamLink(t) : "not on a roster now")(live && /^\d+$/.test(key) ? live.owner[key] : p.team)].filter(Boolean).join(" · ")} ${live ? liveNote(live) : ""}
       ${d ? ` · drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}${typeof d.faab === "number" ? ` (FAAB value on draft day ${money(d.faab)})` : ""}` : ""}</p>
     ${fv ? `<div class="card"><b>FAAB value ${money(fv.value)}</b> <span class="muted">· #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span> · <a href="#/faab">board</a> · <a href="rate/">rate it</a></div>` : ""}
-    ${tiles(p.summary, p.summary_labels, p.summary_fmt)}
+    ${tiles(p.summary, p.summary_labels, p.summary_fmt, null, "player_all_time")}
     <p class="small">Every row: <a href="#/data/player_week?c=Player&v=${enc}&y=all">weeks</a> · <a href="#/data/player_year?c=Player&v=${enc}">seasons</a> · <a href="#/data/player_all_time?c=Player&v=${enc}">career</a> · <a href="#/data/player_additions?c=Player&v=${enc}">acquisitions</a> · <a href="#/data/add_drops?q=${enc}">add/drops</a></p>
     <div class="card"><h2>Career by team</h2>${table([
       { k: "team", label: "Team", left: true, html: (r) => teamLink(r.team) },
@@ -435,7 +532,8 @@ async function records(sheet, query) {
     const body = rows.length
       ? `<table class="rk"><tbody>${rows.map((x, i) => `<tr${x[4] ? ` class="go" data-go="${esc(x[4])}"` : ""}><td class="muted">${place(rows, i)}</td><td class="v">${x[4] ? `<a href="#/${esc(x[4])}">${fmt(c.fmt, x[0])}</a>` : fmt(c.fmt, x[0])}</td><td class="l">${lab(x[1])}${x[2] ? ` <span class="chip live">${esc(r.flag || "")}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
       : `<p class="muted small">No board: ${b.hi || b.lo ? "a tie for the last places doesn't fit in the top " + r.depth : "no values"}.</p>`;
-    return `<div class="card rec"><b>${esc(c.label)}</b> <span class="muted small">${useEnd === "hi" ? "highest" : "lowest"}${c.mirror ? " · each trade once" : ""}</span>
+    const d = defOf(c.col, sheet);
+    return `<div class="card rec"><a class="stat" href="#/records/${sheet}?full=${encodeURIComponent(c.col)}&end=${useEnd}&w=${scope}"${d ? ` data-def="${esc(d)}" data-deflabel="${esc(c.label)}"` : ""}><b>${esc(c.label)}</b></a>${d ? ' <span class="defbtn" data-def="' + esc(d) + '" data-deflabel="' + esc(c.label) + '">ⓘ</span>' : ""} <span class="muted small">${useEnd === "hi" ? "highest" : "lowest"}${c.mirror ? " · each trade once" : ""}</span>
       ${body}${c.mirror && end === "lo" ? `<p class="muted small">Lowest is the same trades from the losing side, so only the highest is shown.</p>` : ""}</div>`;
   }
   function draw() {
@@ -443,12 +541,15 @@ async function records(sheet, query) {
     let cs = r.columns;
     if (ql) cs = cs.filter((c) => c.label.toLowerCase().includes(ql) || c.col.toLowerCase().includes(ql));
     else if (FEATURED[sheet]) { const f = FEATURED[sheet]; cs = f.map((n) => cs.find((c) => c.col === n)).filter(Boolean).concat(cs.filter((c) => !f.includes(c.col))); }
-    const shown = cs.slice(0, 24);
-    document.getElementById("recs").innerHTML = shown.map(card).join("") || `<p class="muted">No column matches.</p>`;
-    document.getElementById("reccount").textContent = `${cs.length} of ${r.columns.length} stats${cs.length > shown.length ? ` · showing ${shown.length}, narrow the filter for more` : ""}`;
+    document.getElementById("recs").innerHTML = cs.map(card).join("") || `<p class="muted">No column matches.</p>`;
+    document.getElementById("reccount").textContent = `${cs.length} of ${r.columns.length} stats · tap a stat's name for its full all-time list`;
   }
+  const full = params.get("full");
+  if (full) return fullList(sheet, r, full, end, scope, lab);
   $app.innerHTML = `<h1>Record book</h1>
     <div class="seg">${SHEETS.map(([k, n]) => `<button aria-pressed="${k === sheet}" data-s="${k}">${n}</button>`).join("")}</div>
+    <div class="controls"><input class="f" id="appq" type="search" placeholder="Find a player, team or week on any board (e.g. Josh Allen, 2025 Week 3)"><button class="b" id="appgo">Find</button></div>
+    <div id="appres"></div>
     <div class="controls"><input class="f" id="rq" type="search" placeholder="Filter ${r.columns.length} stats (e.g. bench, boldness, KTC)" value="${esc(q)}">
       <span class="seg" style="margin:0"><button data-e="hi" aria-pressed="${end === "hi"}">Highest</button><button data-e="lo" aria-pressed="${end === "lo"}">Lowest</button></span></div>
     <p class="muted small" id="reccount"></p>
@@ -459,8 +560,67 @@ async function records(sheet, query) {
   $app.querySelectorAll("[data-e]").forEach((b) => b.onclick = () => { end = b.dataset.e; $app.querySelectorAll("[data-e]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   $app.querySelectorAll("[data-w]").forEach((b) => b.onclick = () => { scope = b.dataset.w; $app.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("rq").oninput = (e) => { q = e.target.value; draw(); };
+  const find = () => appearances(document.getElementById("appq").value.trim());
+  document.getElementById("appgo").onclick = find;
+  document.getElementById("appq").onkeydown = (e) => { if (e.key === "Enter") find(); };
   // tap anywhere on a board row (not on a link inside it) to open its details
   document.getElementById("recs").onclick = (e) => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-go]"); if (tr) location.hash = "#/" + tr.dataset.go; };
+  draw();
+}
+
+// every top/bottom-5 board place a player, team or week holds, across all sheets
+async function appearances(q) {
+  const out = document.getElementById("appres");
+  if (!q) { out.innerHTML = ""; return; }
+  out.innerHTML = `<p class="muted small">Searching every board…</p>`;
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const all = await Promise.all(SHEETS.map(([k]) => load(`records/${k}.json`).then((r) => [k, r]).catch(() => [k, null])));
+  const hits = [];
+  for (const [sheet, r] of all) {
+    if (!r) continue;
+    for (const c of r.columns) for (const [scope, b] of Object.entries(c.scopes || {})) for (const [end, rows] of Object.entries(b)) {
+      for (const x of rows) {
+        const text = x[1].map((v) => String(v ?? "")).join(" ").toLowerCase();
+        if (words.every((w) => text.includes(w))) hits.push({ sheet, c, scope, end, x, scopeName: r.scope_names?.[scope] });
+      }
+    }
+  }
+  hits.sort((a, b) => a.x[3] - b.x[3]);
+  const name = Object.fromEntries(SHEETS);
+  out.innerHTML = `<div class="card"><h2>${hits.length} board place${hits.length === 1 ? "" : "s"} for “${esc(q)}”</h2>
+    ${hits.length ? `<table class="rk"><tbody>${hits.slice(0, 300).map((h) => `<tr class="go"${h.x[4] ? ` data-go="${esc(h.x[4])}"` : ""}><td class="muted">${h.x[3]}</td><td class="v">${fmt(h.c.fmt, h.x[0])}</td><td class="l"><a href="#/records/${h.sheet}?full=${encodeURIComponent(h.c.col)}&end=${h.end}&w=${h.scope}">${esc(h.c.label)}</a> <span class="muted small">${esc(name[h.sheet])} · ${h.end === "hi" ? "highest" : "lowest"}${h.scope !== "all" ? " · " + esc(h.scopeName || h.scope) : ""}</span><br><span class="small">${esc(h.x[1].filter((v) => v !== null).join(" · "))}</span></td></tr>`).join("")}</tbody></table>${hits.length > 300 ? `<p class="muted small">First 300 shown; add a word to narrow it.</p>` : ""}`
+      : `<p class="muted">Not in any top or bottom 5. Open a stat's full list to see where it ranks.</p>`}</div>`;
+  out.onclick = (e) => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-go]"); if (tr && tr.dataset.go) location.hash = "#/" + tr.dataset.go; };
+}
+
+// a stat's full all-time list, ranked from the whole sheet (the Data page's rows)
+const WEEK_KIND = (n) => { n = String(n); if (n.startsWith("Week ")) return "reg"; const l = n.toLowerCase(); if (l.includes("3rd") || l.includes("third")) return "third"; if (l.startsWith("toilet")) return (l.includes("trash") || l.includes("loser")) ? "trash" : "toilet"; return "playoffs"; };
+async function fullList(sheet, r, col, end, scope, lab) {
+  const c = r.columns.find((x) => x.col === col);
+  if (!c) throw new Error("No stat " + col);
+  $app.innerHTML = `<p class="small"><a href="#/records/${sheet}?w=${scope}&end=${end}">← ${esc(Object.fromEntries(SHEETS)[sheet])} records</a></p>
+    <h1>${esc(c.label)}${defMark(c.col, sheet)}</h1><p class="muted" id="flmeta">Loading every row…</p><div id="fl"></div>`;
+  const ix = await load("sheets/index.json");
+  const m = ix.sheets.find((x) => x.sheet === sheet);
+  const parts = await Promise.all(m.chunks.map(([, k]) => load(`sheets/${sheet}/${k}.json`)));
+  let rows = [].concat(...parts.map((p) => p.rows));
+  rows.forEach((x, i) => { x._i = i; });
+  const ci = m.cols.indexOf(col), wn = m.cols.indexOf("Week Name");
+  rows = rows.filter((x) => typeof x[ci] === "number" && (scope === "all" || wn < 0 || (scope === "final" ? x[wn] === "Final" : WEEK_KIND(x[wn]) === scope)));
+  const tradeIds = sheet === "trades" ? tradeIndex(await load("trades.json")) : null;
+  if (sheet === "trades") { const seen = new Set(); rows = rows.sort((a, b) => end === "hi" ? b[ci] - a[ci] : a[ci] - b[ci]).filter((x) => { const k = rowLink(sheet, m.cols, x, tradeIds); if (seen.has(k)) return false; seen.add(k); return true; }); }
+  rows.sort((a, b) => end === "hi" ? b[ci] - a[ci] : a[ci] - b[ci]);
+  const labIdx = r.labels.map((l) => m.cols.indexOf(l));
+  let shown = 100;
+  const placeOf = (i) => { let k = i; while (k > 0 && rows[k - 1][ci] === rows[i][ci]) k--; return k + 1; };
+  const draw = () => {
+    document.getElementById("flmeta").innerHTML = `${rows.length.toLocaleString()} rows · ${end === "hi" ? "highest first" : "lowest first"}${scope !== "all" ? " · " + esc(r.scope_names?.[scope] || scope) : ""} · <a href="#/records/${sheet}?full=${encodeURIComponent(col)}&end=${end === "hi" ? "lo" : "hi"}&w=${scope}">flip</a>`;
+    document.getElementById("fl").innerHTML = `<div class="card"><table class="rk"><tbody>${rows.slice(0, shown).map((x, i) => { const link = rowLink(sheet, m.cols, x, tradeIds); return `<tr class="go"${link ? ` data-go="${esc(link)}"` : ""}><td class="muted">${placeOf(i)}</td><td class="v">${fmt(c.fmt, x[ci])}</td><td class="l">${lab(labIdx.map((j) => (j < 0 ? null : x[j])))}</td></tr>`; }).join("")}</tbody></table>
+      ${rows.length > shown ? `<button class="b" id="flmore">Show ${Math.min(100, rows.length - shown)} more</button>` : ""}</div>`;
+    const more = document.getElementById("flmore");
+    if (more) more.onclick = () => { shown += 100; draw(); };
+  };
+  document.getElementById("fl").onclick = (e) => { if (e.target.closest("a") || e.target.closest("button")) return; const tr = e.target.closest("tr[data-go]"); if (tr && tr.dataset.go) location.hash = "#/" + tr.dataset.go; };
   draw();
 }
 
@@ -477,6 +637,7 @@ async function h2h() {
         const c = m.cells[`${a}|${b}`];
         if (!c) return "<td>—</td>";
         const w = c[key[0]], l = c[key[1]];
+        if (!w && !l) return `<td class="self" title="Never met here">0-0</td>`;
         W += w; L += l;
         const p = w + l ? w / (w + l) : 0.5;
         const bg = w + l ? `background:color-mix(in srgb, ${p >= 0.5 ? "var(--good)" : "var(--bad)"} ${Math.round(Math.abs(p - 0.5) * 120)}%, transparent)` : "";
@@ -717,19 +878,21 @@ async function data(sheet, query) {
     const pages = Math.max(1, Math.ceil(rs.length / PAGE));
     page = Math.min(page, pages - 1);
     const slice = rs.slice(page * PAGE, page * PAGE + PAGE);
-    const head = shown.map((i) => `<th data-i="${i}" class="l${sortBy === i ? " sorted" + (asc ? " asc" : "") : ""}" title="${esc(m.defs[m.cols[i]] || "")}">${esc(m.labels[i])}${m.defs[m.cols[i]] ? " ⓘ" : ""}</th>`).join("");
-    const cell = (i, v) => {
-      const c = m.cols[i];
-      if (v === null || v === undefined) return '<td class="muted">—</td>';
+    const head = shown.map((i, k) => `<th data-i="${i}" class="l${sortBy === i ? " sorted" + (asc ? " asc" : "") : ""}${k === 0 ? " pin pin1" : ""}"${m.defs[m.cols[i]] ? ` data-def="${esc(m.defs[m.cols[i]])}" data-deflabel="${esc(m.labels[i])}"` : ""}>${esc(m.labels[i])}${m.defs[m.cols[i]] ? ' <span class="defbtn">ⓘ</span>' : ""}</th>`).join("");
+    const cell = (i, v, k) => {
+      const c = m.cols[i], pin = k === 0 ? " pin pin1" : "";
+      if (v === null || v === undefined) return `<td class="muted${pin}">—</td>`;
       if (typeof v === "string") {
-        if (["Team", "Top team", "Top Team", "Last team", "Opponent", "Original Team"].includes(c) || c.startsWith("Team's traded with")) return `<td class="l">${teamLink(v)}</td>`;
-        if (["Player", "Player Picked", "Player Added", "Player Dropped"].includes(c)) return `<td class="l">${playerLink(v)}</td>`;
-        return `<td class="l">${esc(v)}</td>`;
+        if (["Team", "Top team", "Top Team", "Last team", "Opponent", "Original Team"].includes(c) || c.startsWith("Team's traded with")) return `<td class="l${pin}">${teamLink(v)}</td>`;
+        if (["Player", "Player Picked", "Player Added", "Player Dropped"].includes(c)) return `<td class="l${pin}">${playerLink(v)}</td>`;
+        if (c === "NFL team") return `<td class="l${pin}">${nflLink(v)}</td>`;
+        return `<td class="l${pin}">${esc(v)}</td>`;
       }
-      return `<td>${fmt(m.fmt[c], v)}</td>`;
+      return `<td class="${pin}">${fmt(m.fmt[c], v)}</td>`;
     };
-    const go = (r) => { const l = rowLink(sheet, m.cols, r, tradeIds); return l ? `<td><a href="#/${l}" title="Details">›</a></td>` : "<td></td>"; };
-    document.getElementById("dt").innerHTML = `<table><thead><tr><th></th>${head}</tr></thead><tbody>${slice.map((r) => `<tr>${go(r)}${shown.map((i) => cell(i, r[i])).join("")}</tr>`).join("")}</tbody></table>`;
+    const go = (r) => { const l = rowLink(sheet, m.cols, r, tradeIds); return l ? `<td class="pin pin0"><a href="#/${l}" title="Details">›</a></td>` : `<td class="pin pin0"></td>`; };
+    document.getElementById("dt").innerHTML = `<table><thead><tr><th class="pin pin0"></th>${head}</tr></thead><tbody>${slice.map((r) => `<tr>${go(r)}${shown.map((i, k) => cell(i, r[i], k)).join("")}</tr>`).join("")}</tbody></table>`;
+    pinColumns(document.getElementById("dt"));
     document.getElementById("dcount").textContent = `${rs.length.toLocaleString()} of ${rows.length.toLocaleString()} rows · ${shown.length} of ${m.cols.length} columns`;
     document.getElementById("dpg").innerHTML = pages > 1 ? `<button data-p="-1" ${page === 0 ? "disabled" : ""}>‹ Prev</button> <span class="muted small">page ${page + 1} of ${pages}</span> <button data-p="1" ${page >= pages - 1 ? "disabled" : ""}>Next ›</button>` : "";
   }
@@ -762,7 +925,7 @@ async function data(sheet, query) {
   document.getElementById("call").onclick = () => setShown(all);
   document.getElementById("cnone").onclick = () => setShown([0]);
   document.getElementById("cdef").onclick = () => setShown(m.cols.length <= 30 ? all : all.slice(0, 18));
-  document.getElementById("dt").onclick = (e) => { const th = e.target.closest("th"); if (!th || th.dataset.i === undefined) return; const i = +th.dataset.i; if (sortBy === i) asc = !asc; else { sortBy = i; asc = false; } draw(); };
+  document.getElementById("dt").onclick = (e) => { if (e.target.closest(".defbtn")) return; const th = e.target.closest("th"); if (!th || th.dataset.i === undefined) return; const i = +th.dataset.i; if (sortBy === i) asc = !asc; else { sortBy = i; asc = false; } draw(); };
   document.getElementById("dpg").onclick = (e) => { const b = e.target.closest("button[data-p]"); if (!b) return; page += +b.dataset.p; draw(); document.getElementById("dcount").scrollIntoView(); };
   let deb;
   document.getElementById("dq").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { q = e.target.value; page = 0; draw(); }, 200); };
@@ -800,10 +963,12 @@ function historyList(lines) {
   return `<ol class="hist">${lines.map(([t, link]) => `<li>${link ? `<a href="#/${esc(link)}">${esc(t)}</a>` : esc(t)}</li>`).join("")}</ol>`;
 }
 
+const award = (a) => `<span class="chip award">${esc(a)}</span>`;
 function lineup(team, side) {
   const rows = (s) => side.players.filter((p) => p[5] === s);
-  const line = (p) => `<tr><td class="l muted small">${esc(p[3] || p[2] || "")}</td><td class="l">${p[1] ? `<a href="#/player/${esc(p[1])}">${esc(p[0])}</a>` : esc(p[0])} <span class="muted small">${esc(p[2] || "")} ${esc(p[6] || "")}</span></td><td>${fmt({ d: 2 }, p[4])}</td></tr>`;
+  const line = (p) => `<tr><td class="l muted small">${esc(p[3] || p[2] || "")}</td><td class="l">${p[1] ? `<a href="#/player/${esc(p[1])}">${esc(p[0])}</a>` : esc(p[0])} <span class="muted small">${esc(p[2] || "")} ${nflLink(p[6])}</span>${(p[7] || []).map(award).join("")}</td><td>${fmt({ d: 2 }, p[4])}</td></tr>`;
   return `<div class="card"><h2>${teamLink(team)} <span class="${side.win ? "w" : "lo"}">${fmt({ d: 2 }, side.pf)}</span></h2>
+    ${(side.awards || []).length ? `<p>${side.awards.map(award).join("")}</p>` : ""}
     <p class="muted small">${side.win ? "Won" : "Lost"} vs ${teamLink(side.opp)} · max possible ${fmt({ d: 2 }, side.max)}</p>
     <table class="rk"><tbody>${rows(true).map(line).join("")}</tbody></table>
     <details><summary class="small muted">Bench (${rows(false).length})</summary><table class="rk"><tbody>${rows(false).map(line).join("")}</tbody></table></details></div>`;
@@ -854,12 +1019,32 @@ async function pick(rest) {
     <div class="card"><h2>History</h2>${lines ? historyList(lines) : `<p class="muted">${hist.has_workbook ? "No history note for this pick." : "The history notes come from the weekly build's workbook and appear after the next deploy."}</p>`}</div>`;
 }
 
+// ---------- an NFL team: who in the league has its players
+async function nfl(code, _q, live) {
+  code = String(code || "").toUpperCase();
+  const [N, B, meta] = await Promise.all([loadNfl(), loadBoard(), load("meta.json")]);
+  const value = Object.fromEntries((B ? B.players : []).map((x) => [x.sid, x.value]));
+  const rows = Object.entries(N).filter(([, v]) => v[2] === code).map(([pid, v]) => ({
+    pid, name: v[0], pos: v[1], age: v[3], own: live ? live.owner[pid] || null : null, value: value[pid] ?? null }))
+    .filter((r) => r.own || NAMES_BY_ID[r.pid] || r.value);
+  $app.innerHTML = `<h1>${esc(code)} players in the league</h1>
+    <p class="muted">Current NFL team per Sleeper's player list. Owners ${liveNote(live)}</p>
+    <div class="card">${table([
+      { k: "name", label: "Player", left: true, html: (r) => NAMES_BY_ID[r.pid] ? `<a href="#/player/${esc(r.pid)}">${esc(r.name)}</a>` : esc(r.name) },
+      { k: "pos", label: "Pos", left: true }, { k: "age", label: "Age", spec: { d: 2 } },
+      { k: "own", label: "Owner", left: true, html: (r) => r.own ? teamLink(r.own) : '<span class="muted">Free agent</span>' },
+      { k: "value", label: "FAAB value", html: (r) => r.value == null ? "—" : money(r.value) },
+    ], rows, { sort: 4 })}<p class="muted small">Players the league has rostered or the FAAB board values. Every player-week on ${esc(code)}: <a href="#/data/player_week?c=NFL%20team&v=${esc(code)}&y=all">data →</a></p></div>`;
+}
+
 // ---------- router
 async function route() {
   const h = location.hash.replace(/^#\/?/, "");
   const [path, query] = h.split("?");
   const [page, ...rest] = path.split("/");
   const fn = routes[page] || home;
+  const pop = document.getElementById("defpop");
+  if (pop) pop.style.display = "none";
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#/" + (page === "team" ? "teams" : page)));
   try {
     await fn(rest.join("/") || undefined, query);
@@ -877,11 +1062,15 @@ async function route() {
     });
   }
 }
-const LIVE_PAGES = new Set([team, player, faab]);
+const LIVE_PAGES = new Set([team, player, faab, nfl]);
 document.getElementById("searchForm").onsubmit = (e) => { e.preventDefault(); location.hash = "#/search/" + encodeURIComponent(document.getElementById("q").value); };
 let typing;
 document.getElementById("q").oninput = (e) => { clearTimeout(typing); typing = setTimeout(() => { if (e.target.value.trim().length > 1) location.hash = "#/search/" + encodeURIComponent(e.target.value); }, 250); };
 window.addEventListener("hashchange", route);
+load("sheets/index.json").then((ix) => {
+  for (const m of ix.sheets) DEFS[m.sheet] = m.defs || {};
+  DEFS._any = Object.assign({}, ...ix.sheets.map((m) => m.defs || {}));
+}).catch(() => {});
 Promise.all([load("search.json"), load("meta.json")]).then(([ix, meta]) => {
   ix.forEach((r) => { if (r[0] === "p") { NAMES[r[2]] = r[1]; NAMES_BY_ID[r[1]] = r[2]; } });
   const built = meta.build_time ? new Date(meta.build_time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : meta.built;
