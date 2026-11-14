@@ -106,3 +106,6 @@ button.b{font:inherit;font-weight:600;border-radius:9px;padding:7px 12px;border:
 .trade.go:hover{border-color:var(--accent)}
 table.tall td{white-space:normal;min-width:150px;vertical-align:top}
 table.tall td.pin{min-width:180px;max-width:220px}
+.narrowpin td.pin,.narrowpin th.pin{white-space:normal;max-width:120px}
+.narrowpin .pin0{min-width:48px}
+.narrowpin .pin1{min-width:104px}
