@@ -354,9 +354,16 @@ years only from football context. So the quarterly walk-forward refits are gone 
   folds x 5 bags), the supply step, the KTC-scale -> league maps, the league-price models, their curves and position
   quantile maps, and one holding-value map (1,511 evidence rows). Stored in `data/faab_value/frozen/`: `manifest.json`
   (feature lists, library versions, the training data's sha256, the freeze date, each model file's sha256) is
-  committed; the five `bag*.joblib` (51.8 MB, xz, with training-only tree fields zeroed: predictions identical) are
-  not, and `faab_frozen.ensure` restores them from the manifest's `asset_url` / `$FAAB_FROZEN_URL`. A missing base
-  is an error, never a silent refit.
+  committed, and so are the five `bag*.joblib` (51.8 MB, about 10 MB each, xz, with training-only tree fields
+  zeroed: predictions identical; committed 2026-11-14 when the base shipped, so CI and every session read the same
+  files). `faab_frozen.ensure` checks each against the manifest's sha256 and can restore one from `asset_url` /
+  `$FAAB_FROZEN_URL`. A refreeze is a reviewed PR that replaces them.
+- **Shipped 2026-11-14** (Oliver's card: "Ship at 125/129, keep fixing"): the 2026-11-10 freeze with params refit
+  on it (no Oliver-held rule moved). Committed params, all 234 fitted trades: total 3.993, calls 125/129, trade error
+  0.831, far-off 56 / 24; on the 220 trades shared with the old evidence 0.824 and 52 / 22 (old base 0.851, 52 / 24).
+  Cuts 0.018 -> 0.042 and votes 0.093 -> 0.112 got worse. Failing calls, still being worked: Mayfield "just under a
+  first", P. Washington "a low first", Tuten 2.01-2.03, the unanimous Coker vote (~$367, model $259). Report:
+  /mnt/project-files/faab/frozen_base_fixes_2026-11-11.md.
 - **No calendar or drift inputs**: no `e_t`, no recency weight, no era weight, no "2022 on" / "last 3 years" windows.
   Time of year (month, day of year) stays. `k_gtd` is guaranteed money / that league year's cap (`faab_frame.NFL_CAP`;
   `k_apy` already was a cap share). The replacement level is each row's last five complete seasons (context, `ctx_repl`).

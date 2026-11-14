@@ -61,12 +61,6 @@ exports/raw/faab_derived/
 # college and award data plus the walk-forward blocks. Rebuilt from public sources; never commit.
 .cache/faab/
 
-# The frozen FAAB base's model files (lotg_support.faab_frozen): 5 x ~10.4 MB of xz-compressed trees, 51.8 MB in all
-# at the 2026-11-10 freeze, over the 50 MB bar for committing binaries. The manifest.json beside them IS committed: it
-# names each file with its sha256, and faab_frozen.ensure() restores missing ones from its asset_url / $FAAB_FROZEN_URL
-# (a release asset of the freeze) and never refits on its own.
-data/faab_value/frozen/*.joblib
-
 # lotg_support.db: the DuckDB copy of exports/ + snapshot for SQL questions. Rebuilt on demand from
 # the committed CSVs in seconds (and shipped in the run artifact); a binary, so never commit it.
 .cache/lotg.duckdb
