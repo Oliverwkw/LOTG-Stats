@@ -344,7 +344,9 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     if refreeze:
         Fd = X.add_x(I.ktc_panel())           # KTC is read here only: the translator's training scale
         fb = B.Football(seasons).fit(B.season_done(pd.Timestamp(end) if end else pd.Timestamp.today().normalize()))
-        FB = FZ.FrozenBase.fit(Fd, LR, U, fb, log=log, classes=classes)
+        import os           # a league-price-step change can keep a stored base's translators (FAAB_REUSE_TRANSLATORS=dir)
+        ru = os.environ.get("FAAB_REUSE_TRANSLATORS")
+        FB = FZ.FrozenBase.fit(Fd, LR, U, fb, log=log, classes=classes, reuse=FZ.FrozenBase.load(ru) if ru else None)
         FB.save(fdir); del Fd
         log(f"froze the base into {fdir} ({sum(f.stat().st_size for f in fdir.glob('*')) / 1e6:.1f} MB, {time.time() - t0:.0f}s)")
     else:

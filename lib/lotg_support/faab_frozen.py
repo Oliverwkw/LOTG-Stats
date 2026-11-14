@@ -227,6 +227,31 @@ def class_ctx(rows, table):
     return cls3, own
 
 
+# ------------------------------------------------------------------ this season's role (the league-price step)
+ROLE = (("r_tgt", "e_x_cur_tgt_share", "e_x_l0_tgt_share"), ("r_snap", "s_snap_cur", "s_snap_l0"),
+        ("r_car", "e_x_cur_car_share", "e_x_l0_car_share"), ("r_xfp", "e_x_cur_xfp_share", "e_x_l0_xfp_share"))
+ROLE_GAMES = 6.0                              # this season's share counts fully from his 6th game
+ROLE_COLS = [n for n, _, _ in ROLE] + [f"{n}_d" for n, _, _ in ROLE]
+USE_ROLE = False                              # off: +2 calls and -0.004 trade error, but 6 more far-off trades (v4, 2026-11-14)
+
+
+def add_role(rows):
+    """this season's role: target / snap / carry / expected-points share, this season's weighted by games played (a
+    sixth per game, full from 6) against last season's (`r_*`), and the change itself (`r_*_d`, also games-weighted).
+    Football reason: a role shows in usage weeks before points settle; a share held over 6+ games is the player's role,
+    so a breakout (or a lost job) should move his price that fast, not at last season's pace."""
+    rows = rows.copy()
+    w = np.clip(np.nan_to_num(pd.to_numeric(rows.c_gp, errors="coerce").values.astype(float)) / ROLE_GAMES, 0, 1) if "c_gp" in rows \
+        else np.zeros(len(rows))
+    for name, cur, l0 in ROLE:
+        cu = rows[cur].values.astype(float) if cur in rows else np.full(len(rows), np.nan)
+        lo = rows[l0].values.astype(float) if l0 in rows else np.full(len(rows), np.nan)
+        cw = np.where(np.isnan(cu), 0.0, w)
+        rows[name] = np.where(np.isnan(lo), np.where(cw > 0, cu, np.nan), cw * np.nan_to_num(cu) + (1 - cw) * lo)
+        rows[f"{name}_d"] = np.where(np.isnan(cu) | np.isnan(lo), np.nan, w * (cu - lo))
+    return rows
+
+
 def add_class_ctx(rows, table):
     rows = rows.copy(); rows["ctx_cls3"], rows["ctx_own"] = class_ctx(rows, table)
     return rows
@@ -260,7 +285,8 @@ class FrozenBase:
 
     # ---- fit
     @classmethod
-    def fit(cls, Fd, LR, U, football, bags=None, workers=None, log=print, ens=None, ld_kw=None, supply_kw=None, classes=None):
+    def fit(cls, Fd, LR, U, football, bags=None, workers=None, log=print, ens=None, ld_kw=None, supply_kw=None, classes=None,
+            reuse=None):
         """Fd: the KTC panel frame (stats + ktc); LR: league rows (faab_base.league_rows); U: the supply universe
         (universe()); football: a faab_base.Football already fit (its curves are stored); classes: NFL round 1-2 picks
         per (draft year, position) (class_table; default: from the universe's own players)"""
@@ -270,20 +296,24 @@ class FrozenBase:
         Fd = Fd[Fd.ktc.notna() & (Fd.ktc > 0)].reset_index(drop=True)
         Fd = football.add_pv(Fd.copy())
         classes = class_table_from_universe(U) if classes is None else classes
-        Fd = add_class_ctx(Fd, classes)
+        Fd = add_role(add_class_ctx(Fd, classes))
         scale = KtcScale.fit(Fd); Fd["yp"] = scale.target(Fd)
         FC = [c for c in dict.fromkeys([c for c in B.feats(Fd) if not c.startswith("e_x_")] + B.PVF
                                        + [c for c in Fd.columns if c.startswith("e_x_")]) if c not in kp.FORBIDDEN]
         folds = [B.fold_of(Fd.sid, b) for b in range(nb)]
-        with B._Pool(workers) as pool:
-            pool.share(_SM=(Fd[FC], {"sqrt": np.sqrt(Fd.yp.values), "raw": Fd.yp.values}, folds, ens))
-            fits = pool.map(_fit_translator, [(b, k) for b in range(nb) for k in range(5)])
-        T = {b: [fits[b * 5 + k] for k in range(5)] for b in range(nb)}
+        if reuse is not None:         # a stored base's translators and supply models (a league-price-step change only)
+            assert reuse.meta["FC"] == FC and reuse.meta["bags"] == nb, "reuse: the stored base's translator inputs differ"
+            T = {b: reuse.bags[b]["trans"] for b in range(nb)}
+        else:
+            with B._Pool(workers) as pool:
+                pool.share(_SM=(Fd[FC], {"sqrt": np.sqrt(Fd.yp.values), "raw": Fd.yp.values}, folds, ens))
+                fits = pool.map(_fit_translator, [(b, k) for b in range(nb) for k in range(5)])
+            T = {b: [fits[b * 5 + k] for k in range(5)] for b in range(nb)}
         log(f"frozen fit: {nb * 5} translators on {len(Fd)} panel rows ({time.time() - t0:.0f}s)")
         U = football.add_pv(U.copy()).reset_index(drop=True)
         UP = {(b, k): T[b][k].predict(U) for b in range(nb) for k in range(5)}
         log(f"frozen fit: supply universe {len(U)} rows predicted ({time.time() - t0:.0f}s)")
-        LRp = add_class_ctx(football.add_pv(LR.copy()).reset_index(drop=True), classes)
+        LRp = add_role(add_class_ctx(football.add_pv(LR.copy()).reset_index(drop=True), classes))
         P, sup = [], {}
         for b in range(nb):
             fd = folds[b]; S1 = np.zeros(len(Fd)); u = np.zeros((len(Fd), 1 + len(DEPTH_LEVELS)))
@@ -292,7 +322,7 @@ class FrozenBase:
                 S1[m] = T[b][k].predict(Fd[m]); u[m] = supply_ctx(Fd[m], S1[m], U, UP[(b, k)])
             Z = _Z(Fd, S1, u, SUPPLY_COLS)
             r = t_(Fd.yp.values) - Z.tS1.values
-            g = [B.HistGradientBoostingRegressor(**skw).fit(Z[fd != k], r[fd != k]) for k in range(5)]
+            g = reuse.bags[b]["supply"] if reuse is not None else [B.HistGradientBoostingRegressor(**skw).fit(Z[fd != k], r[fd != k]) for k in range(5)]
             S = np.zeros(len(Fd))
             for k in range(5):
                 m = fd == k; S[m] = t_inv(Z.tS1.values[m] + g[k].predict(Z[m]))
@@ -307,7 +337,7 @@ class FrozenBase:
             a = o[o.ktc.notna()]
             iso = B.IsotonicRegression(out_of_bounds="clip").fit(a.ktc, a.y)
             kt["y"] = iso.predict(kt.ktc); kt["w"] = 1.0
-            COLS = list(dict.fromkeys(["posc"] + [c for c in B.feats(o) if c != "posc"] + ["sqS"] + B.AF + B.PVF))
+            COLS = list(dict.fromkeys(["posc"] + [c for c in B.feats(o) if c != "posc"] + ["sqS"] + B.AF + B.PVF + ([c for c in ROLE_COLS if o[c].notna().any() and kt[c].notna().any()] if USE_ROLE else [])))
             COLS = [c for c in COLS if c not in kp.FORBIDDEN]
             P.append((o, kt, COLS, iso))
         log(f"frozen fit: supply models and league rows ({time.time() - t0:.0f}s)")
@@ -368,7 +398,7 @@ class FrozenBase:
         league-price anchors (a_*), and per bag the supply rank (u{b}) and the anchor's S (aS{b}); `_S1_{b}` caches the
         translator for apply_rows. hist: league rows with sid, date, price, ch and S{b} per bag (league_history)."""
         F = football.add_pv(F.copy())
-        F = add_class_ctx(F, class_table_from_universe(U) if classes is None else classes)
+        F = add_role(add_class_ctx(F, class_table_from_universe(U) if classes is None else classes))
         a = B.anchor_columns(F, hist)
         for k, v in a.items(): F[k] = v
         for b in range(len(self.bags)):

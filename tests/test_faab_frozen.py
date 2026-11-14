@@ -192,6 +192,19 @@ def test_supply_context_counts_and_classes():
     assert FZ.class_ctx(later, tab)[0].tolist() == [3.0, 3.0, 1.0]   # 2023-2025 at WR: 2023 + 2024 + 2025
 
 
+def test_role_this_season_weighted_by_games():
+    """this season's share counts a sixth per game played (full from 6), against last season's; no current share =
+    last season's; the change column is games-weighted and NaN without both seasons"""
+    if FZ is None: print("  [SKIP] no scikit-learn"); return
+    r = pd.DataFrame(dict(c_gp=[0.0, 3.0, 9.0, 4.0], e_x_cur_tgt_share=[np.nan, 0.30, 0.30, 0.20],
+                          e_x_l0_tgt_share=[0.10, 0.10, 0.10, np.nan]))
+    o = FZ.add_role(r)
+    assert np.allclose(o.r_tgt.values, [0.10, 0.20, 0.30, 0.20])
+    assert np.isnan(o.r_tgt_d[0]) and np.isclose(o.r_tgt_d[1], 0.10) and np.isclose(o.r_tgt_d[2], 0.20) and np.isnan(o.r_tgt_d[3])
+    assert o.r_snap.isna().all()                     # a share the rows do not carry stays empty
+    _audit(FZ.ROLE_COLS)
+
+
 def test_committed_manifest_passes_the_audit():
     p = _ROOT / "data" / "faab_value" / "frozen" / "manifest.json"
     if not p.exists(): print("  [SKIP] no committed frozen base"); return
