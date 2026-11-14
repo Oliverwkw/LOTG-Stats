@@ -1179,12 +1179,23 @@ class Site:
 
     # -- draft
     def draft(self) -> Dict[str, object]:
-        """Both pick sheets; "_row" is each pick's row in its sheet (its page key)."""
-        r = self.rookie.assign(_row=range(len(self.rookie)))
-        out = {"rookie": _table(r, DRAFT_COLUMNS + ["_row"], "rookie_picks")}
-        if not self.startup.empty:
-            out["startup"] = _table(self.startup.assign(_row=range(len(self.startup))),
-                                    DRAFT_COLUMNS + ["_row"], "non_rookie_picks")
+        """Both pick sheets, every column (ids and link refs aside), the pick's
+        number / player / team first; "_row" is each pick's row in its sheet
+        (its page key). Ordered by year, round, slot, so 2.09 (the toilet-bowl
+        reward pick, made after round 4) sits after 2.08."""
+        out = {}
+        for key, sheet, df in (("rookie", "rookie_picks", self.rookie), ("startup", "non_rookie_picks", self.startup)):
+            if df.empty:
+                continue
+            d = df.assign(_row=range(len(df)))
+            num = d["Number"].astype(str)
+            d["_y"] = pd.to_numeric(d["Year"].astype(str).str.extract(r"(\d{4})")[0], errors="coerce").fillna(2020)
+            d["_r"] = pd.to_numeric(num.str.split(".").str[0], errors="coerce")
+            d["_s"] = pd.to_numeric(num.str.split(".").str[1], errors="coerce")
+            d = d.sort_values(["_y", "_r", "_s"], kind="mergesort")
+            lead = ["Number", "Player Picked", "Team", "Year"]
+            rest = [c for c in df.columns if c not in lead and not re.search(r"(ID|IDs)( |$)|^Link ", str(c))]
+            out[key] = _table(d, lead + rest + ["_row"], sheet)
         return out
 
     # -- future picks held

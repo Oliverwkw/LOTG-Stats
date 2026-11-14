@@ -124,6 +124,10 @@ function table(cols, rows, opts = {}) {
 // keep the first N columns in view while a wide table scrolls sideways: each pinned
 // column sticks at the summed width of the pinned columns before it
 function pinColumns(el) {
+  // a phone keeps at most two pinned columns, so the rest of the table has room to scroll
+  const narrow = window.innerWidth < 600;
+  if (narrow) for (let i = 2; i < 8; i++) el.querySelectorAll(".pin" + i).forEach((c) => c.classList.remove("pin", "pin" + i));
+  el.classList.toggle("narrowpin", narrow);
   const ths = [...el.querySelectorAll("thead th.pin")];
   let left = 0;
   ths.forEach((th, i) => {
@@ -462,7 +466,7 @@ async function team(slug, _q, live) {
       ${PK.years.map((y) => `<p><b>${y}</b> ${mine.filter((p) => p.y === y).map((p) => `<span class="chip">${ORD[p.r] || p.r}${p.o === t.team ? "" : " (" + esc(p.o) + ")"}${p.v != null ? " · " + money(p.v) : ""}</span>`).join("") || '<span class="muted">none</span>'}</p>`).join("")}
       ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
     <div class="card"><h2>This season</h2>${dataTable(t.weeks, { hide: ["Week"], links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } })}</div>
-    <div class="card"><h2>Seasons</h2>${dataTable(t.seasons)}</div>
+    <div class="card"><h2>Seasons</h2>${dataTable(t.seasons, { defs: "team_year" })}</div>
     ${t.swing && t.swing.rows && t.swing.rows.length && t.swing.cols.length > 1 ? `<div class="card"><h2>Scoring style</h2>${dataTable(t.swing)}
       <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p></div>
     <div class="card"><h2>Lineup risk and stacks</h2>${dataTable(t.risk)}
@@ -470,7 +474,7 @@ async function team(slug, _q, live) {
     <div class="card"><h2>Current roster ${liveNote(live)}</h2>${roster}<p class="muted small">${rosterNote}</p></div>
     <div class="card"><h2>Trades (${t.trades.length})</h2>${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
       ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}</div>
-    <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team", "_row"], links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
+    <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team", "_row"], pin: 2, defs: "rookie_picks", links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
 }
 
 async function player(key, _q, live) {
@@ -492,8 +496,8 @@ async function player(key, _q, live) {
       { k: "weeks", label: "Weeks" }, { k: "starts", label: "Starts" },
       { k: "pts", label: "Pts as starter", spec: { d: 2 } }, { k: "ppg", label: "PPG starter", spec: { d: 2 } },
       { k: "best", label: "Best week", spec: { d: 2 } }], p.teams)}</div>
-    <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { links: { Team: (v) => teamLink(v) } })}</div>
-    <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
+    <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { pin: 2, defs: "player_additions", links: { Team: (v) => teamLink(v) } })}</div>
+    <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { defs: "player_year", links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
     ${p.usage && p.usage.rows.length ? `<div class="card"><h2>Usage</h2><p class="muted small">Snaps, targets, carries and red-zone looks while rostered. xFP = the points his targets and carries usually produce in this league's scoring; points minus xFP above 0 = scoring beyond the opportunity (rarely sticky), rising xFP = a bigger role.</p>${dataTable(p.usage)}</div>` : ""}
     ${p.history ? `<div class="card"><h2>History</h2>${historyList(p.history)}<p class="muted small">Every draft, add, drop and trade, as the workbook's history note has it. Tap a trade to open it.</p></div>` : ""}
     ${p.trades.length ? `<div class="card"><h2>Trades</h2>${p.trades.map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}</div>` : ""}`;
@@ -753,12 +757,12 @@ async function draft() {
     }
     const rows = year ? t.rows.filter((r) => String(r[yi]) === year) : t.rows;
     const sheetName = which === "rookie" ? "rookie_picks" : "non_rookie_picks";
-    document.getElementById("dt").innerHTML = dataTable({ ...t, rows }, { hide: ["_row"], links: { Number: (v, r, cols) => `<a href="#/pick/${sheetName}/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), Team: (v) => teamLink(v), "Original Team": (v) => teamLink(v) } });
+    document.getElementById("dt").innerHTML = dataTable({ ...t, rows }, { hide: ["_row"], pin: 3, defs: sheetName, links: { Number: (v, r, cols) => `<a href="#/pick/${sheetName}/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), Team: (v) => teamLink(v), "Original Team": (v) => teamLink(v) } });
   }
   $app.innerHTML = `<h1>Draft history</h1>
     <div class="controls"><span class="seg" style="margin:0"><button data-w="rookie" aria-pressed="true">Rookie drafts</button>${d.startup ? `<button data-w="startup" aria-pressed="false">Startup &amp; vet picks</button>` : ""}</span>
       <select id="dy"></select></div>
-    <div class="card"><div id="dt"></div><p class="muted small">Pick-adjusted columns compare the pick with what that draft slot usually returns. KTC values are KeepTradeCut superflex.</p></div>`;
+    <div class="card"><div id="dt"></div><p class="muted small">Every column of the pick sheet; scroll sideways with the pick, player and team pinned, and tap a column name for its definition. Pick-adjusted columns compare the pick with what that draft slot usually returns. KTC values are KeepTradeCut superflex. 2.09 is the toilet-bowl reward pick.</p></div>`;
   $app.querySelectorAll("[data-w]").forEach((b) => b.onclick = () => { which = b.dataset.w; $app.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-pressed", x === b)); draw(); });
   document.getElementById("dy").onchange = (e) => { year = e.target.value; draw(); };
   draw();
