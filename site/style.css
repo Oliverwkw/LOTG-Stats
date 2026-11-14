@@ -102,3 +102,7 @@ tr.go:hover td{background:var(--accent-soft)}
 a.stat{color:var(--ink)}
 a.stat:hover{color:var(--accent)}
 button.b{font:inherit;font-weight:600;border-radius:9px;padding:7px 12px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.trade.go{cursor:pointer}
+.trade.go:hover{border-color:var(--accent)}
+table.tall td{white-space:normal;min-width:150px;vertical-align:top}
+table.tall td.pin{min-width:180px;max-width:220px}
