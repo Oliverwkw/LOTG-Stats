@@ -154,7 +154,7 @@ const idx = (t, c) => t.cols.indexOf(c);
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl, predict,
 };
 
 // ---------- live layer: rosters and traded picks straight from Sleeper on open.
@@ -1223,6 +1223,147 @@ async function nfl(code, _q, live) {
       ...SPc.map((c, i) => ({ k: (r) => r.s ? r.s[i] : null, label: SP.labels[i], spec: SP.fmt[c], col: c })),
     ], rows, { sort: 4, defs: "player_year" })}
       <p class="muted small">${SP.season} stats are the league's (this season, while rostered). Proj./wk = the forecast's rate blended with this season's PPG. Every ${esc(code)} player-week: <a href="#/data/player_week?c=NFL%20team&v=${esc(code)}&y=all">data →</a></p></div>`;
+}
+
+// ---------- predictions: set results and roster moves, see the season odds move
+// Each team's week is its best lineup from its roster's projections (forecast rate
+// blended with this season's PPG; out / IR / reserve players excluded), with a spread
+// from its starters. The week in progress counts live points plus what is left. The
+// season then runs through the league's rules: standings by wins (ties half) then PF,
+// top 4 to the playoffs, 1v4 / 2v3 with +5 to the higher seed, the final over its
+// weeks (two from 2026, summed). Everything runs in the browser.
+async function predict(_a, _q, live) {
+  const [meta, LW, nfl, H] = await Promise.all([load("meta.json"), load("live_watch.json"), loadNfl(), load("home.json")]);
+  live = live || await loadLive();
+  if (!live) { $app.innerHTML = `<h1>Predictions</h1><p class="muted">Needs Sleeper's rosters and schedule, and Sleeper is unreachable right now.</p>`; return; }
+  const P = LW.playoff, teams = meta.teams;
+  const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ week: meta.week + 1 }));
+  const curWk = Math.max(meta.week + 1, +state.week || 0);
+  const weeks = [];
+  for (let w = meta.week + 1; w <= P.regular_weeks; w++) weeks.push(w);
+  const mus = await Promise.all(weeks.map((w) => fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${w}`, { cache: "no-store" }).then((r) => r.json()).catch(() => [])));
+  const games = [];   // {w, a, b, live: {a: {cur, rem, sd}, b: …}}
+  weeks.forEach((w, i) => {
+    const by = {};
+    for (const m of mus[i]) if (m.matchup_id) (by[m.matchup_id] = by[m.matchup_id] || []).push(m);
+    for (const pair of Object.values(by)) if (pair.length === 2) games.push({ w, a: live.byRid[pair[0].roster_id], b: live.byRid[pair[1].roster_id], ms: pair });
+  });
+  const base0 = Object.fromEntries(H.standings.map((r) => [r.team, { w: r.w, l: r.l, pf: r.pf }]));
+  const out = (pid, team) => { const lr = live.rosterOf[team] || {}; const inj = (nfl[pid] || [])[4]; return (lr.ir && lr.ir.has(pid)) || ["IR", "Out", "PUP", "Sus", "NA", "DNR", "COV"].includes(inj); };
+  const fits = { QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], FLEX: ["RB", "WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
+  const lineup = (pids) => {        // best lineup by projection: {mean, sd}
+    const pool = pids.map((pid) => ({ pid, pos: (nfl[pid] || [])[1], r: LW.rates[pid] ?? 3 })).sort((x, y) => y.r - x.r), used = new Set();
+    let mean = 0, v = 0;
+    for (const sl of LW.roster_positions.slice().sort((a, b) => (fits[a] || []).length - (fits[b] || []).length)) {
+      const i = pool.findIndex((x, j) => !used.has(j) && (fits[sl] || []).includes(x.pos));
+      if (i >= 0) { used.add(i); mean += pool[i].r; v += (0.65 * Math.max(3, pool[i].r)) ** 2; }
+    }
+    return { mean, sd: Math.sqrt(v) };
+  };
+  // state the user changes
+  let picks = {};           // game index -> "a" | "b"
+  let moves = [];           // {pid, to: team | "out"}
+  const baseRosters = () => Object.fromEntries(teams.map((t) => [t, (live.rosterOf[t]?.players || []).filter((pid) => !out(pid, t))]));
+  const rosterNow = () => {
+    const r = baseRosters();
+    for (const m of moves) { for (const t of teams) r[t] = r[t].filter((x) => x !== m.pid); if (m.to !== "out") r[m.to].push(m.pid); }
+    return r;
+  };
+  const N = 4000;
+  // a seeded stream, restarted for every run, so a change is compared against the same
+  // simulated seasons (no noise in the +/−): mulberry32
+  let seed = 0;
+  const rand = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const gauss = () => { let u = 0, v = 0; while (!u) u = rand(); while (!v) v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  function simulate(withChanges) {
+    seed = 20261114;
+    const R = withChanges ? rosterNow() : baseRosters();
+    const L = Object.fromEntries(teams.map((t) => [t, lineup(R[t])]));
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    // the week in progress: live points plus what each starter has left
+    const liveWeek = {};
+    for (const g of games) if (g.w === curWk) for (const m of g.ms) {
+      const t = live.byRid[m.roster_id], ko = LW.kickoffs[String(g.w)] || {};
+      let rem = 0, v = 0;
+      for (const pid of m.starters || []) {
+        const k = ko[(nfl[pid] || [])[2]]; if (!k || out(pid, t)) continue;
+        const h = (nowET - new Date(k)) / 36e5, f = h < 0 ? 1 : Math.max(0, 1 - h / 3.3), r = LW.rates[pid] ?? 3;
+        rem += r * f; v += (0.65 * Math.max(3, r)) ** 2 * f;
+      }
+      if ((m.points || 0) > 0) liveWeek[t] = { mean: (m.points || 0) + rem, sd: Math.sqrt(v) };
+    }
+    const tally = Object.fromEntries(teams.map((t) => [t, { playoffs: 0, final: 0, title: 0, wins: 0, seed1: 0 }]));
+    const score = (t, w) => { const x = (w === curWk && liveWeek[t]) || L[t]; return x.mean + gauss() * x.sd; };
+    for (let n = 0; n < N; n++) {
+      const st = Object.fromEntries(teams.map((t) => [t, { w: (base0[t] || {}).w || 0, pf: (base0[t] || {}).pf || 0 }]));
+      games.forEach((g, i) => {
+        let sa = score(g.a, g.w), sb = score(g.b, g.w);
+        const forced = withChanges && picks[i];
+        if (forced === "a" && sa < sb) [sa, sb] = [sb, sa];
+        if (forced === "b" && sb < sa) [sa, sb] = [sb, sa];
+        st[g.a].pf += sa; st[g.b].pf += sb;
+        if (sa > sb) st[g.a].w++; else st[g.b].w++;
+      });
+      const order = teams.slice().sort((x, y) => st[y].w - st[x].w || st[y].pf - st[x].pf);
+      for (const t of teams) tally[t].wins += st[t].w;
+      const seeds = order.slice(0, P.teams);
+      seeds.forEach((t) => tally[t].playoffs++);
+      tally[seeds[0]].seed1++;
+      const semi = (hi, lo) => (score(hi, P.semifinal_week) + P.semifinal_bonus > score(lo, P.semifinal_week) ? hi : lo);
+      const f1 = semi(seeds[0], seeds[3]), f2 = semi(seeds[1], seeds[2]);
+      tally[f1].final++; tally[f2].final++;
+      const tot = (t) => P.final_weeks.reduce((a, w) => a + score(t, w), 0);
+      tally[tot(f1) >= tot(f2) ? f1 : f2].title++;
+    }
+    return { tally, L };
+  }
+  let base = null;
+  const pct = (x) => (x * 100 < 0.5 && x > 0 ? "<1" : Math.round(x * 100)) + "%";
+  const delta = (a, b) => { const d = Math.round((a - b) * 100); return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d}</span>` : ""; };
+  function draw() {
+    const res = simulate(true);
+    const T = res.tally;
+    const rows = teams.map((t) => ({ t, ...T[t], mean: res.L[t].mean, base: base.tally[t] })).sort((a, b) => b.title - a.title || b.playoffs - a.playoffs);
+    document.getElementById("pres").innerHTML = table([
+      { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
+      { k: "playoffs", label: "Playoffs", html: (r) => `<b>${pct(r.playoffs / N)}</b> ${delta(r.playoffs / N, r.base.playoffs / N)}` },
+      { k: "final", label: "Final", html: (r) => `${pct(r.final / N)} ${delta(r.final / N, r.base.final / N)}` },
+      { k: "title", label: "Title", html: (r) => `<b>${pct(r.title / N)}</b> ${delta(r.title / N, r.base.title / N)}` },
+      { k: (r) => (base0[r.t] || {}).w, label: "Now", html: (r) => `${(base0[r.t] || {}).w || 0}-${(base0[r.t] || {}).l || 0}` },
+      { k: "wins", label: "Proj. wins", html: (r) => fmt({ d: 1 }, r.wins / N) },
+      { k: "seed1", label: "1st seed", html: (r) => `${pct(r.seed1 / N)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
+      { k: "mean", label: "Pts/wk", html: (r) => fmt({ d: 1 }, r.mean) },
+    ], rows);
+    document.getElementById("pmoves").innerHTML = moves.length ? `<ul class="small">${moves.map((m, i) => `<li>${esc((nfl[m.pid] || [])[0] || m.pid)} → ${m.to === "out" ? "out for the season" : esc(m.to)} <button class="b mini" data-undo="${i}">undo</button></li>`).join("")}</ul>` : `<p class="muted small">No roster changes.</p>`;
+    const changed = Object.keys(picks).length + moves.length;
+    document.getElementById("pstate").textContent = changed ? `${changed} change${changed === 1 ? "" : "s"} · small +/− numbers = percentage points vs no changes` : "No changes yet: these are the baseline odds.";
+  }
+  const byWeek = weeks.map((w) => [w, games.map((g, i) => [g, i]).filter(([g]) => g.w === w)]);
+  const allPlayers = teams.flatMap((t) => (live.rosterOf[t]?.players || []).map((pid) => [pid, t])).filter(([pid]) => (nfl[pid] || [])[1])
+    .sort((a, b) => ((nfl[a[0]] || [])[0] || "").localeCompare((nfl[b[0]] || [])[0] || ""));
+  $app.innerHTML = `<h1>Predictions</h1>
+    <p class="muted">Pick winners and make roster moves; the rest of ${meta.season} is simulated ${N.toLocaleString()} times in your browser through the league's playoff rules. ${liveNote(live)}</p>
+    <div class="card"><h2>Season odds</h2><p class="small muted" id="pstate"></p><div id="pres"><p class="muted">Simulating…</p></div>
+      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG; players out, on IR or in the reserve slot left out). The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
+    <div class="card"><h2>Roster moves</h2>
+      <div class="controls"><select id="mp"><option value="">Player…</option>${allPlayers.map(([pid, t]) => `<option value="${pid}">${esc((nfl[pid] || [])[0])} (${esc((nfl[pid] || [])[1])}, ${esc(t)})</option>`).join("")}</select>
+        <select id="mt"><option value="out">Out for the season</option>${teams.map((t) => `<option value="${esc(t)}">Trade to ${esc(t)}</option>`).join("")}</select>
+        <button class="b" id="madd">Apply</button></div><div id="pmoves"></div></div>
+    <div class="card"><h2>Remaining games</h2><p class="muted small">Tap a team to make it win; tap again for "simulate".</p>
+      ${byWeek.map(([w, gs]) => `<h3>Week ${w}${w === curWk ? " (in progress)" : ""}</h3><div class="pgames">${gs.map(([g, i]) => `<div class="pgame" data-g="${i}"><button data-side="a">${esc(g.a)}</button><span class="muted small">vs</span><button data-side="b">${esc(g.b)}</button></div>`).join("")}</div>`).join("")}
+      <p><button class="b" id="preset">Clear every pick</button></p></div>`;
+  const rerun = () => { document.getElementById("pres").style.opacity = .5; setTimeout(() => { draw(); document.getElementById("pres").style.opacity = 1; }, 20); };
+  $app.querySelectorAll(".pgame").forEach((el) => el.onclick = (e) => {
+    const b = e.target.closest("button[data-side]"); if (!b) return;
+    const i = +el.dataset.g, side = b.dataset.side;
+    if (picks[i] === side) delete picks[i]; else picks[i] = side;
+    el.querySelectorAll("button").forEach((x) => x.classList.toggle("won", picks[i] === x.dataset.side));
+    rerun();
+  });
+  document.getElementById("preset").onclick = () => { picks = {}; $app.querySelectorAll(".pgame button").forEach((x) => x.classList.remove("won")); rerun(); };
+  document.getElementById("madd").onclick = () => { const pid = document.getElementById("mp").value; if (!pid) return; moves = moves.filter((m) => m.pid !== pid); moves.push({ pid, to: document.getElementById("mt").value }); rerun(); };
+  document.getElementById("pmoves").onclick = (e) => { const b = e.target.closest("[data-undo]"); if (!b) return; moves.splice(+b.dataset.undo, 1); rerun(); };
+  setTimeout(() => { base = simulate(false); draw(); }, 20);
 }
 
 // ---------- router
