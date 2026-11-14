@@ -31,6 +31,31 @@ function fmt(spec, v) {
   return s + (spec.p ? "%" : "");
 }
 const pct1 = (v) => (v === null || v === undefined ? "—" : v < 0.05 && v > 0 ? "<0.1%" : v.toFixed(1) + "%");
+// Clinched / eliminated, conservatively (a PF tiebreak counts as still open):
+// clinched = fewer than `spots` other teams can still reach its win total;
+// eliminated = `spots` teams already have more wins than it can still reach.
+function clinchStatus(wins, left, spots) {
+  const ts = Object.keys(wins), sure = new Set(), out = new Set();
+  for (const t of ts) {
+    const threats = ts.filter((u) => u !== t && wins[u] + (left[u] || 0) >= wins[t]).length;
+    if (threats < spots) sure.add(t);
+    const ahead = ts.filter((u) => u !== t && wins[u] > wins[t] + (left[t] || 0)).length;
+    if (ahead >= spots) out.add(t);
+  }
+  return { sure, out };
+}
+// odds as shown: 100% only when clinched, 0% only when eliminated; otherwise at
+// most 99.9% and at least <0.1%. p is 0-1; whole percents unless `tenth`.
+function oddsText(p, sure, out, tenth) {
+  if (p === null || p === undefined) return "—";
+  if (sure) return "100%";
+  if (out) return "0%";
+  const x = p * 100;
+  if (x >= 99.95 || (!tenth && x >= 99.5)) return "99.9%";
+  if (x < 0.05 || (!tenth && x < 0.5 && x === 0)) return "<0.1%";
+  if (!tenth && x < 0.5) return "<1%";
+  return tenth ? x.toFixed(1) + "%" : Math.round(x) + "%";
+}
 const signed = (spec, v) => (typeof v === "number" && v > 0 ? "+" : "") + fmt(spec, v);
 const tslug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const teamLink = (t) => t ? `<a href="#/team/${tslug(t)}">${esc(t)}</a>` : "—";
@@ -274,7 +299,13 @@ function pickText(B, v) {
 }
 
 async function home() {
-  const [meta, h, B] = await Promise.all([load("meta.json"), load("home.json"), loadBoard()]);
+  const [meta, h, B, LWh] = await Promise.all([load("meta.json"), load("home.json"), loadBoard(), load("live_watch.json").catch(() => ({}))]);
+  // who has clinched / is out, from the standings and the regular-season games left
+  const regW = (LWh.playoff || {}).regular_weeks || 14, spots = (LWh.playoff || {}).teams || 4;
+  const wins = Object.fromEntries(h.standings.map((r) => [r.team, r.w]));
+  const leftG = Object.fromEntries(h.standings.map((r) => [r.team, Math.max(0, regW - r.w - r.l)]));
+  const CL = clinchStatus(wins, leftG, spots);
+  const oddsCell = (t, v, cap) => oddsText(v == null ? null : v / 100, !cap && CL.sure.has(t), CL.out.has(t), true);
   const odds = {};
   (h.forecast?.odds || []).forEach((o) => (odds[o.team] = o));
   const hasOdds = h.forecast && h.forecast.odds;
@@ -289,9 +320,9 @@ async function home() {
     { k: "form", label: "Last 5", left: true, html: (r) => r.form.split("").map((c) => `<span class="${c === "W" ? "w" : "lo"}">${c}</span>`).join("") },
   ];
   if (hasOdds) cols.push(
-    { k: (r) => odds[r.team]?.playoffs, label: "Playoffs", html: (r) => pct1(odds[r.team]?.playoffs) },
-    { k: (r) => odds[r.team]?.finals, label: "Final", html: (r) => pct1(odds[r.team]?.finals) },
-    { k: (r) => odds[r.team]?.champion, label: "Title", html: (r) => `<b>${pct1(odds[r.team]?.champion)}</b>` },
+    { k: (r) => odds[r.team]?.playoffs, label: "Playoffs", html: (r) => oddsCell(r.team, odds[r.team]?.playoffs) },
+    { k: (r) => odds[r.team]?.finals, label: "Final", html: (r) => oddsCell(r.team, odds[r.team]?.finals, true) },
+    { k: (r) => odds[r.team]?.champion, label: "Title", html: (r) => `<b>${oddsCell(r.team, odds[r.team]?.champion, true)}</b>` },
     { k: (r) => odds[r.team]?.wins, label: "Proj. wins", html: (r) => fmt({ d: 2 }, odds[r.team]?.wins) },
   );
   const games = h.results.map((g) => `<div class="game" onclick="location.hash='#/game/${meta.season}/${meta.week}/${tslug(g.a)}'" style="cursor:pointer" title="Open the matchup">
@@ -1323,20 +1354,27 @@ async function predict(_a, _q, live) {
     return { tally, L };
   }
   let base = null;
-  const pct = (x) => (x * 100 < 0.5 && x > 0 ? "<1" : Math.round(x * 100)) + "%";
+  // clinched / out with the picked games counted as played
+  const status = () => {
+    const w = Object.fromEntries(teams.map((t) => [t, (base0[t] || {}).w || 0])), left = Object.fromEntries(teams.map((t) => [t, 0]));
+    games.forEach((g, i) => { const p = picks[i]; if (p) w[p === "a" ? g.a : g.b]++; else { left[g.a]++; left[g.b]++; } });
+    return clinchStatus(w, left, P.teams);
+  };
   const delta = (a, b) => { const d = Math.round((a - b) * 100); return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d}</span>` : ""; };
   function draw() {
     const res = simulate(true);
     const T = res.tally;
     const rows = teams.map((t) => ({ t, ...T[t], mean: res.L[t].mean, base: base.tally[t] })).sort((a, b) => b.title - a.title || b.playoffs - a.playoffs);
+    const ST = status();
+    const pct = (x, t, cap) => oddsText(x, !cap && ST.sure.has(t), ST.out.has(t), false);
     document.getElementById("pres").innerHTML = table([
       { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
-      { k: "playoffs", label: "Playoffs", html: (r) => `<b>${pct(r.playoffs / N)}</b> ${delta(r.playoffs / N, r.base.playoffs / N)}` },
-      { k: "final", label: "Final", html: (r) => `${pct(r.final / N)} ${delta(r.final / N, r.base.final / N)}` },
-      { k: "title", label: "Title", html: (r) => `<b>${pct(r.title / N)}</b> ${delta(r.title / N, r.base.title / N)}` },
+      { k: "playoffs", label: "Playoffs", html: (r) => `<b>${pct(r.playoffs / N, r.t)}</b>${ST.sure.has(r.t) ? ' <span class="chip">clinched</span>' : ST.out.has(r.t) ? ' <span class="chip">out</span>' : ""} ${delta(r.playoffs / N, r.base.playoffs / N)}` },
+      { k: "final", label: "Final", html: (r) => `${pct(r.final / N, r.t, true)} ${delta(r.final / N, r.base.final / N)}` },
+      { k: "title", label: "Title", html: (r) => `<b>${pct(r.title / N, r.t, true)}</b> ${delta(r.title / N, r.base.title / N)}` },
       { k: (r) => (base0[r.t] || {}).w, label: "Now", html: (r) => `${(base0[r.t] || {}).w || 0}-${(base0[r.t] || {}).l || 0}` },
       { k: "wins", label: "Proj. wins", html: (r) => fmt({ d: 1 }, r.wins / N) },
-      { k: "seed1", label: "1st seed", html: (r) => `${pct(r.seed1 / N)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
+      { k: "seed1", label: "1st seed", html: (r) => `${pct(r.seed1 / N, r.t, true)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
       { k: "mean", label: "Pts/wk", html: (r) => fmt({ d: 1 }, r.mean) },
     ], rows);
     document.getElementById("pmoves").innerHTML = moves.length ? `<ul class="small">${moves.map((m, i) => `<li>${esc((nfl[m.pid] || [])[0] || m.pid)} → ${m.to === "out" ? "out for the season" : esc(m.to)} <button class="b mini" data-undo="${i}">undo</button></li>`).join("")}</ul>` : `<p class="muted small">No roster changes.</p>`;
