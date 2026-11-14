@@ -462,6 +462,8 @@ def test_shell_assets_are_versioned():
     for name in ("app.js", "style.css"):
         v = hashlib.sha1((S.SHELL / name).read_bytes()).hexdigest()[:10]
         assert f'"{name}?v={v}"' in html_text, name
+    # and the build stamp every data request carries
+    assert re.search(r'window\.SITE_BUILD="\d{14}"</script>\s*<script src="app\.js', html_text)
 
 
 def test_privacy_scan_catches_a_leak():

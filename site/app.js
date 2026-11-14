@@ -7,7 +7,11 @@
 
 const $app = document.getElementById("app");
 const cache = {};
-const load = (p) => cache[p] || (cache[p] = fetch("data/" + p).then((r) => {
+// every data file is asked for with this build's stamp (index.html sets it), so a
+// browser's cached copy from an earlier build is never mixed with this code
+const BUILD = window.SITE_BUILD || "";
+const withBuild = (u) => BUILD ? u + (u.includes("?") ? "&" : "?") + "b=" + BUILD : u;
+const load = (p) => cache[p] || (cache[p] = fetch(withBuild("data/" + p)).then((r) => {
   if (!r.ok) throw new Error(p + " " + r.status);
   return r.json();
 }));
@@ -214,7 +218,7 @@ const liveNote = (live) => live ? `<span class="chip live">live from Sleeper ${l
 
 // ---------- FAAB board (docs/rate/board.json, published with the rating page)
 let boardP = null;
-const loadBoard = () => boardP || (boardP = fetch("rate/board.json").then((r) => (r.ok ? r.json() : null)).catch(() => null));
+const loadBoard = () => boardP || (boardP = fetch(withBuild("rate/board.json")).then((r) => (r.ok ? r.json() : null)).catch(() => null));
 const money = (v) => (typeof v === "number" ? "$" + Math.round(v).toLocaleString("en-US") : "—");
 function ownerTeam(o, teams) {
   if (!o) return null;
@@ -1236,7 +1240,8 @@ async function predict(_a, _q, live) {
   const [meta, LW, nfl, H] = await Promise.all([load("meta.json"), load("live_watch.json"), loadNfl(), load("home.json")]);
   live = live || await loadLive();
   if (!live) { $app.innerHTML = `<h1>Predictions</h1><p class="muted">Needs Sleeper's rosters and schedule, and Sleeper is unreachable right now.</p>`; return; }
-  const P = LW.playoff, teams = meta.teams;
+  // the season's calendar (live_watch.json); the 2026 layout if an older file lacks it
+  const P = LW.playoff || { teams: 4, regular_weeks: 14, semifinal_week: 15, final_weeks: [16, 17], semifinal_bonus: 5 }, teams = meta.teams;
   const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ week: meta.week + 1 }));
   const curWk = Math.max(meta.week + 1, +state.week || 0);
   const weeks = [];
