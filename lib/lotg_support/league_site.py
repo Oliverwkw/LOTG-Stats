@@ -727,7 +727,8 @@ def nfl_players(extra_ids: Iterable[str] = (), ages: Optional[Dict[str, float]] 
     for pid, v in players.items():
         if (v.get("position") in ("QB", "RB", "WR", "TE") and v.get("active")) or pid in keep:
             name = v.get("full_name") or f"{v.get('first_name', '')} {v.get('last_name', '')}".strip()
-            out[pid] = [name, v.get("position"), v.get("team"), ages.get(pid)]
+            out[pid] = [name, v.get("position"), v.get("team"), ages.get(pid), v.get("injury_status"),
+                        v.get("depth_chart_order"), v.get("depth_chart_position")]
     return out
 
 
@@ -1104,6 +1105,158 @@ class Site:
                         for _, r in st.head(5).iterrows()]}},
         }
 
+    # -- the broader record watch: every stat a live week can set, with its history
+    def live_watch(self) -> Dict[str, object]:
+        """What the home page needs to estimate, while a week is played, which
+        records (and filtered versions of them) are possible or likely:
+          boards    each stat's all-time values, sorted (top 200 + how many),
+                    and its top 5 with who holds them; team stats per team-week,
+                    player stats per player-week, with the filter that defines
+                    the version ("in a loss", "by a WR", "rookie", "bench");
+          rates     each rostered player's projected points for a week: the
+                    forecast's preseason rate blended with this season's PPG
+                    (4 games of prior weight);
+          rookies   this season's rookies (the rookie boards);
+          kickoffs  this season's NFL kickoffs (ET) per week and team, so the
+                    page knows how much of each player's game is left."""
+        tw = self.tw.copy()
+        for c in ("PF", "Points against", "Margin", "Max PF", "Bench points", "Points left on bench", "Efficiency",
+                  "Points from QBs", "Points from RBs", "Points from WRs", "Points from TEs",
+                  "Players over 20 pts (starters)", "Players over 30 pts (starters)"):
+            if c in tw:
+                tw[c] = pd.to_numeric(tw[c], errors="coerce")
+        win = tw["Win?"].astype(str).str.lower().eq("true")
+        pw = self.pw.copy()
+        pw["Points"] = pd.to_numeric(pw.Points, errors="coerce")
+        st_mask = pw["Starter/Bench"].astype(str) == "Starter"
+        st, bn = pw[st_mask], pw[~st_mask]
+        key = ["Team", "Year", "Week"]
+        hi_st = st.groupby(key).Points.max().rename("Highest starter score")
+        lo_st = st.groupby(key).Points.min().rename("Lowest starter score")
+        tw = tw.join(hi_st, on=key).join(lo_st, on=key)
+        games = tw[tw.Team < tw.Opponent.astype(str)].copy()
+        games["Combined"] = games.PF + games["Points against"]
+
+        def board(bid, label, kind, values, frame, high=True, labels=None):
+            s = values.dropna().sort_values(ascending=not high, kind="mergesort")
+            top = frame.loc[s.index[:5]]
+            lab = labels or (lambda r: [str(r.Team), int(r.Year), str(r["Week Name"])])
+            return {"id": bid, "label": label, "kind": kind, "hi": high, "n": int(len(s)),
+                    "values": [round(float(v), 4) for v in s.head(200)],
+                    "top": [[round(float(v), 4), *lab(r)] for v, (_, r) in zip(s.head(5), top.iterrows())]}
+        plab = lambda r: [str(r.Player), str(r.Team), int(r.Year), str(r["Week Name"])]
+        boards = [
+            board("pf", "Most points in a week", "team", tw.PF, tw),
+            board("pf_lo", "Fewest points in a week", "team", tw.PF, tw, high=False),
+            board("pf_loss", "Most points in a loss", "team", tw.PF[~win], tw),
+            board("pf_win_lo", "Fewest points in a win", "team", tw.PF[win], tw, high=False),
+            board("margin", "Biggest margin of victory", "team", tw.Margin[win], tw),
+            board("combined", "Most combined points in a game", "team", games.Combined, games),
+            board("bench", "Most bench points", "team", tw["Bench points"], tw),
+            board("maxpf", "Highest max PF", "team", tw["Max PF"], tw),
+            board("left", "Most points left on bench", "team", tw["Points left on bench"], tw),
+            board("eff", "Best efficiency", "team", tw["Efficiency"], tw),
+            board("eff_lo", "Worst efficiency", "team", tw["Efficiency"], tw, high=False),
+            board("o30", "Most starters over 30 pts", "team", tw["Players over 30 pts (starters)"], tw),
+            board("o20", "Most starters over 20 pts", "team", tw["Players over 20 pts (starters)"], tw),
+            board("hist", "Highest starter score on a team", "team", tw["Highest starter score"], tw),
+            board("lost", "Lowest starter score on a team", "team", tw["Lowest starter score"], tw, high=False),
+        ]
+        for pos in ("QB", "RB", "WR", "TE"):
+            boards.append(board(f"from_{pos}", f"Most points from {pos}s", "team", tw[f"Points from {pos}s"], tw))
+        boards += [
+            board("p_st", "Most points by a starter", "player", st.Points, st, labels=plab),
+            board("p_st_loss", "Most points by a starter in a loss", "player",
+                  st.Points[~st["Win?"].astype(str).str.lower().eq("true")], st, labels=plab),
+            board("p_rookie", "Most points by a rookie starter", "player",
+                  st.Points[st["Rookie?"].astype(str).str.lower().eq("true")], st, labels=plab),
+            board("p_bn", "Most points on a bench", "player", bn.Points, bn, labels=plab),
+        ]
+        for pos in ("QB", "RB", "WR", "TE"):
+            boards.append(board(f"p_st_{pos}", f"Most points by a {pos} starter", "player",
+                                st.Points[st.Position.astype(str) == pos], st, labels=plab))
+            boards.append(board(f"p_bn_{pos}", f"Most points by a benched {pos}", "player",
+                                bn.Points[bn.Position.astype(str) == pos], bn, labels=plab))
+        return {"boards": boards, "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
+                "kickoffs": self._kickoffs(), "season": self.season,
+                "roster_positions": self._roster_positions()}
+
+    def _weekly_rates(self) -> Dict[str, float]:
+        """Sleeper id -> projected points for a week: the forecast's preseason
+        rate (by name) blended with this season's points per game played."""
+        prior: Dict[str, float] = {}
+        try:
+            import warnings
+            from . import forecast as F
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                prior = F.player_rates(self.season)
+        except Exception:                                # pragma: no cover - needs the snapshot
+            prior = {}
+        cur = self.pw[self.pw.Year == self.season].copy()
+        cur["Points"] = pd.to_numeric(cur.Points, errors="coerce")
+        played = cur[~cur.get("Bye?", pd.Series(False, index=cur.index)).astype(str).str.lower().eq("true")
+                     & ~cur.get("Injury?", pd.Series(False, index=cur.index)).astype(str).str.lower().eq("true")]
+        out = {}
+        if "Player ID" not in cur.columns:
+            return out
+        names = cur.groupby("Player ID").Player.last()
+        g = played.groupby("Player ID").Points.agg(["sum", "count"])
+        for pid, name in names.items():
+            p = prior.get(str(name))
+            s, n = (g.loc[pid, "sum"], g.loc[pid, "count"]) if pid in g.index else (0.0, 0)
+            rate = ((p if p is not None else 3.0) * 4 + s) / (4 + n)
+            out[str(pid).split(".")[0]] = round(float(rate), 2)
+        return out
+
+    SEASON_PLAYER_COLUMNS = ["Points", "Avg points", "PPG starter", "Weeks rostered", "Weeks as starter",
+                             "Avg snap %", "Avg target share", "Avg xFP"]
+
+    def season_players(self) -> Dict[str, object]:
+        """This season's player_year line for every rostered player, by Sleeper id
+        (the NFL team pages' stats)."""
+        cur = self.py[self.py.Year == self.season]
+        cols = [c for c in self.SEASON_PLAYER_COLUMNS if c in cur.columns]
+        rows = {}
+        if "Player ID" in cur.columns:
+            for _, r in cur.iterrows():
+                if pd.notna(r["Player ID"]):
+                    rows[str(r["Player ID"]).split(".")[0]] = [_clean(pd.to_numeric(r[c], errors="coerce"),
+                                                                      NF.decimals(NF.col_number_format(c))) for c in cols]
+        return {"season": self.season, "cols": cols, "labels": [_display(c, "player_year") for c in cols],
+                "fmt": {c: column_format(c) for c in cols}, "rows": rows}
+
+    def _rookie_ids(self) -> List[str]:
+        cur = self.pw[self.pw.Year == self.season]
+        if "Player ID" not in cur.columns or "Rookie?" not in cur.columns:
+            return []
+        r = cur[cur["Rookie?"].astype(str).str.lower().eq("true")]["Player ID"].dropna()
+        return sorted({str(x).split(".")[0] for x in r})
+
+    def _kickoffs(self) -> Dict[str, Dict[str, str]]:
+        """{week: {NFL team (Sleeper's code): kickoff 'YYYY-MM-DDTHH:MM' ET}}."""
+        try:
+            from .gametime import norm_team
+            g = pd.read_csv(ROOT / ".cache" / "nfldata_games.csv", low_memory=False)
+        except Exception:
+            return {}
+        g = g[(g.season == self.season) & g.gametime.notna()]
+        to_sleeper = {"LA": "LAR"}           # nflverse's codes -> Sleeper's (the player list's)
+        out: Dict[str, Dict[str, str]] = {}
+        for _, r in g.iterrows():
+            ko = f"{r.gameday}T{str(r.gametime)[:5]}"
+            for t in (r.home_team, r.away_team):
+                code = norm_team(t)
+                out.setdefault(str(int(r.week)), {})[to_sleeper.get(code, code)] = ko
+        return out
+
+    def _roster_positions(self) -> List[str]:
+        try:
+            lg = json.loads((EXPORTS / "snapshot" / f"season_{self.season}" / "league.json").read_text())
+            return [p for p in lg.get("roster_positions", []) if p not in ("BN", "TAXI", "IR")]
+        except (OSError, ValueError):
+            return ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "FLEX", "SUPER_FLEX"]
+
     # -- head to head
     def games(self) -> pd.DataFrame:
         g = self.tw[["Team", "Opponent", "Year", "Week", "Week Name", "Win?", "PF", "Points against"]].copy()
@@ -1230,7 +1383,22 @@ class Site:
             held.setdefault(team, []).append([y, r, orig])
         snap = [[y, r, o, cur] for (y, r, o), cur in _sleeper_pick_owners(self.season, canon).items()
                 if y in years]
-        return {"season": self.season, "years": years, "rounds": PICK_ROUNDS, "held": held,
+        # each pick's FAAB value today, by the FAAB system's own rule (faab_history.FaabIndex.pick): the next
+        # draft's picks by the original team's projected slot odds (roster strength + this season's record,
+        # faab_pick_slots), later drafts at the round average, on the fixed weekly schedule (faab_pick_schedule)
+        values: Dict[str, float] = {}
+        try:
+            from . import faab_history as FH
+            fidx = FH.FaabIndex.load()
+            today = pd.Timestamp.now().normalize()
+            if fidx is not None:
+                for (y, r, o) in owner:
+                    v = fidx.pick(f"{y} {r}({o})", today)
+                    if v is not None:
+                        values[f"{y}|{r}|{o}"] = round(float(v), 2)
+        except Exception:                               # pragma: no cover - the FAAB data may be absent
+            values = {}
+        return {"season": self.season, "years": years, "rounds": PICK_ROUNDS, "held": held, "values": values,
                 "sleeper_at_build": snap,
                 "weights": FUTURE_PICK_WEIGHTS}
 
@@ -1425,6 +1593,7 @@ class Site:
         put("h2h.json", self.h2h())
         put("all_time.json", self.all_time_standings())
         put("watch.json", self.record_watch())
+        put("live_watch.json", self.live_watch())
         # the full sheet columns go in their own file: only the trades pages need them
         full = {t["id"]: [side.pop("all", {}) for side in t["sides"]] for t in self._trades}
         put("trades.json", {"meta": self.trade_meta(), "trades": self._trades})
@@ -1442,6 +1611,7 @@ class Site:
                 if pd.notna(pid) and pd.notna(age):
                     ages[str(pid).split(".")[0]] = round(float(age), 2)
         put("nfl_players.json", nfl_players(rostered, ages))
+        put("season_players.json", self.season_players())
         put("pick_history.json", {"has_workbook": self._histories is not None, **self.pick_histories()})
         t = time.time()
         self.weeks(put)

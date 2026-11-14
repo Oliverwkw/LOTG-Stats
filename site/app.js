@@ -224,6 +224,14 @@ function ownerTeam(o, teams) {
 // (lotg_support.faab_pick_schedule): its round's average slot price on the board's
 // date, from the fixed weekly pick schedule (board.json future_picks); 5th round+ = $20.
 // An older board without future_picks falls back to 5% off a year per draft.
+// A held pick's value: the generator's per-pick price (picks.json values), which is the
+// FAAB system's own rule (faab_history.FaabIndex.pick): the next draft's picks by the
+// ORIGINAL team's projected slot odds, so a likely 1.01 is worth more than a likely
+// 1.08; later drafts at the round average. Without it, the round rule below.
+function pickValue(PK, B, year, round, orig) {
+  const v = PK && PK.values && PK.values[`${year}|${round}|${orig}`];
+  return typeof v === "number" ? v : (B ? futurePickValue(B, year, round) : null);
+}
 function futurePickValue(B, year, round) {
   if (round >= 5) return 20;
   const fp = B.future_picks && B.future_picks[String(year)];
@@ -324,49 +332,117 @@ function placeAmong(values, v, high) {
   for (const x of values) { if (high ? x > v : x < v) n++; else break; }
   return n + 1;
 }
+// Every stat a live week can set (data/live_watch.json boards, filtered versions
+// included) gets a chance: the rest of the week is simulated from each player's
+// projection (his forecast rate blended with this season's PPG) scaled by how much
+// of his game is left (kickoff + ~3.3 h; ET), and each sim's team and player stats
+// are placed on every board. Shown: the likeliest top-5 places and records.
 async function recordWatch(meta) {
   const el = () => document.getElementById("watch");
-  const [W, live, nfl] = await Promise.all([load("watch.json"), loadLive(), loadNfl()]);
+  const [LW, live, nfl] = await Promise.all([load("live_watch.json"), loadLive(), loadNfl()]);
   if (!live || !meta.league_id) throw new Error("offline");
   const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json());
   const wk = state.week;
   const mus = await fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${wk}`, { cache: "no-store" }).then((r) => r.json());
+  const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const ko = LW.kickoffs[String(wk)] || {};
+  const left = (pid) => {                       // share of his game still to play
+    const t = (nfl[pid] || [])[2], k = t && ko[t];
+    if (!k) return 0;                            // bye or not on an NFL team this week
+    const h = (nowET - new Date(k)) / 36e5;
+    return h < 0 ? 1 : Math.max(0, 1 - h / 3.3);
+  };
+  const rookies = new Set(LW.rookies);
+  const slots = LW.roster_positions;
+  const fits = { QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], FLEX: ["RB", "WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
+  const maxPF = (ps) => {                        // best lineup from (pos, pts) pairs
+    const pool = ps.slice().sort((a, b) => b.p - a.p), used = new Set();
+    let sum = 0;
+    for (const sl of slots.slice().sort((a, b) => (fits[a] || []).length - (fits[b] || []).length)) {
+      const i = pool.findIndex((x, j) => !used.has(j) && (fits[sl] || []).includes(x.pos));
+      if (i >= 0) { used.add(i); sum += pool[i].p; }
+    }
+    return sum;
+  };
   const games = {};
   for (const m of mus) if (m.matchup_id) (games[m.matchup_id] = games[m.matchup_id] || []).push(m);
-  const started = mus.some((m) => (m.points || 0) > 0);
-  const lines = [];
-  const holder = (top) => top ? `record ${fmt({ d: 2 }, top[0])}, ${esc(top[1])} ${top[2]} ${esc(top[3])}` : "";
-  const add = (rank, html) => lines.push([rank, html]);
-  for (const pair of Object.values(games)) {
-    if (pair.length !== 2) continue;
-    const [a, b] = pair.map((m) => ({ team: live.byRid[m.roster_id], pts: m.points || 0, m }));
-    for (const [me, op] of [[a, b], [b, a]]) {
-      if (!me.pts) continue;                         // hasn't played yet
-      const T = W.team;
-      const board = (name, v, high, verb) => { const B = T[name]; const r = placeAmong(B.values, v, high);
-        add(r, `${teamLink(me.team)} ${verb || "is on"} <b>${fmt({ d: 2 }, v)}</b>: would be the ${ordinal(r)} ${name.toLowerCase()} <span class="muted small">(${holder(B.top[0])})</span>`); };
-      board("Most points in a week", me.pts, true);
-      if (me.pts < op.pts) board("Most points in a loss", me.pts, true);
-      if (me.pts > op.pts && op.pts) board("Biggest margin of victory", me.pts - op.pts, true, "leads by");
-      if (me.team < op.team && op.pts) board("Most combined points in a game", me.pts + op.pts, true, "and " + esc(op.team) + " are on");
-      for (const [pid, p] of Object.entries(me.m.players_points || {})) {
-        if (!(me.m.starters || []).includes(pid)) continue;
-        const P = W.player["Most points by a starter"];
-        const r = placeAmong(P.values, p, true);
-        if (r <= P.values.length) add(r, `${NAMES_BY_ID[pid] ? `<a href="#/player/${pid}">${esc((nfl[pid] || [])[0] || NAMES_BY_ID[pid])}</a>` : esc((nfl[pid] || [])[0] || pid)} (${teamLink(me.team)}) has <b>${fmt({ d: 2 }, p)}</b>: would be the ${ordinal(r)}-most by a starter <span class="muted small">(record ${fmt({ d: 2 }, P.top[0][0])}, ${esc(P.top[0][1])} ${P.top[0][3]} ${esc(P.top[0][4])})</span>`);
-      }
-    }
+  const pairs = Object.values(games).filter((g) => g.length === 2);
+  const teams = pairs.flat().map((m) => ({
+    team: live.byRid[m.roster_id], m,
+    players: (m.players || []).map((pid) => {
+      const lr = live.rosterOf[live.byRid[m.roster_id]] || {}, inj = (nfl[pid] || [])[4];
+      // out, on IR / PUP / suspended, or in the reserve slot: he won't add points
+      const out = (lr.ir && lr.ir.has(pid)) || ["IR", "Out", "PUP", "Sus", "NA", "DNR", "COV"].includes(inj);
+      return { pid, pos: (nfl[pid] || [])[1], st: (m.starters || []).includes(pid),
+        cur: (m.players_points || {})[pid] || 0, f: out ? 0 : left(pid), rate: LW.rates[pid] ?? 3 }; }) }));
+  const anyLeft = teams.some((t) => t.players.some((p) => p.f > 0));
+  const anyPlayed = teams.some((t) => t.m.points > 0);
+  const N = 500, B = LW.boards;
+  const boardById = Object.fromEntries(B.map((b) => [b.id, b]));
+  const place = (b, v) => placeAmong(b.values, v, b.hi);
+  // counters: key -> {board, who, kind, top5, rec, cur:[]}
+  const hits = {};
+  const bump = (bid, who, v, curV) => {
+    const b = boardById[bid]; if (!b || v === null || v === undefined || isNaN(v)) return;
+    const k = bid + "|" + who, r = place(b, v);
+    const h = hits[k] || (hits[k] = { b, who, top5: 0, rec: 0, cur: curV, best: Infinity, sum: 0 });
+    if (r <= 5) h.top5++; if (r === 1) h.rec++; h.best = Math.min(h.best, r); h.sum += v;
+  };
+  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const teamStats = (t, pts) => {
+    const st = t.players.map((p, i) => [p, pts[i]]).filter(([p]) => p.st), bn = t.players.map((p, i) => [p, pts[i]]).filter(([p]) => !p.st);
+    const pf = st.reduce((a, [, v]) => a + v, 0), mx = maxPF(t.players.map((p, i) => ({ pos: p.pos, p: pts[i] })));
+    const by = (pos) => st.filter(([p]) => p.pos === pos).reduce((a, [, v]) => a + v, 0);
+    const sv = st.map(([, v]) => v);
+    return { pf, bench: bn.reduce((a, [, v]) => a + v, 0), maxpf: mx, left: mx - pf, eff: mx ? pf / mx : null,
+             o30: sv.filter((v) => v > 30).length, o20: sv.filter((v) => v > 20).length,
+             hist: sv.length ? Math.max(...sv) : null, lost: sv.length ? Math.min(...sv) : null,
+             from_QB: by("QB"), from_RB: by("RB"), from_WR: by("WR"), from_TE: by("TE") };
+  };
+  for (let n = 0; n < N; n++) {
+    const sim = teams.map((t) => t.players.map((p) => p.f > 0 ? p.cur + Math.max(0, p.rate * p.f + gauss() * Math.max(3, 0.65 * p.rate) * Math.sqrt(p.f)) : p.cur));
+    const stats = teams.map((t, i) => teamStats(t, sim[i]));
+    teams.forEach((t, i) => {
+      const s = stats[i], j = teams.findIndex((o) => o !== t && o.m.matchup_id === t.m.matchup_id), o = stats[j];
+      const won = s.pf > o.pf, cur = teamStats(t, t.players.map((p) => p.cur));
+      for (const id of ["pf", "pf_lo", "bench", "maxpf", "left", "eff", "eff_lo", "o30", "o20", "hist", "lost", "from_QB", "from_RB", "from_WR", "from_TE"])
+        bump(id, t.team, s[id === "pf_lo" ? "pf" : id === "eff_lo" ? "eff" : id], cur[id === "pf_lo" ? "pf" : id === "eff_lo" ? "eff" : id]);
+      if (!won) bump("pf_loss", t.team, s.pf, cur.pf);
+      if (won) { bump("pf_win_lo", t.team, s.pf, cur.pf); bump("margin", t.team, s.pf - o.pf, cur.pf - teamStats(teams[j], teams[j].players.map((p) => p.cur)).pf); }
+      if (t.team < teams[j].team) bump("combined", `${t.team} v ${teams[j].team}`, s.pf + o.pf, null);
+      t.players.forEach((p, k) => {
+        const v = sim[i][k], who = "pid:" + p.pid;
+        if (p.st) {
+          bump("p_st", who, v, p.cur);
+          if (!won) bump("p_st_loss", who, v, p.cur);
+          if (rookies.has(p.pid)) bump("p_rookie", who, v, p.cur);
+          if (p.pos) bump("p_st_" + p.pos, who, v, p.cur);
+        } else {
+          bump("p_bn", who, v, p.cur);
+          if (p.pos) bump("p_bn_" + p.pos, who, v, p.cur);
+        }
+      });
+    });
   }
-  lines.sort((x, y) => x[0] - y[0]);
-  const thresholds = Object.entries(W.team).filter(([n]) => !n.startsWith("Fewest")).map(([n, B]) =>
-    `<li>${esc(n)}: <b>${fmt({ d: 2 }, B.top[0][0])}</b> (${esc(B.top[0][1])} ${B.top[0][2]} ${esc(B.top[0][3])}) · 5th ${fmt({ d: 2 }, (B.top[4] || [])[0])}</li>`).join("");
+  const whoHtml = (h) => {
+    if (h.who.startsWith("pid:")) { const pid = h.who.slice(4), name = (nfl[pid] || [])[0] || NAMES_BY_ID[pid] || pid, t = teams.find((x) => x.players.some((p) => p.pid === pid));
+      return `${NAMES_BY_ID[pid] ? `<a href="#/player/${pid}">${esc(name)}</a>` : esc(name)} <span class="muted small">(${esc(t ? t.team : "")})</span>`; }
+    return h.who.includes(" v ") ? h.who.split(" v ").map(teamLink).join(" v ") : teamLink(h.who);
+  };
+  const rows = Object.values(hits).map((h) => ({ ...h, p5: h.top5 / N, p1: h.rec / N, med: h.sum / N }))
+    .filter((h) => h.p5 >= 0.01).sort((a, b) => b.p5 - a.p5 || b.p1 - a.p1);
+  const pctTxt = (x) => x >= 0.995 ? "certain" : x < 0.01 ? "<1%" : Math.round(x * 100) + "%";
+  const recOf = (b) => b.top[0] ? `${fmt({ d: 2 }, b.top[0][0])}${b.kind === "player" ? ` · ${esc(b.top[0][1])}` : ` · ${esc(b.top[0][1])}`} ${b.top[0][b.kind === "player" ? 3 : 2]}` : "";
+  const fmtB = (b, v) => b.id.startsWith("eff") ? fmt({ d: 2, p: "x" }, v) : b.id.startsWith("o") ? fmt({ d: 0 }, v) : fmt({ d: 2 }, v);
   if (!el()) return;
   el().innerHTML = `<h2>Record watch · week ${esc(wk)} ${liveNote(live)}</h2>
-    ${started ? (() => { const top = lines.filter(([r]) => r <= 10); const show = top.length ? top.slice(0, 12) : lines.slice(0, 5);
-        return `${top.length ? "" : `<p class="muted small">Nothing in an all-time top 10 yet. Closest so far:</p>`}<ul class="watch">${show.map(([, h]) => `<li>${h}</li>`).join("")}</ul>`; })()
-      : `<p class="muted">Games haven't started. The marks to beat:</p>`}
-    <details ${started ? "" : "open"}><summary class="small">All-time marks</summary><ul class="small">${thresholds}<li>Most points by a starter: <b>${fmt({ d: 2 }, W.player["Most points by a starter"].top[0][0])}</b> (${esc(W.player["Most points by a starter"].top[0][1])})</li></ul></details>
-    <p class="muted small">Live points from Sleeper, ranked against every week since 2020 (all week types). Team marks include the semifinal +5 bonus; live points do not. <a href="#/records/team_week">Record book →</a></p>`;
+    <p class="muted small">${anyLeft ? (anyPlayed ? "Games under way: chances come from simulating the rest of the week." : "Before kickoff: chances come from simulating the whole week from projections.") : "Every game is over: these are where this week's numbers landed."} ${B.length} boards, filtered versions included.</p>
+    ${rows.length ? `<ul class="wlist">${rows.slice(0, 15).map((h) => `<li>
+      <div class="wtop"><span><b>${esc(h.b.label)}</b> · ${whoHtml(h)}</span><span class="wp"><b>${pctTxt(h.p5)}</b> top 5 · ${pctTxt(h.p1)} record</span></div>
+      <div class="muted small">now ${h.cur === null || h.cur === undefined ? "—" : fmtB(h.b, h.cur)} → projected ${fmtB(h.b, h.med)} · record ${recOf(h.b)} · 5th ${fmtB(h.b, (h.b.top[4] || [])[0])}</div></li>`).join("")}</ul>`
+      : `<p class="muted">No record this week has even a 1% chance of a top-5 place.</p>`}
+    <details><summary class="small">Every board and its record</summary><ul class="small">${B.map((b) => `<li>${esc(b.label)}: <b>${fmtB(b, b.top[0] && b.top[0][0])}</b> (${esc(b.top[0] ? b.top[0].slice(1).join(" ") : "")}) · 5th ${fmtB(b, (b.top[4] || [])[0])}</li>`).join("")}</ul></details>
+    <p class="muted small">Proj. = the simulated middle outcome. Each player's projection is his forecast rate blended with this season's points per game, scaled by how much of his NFL game is left. ${N} simulations, run in your browser. Boards count every week since 2020 (all week types); team marks include the semifinal +5 bonus, live points do not. <a href="#/records/team_week">Record book →</a></p>`;
 }
 
 async function teams() {
@@ -423,7 +499,7 @@ async function team(slug, _q, live) {
   const atRow = AT.rows.find((r) => r[AT.cols.indexOf("Team")] === t.team) || [];
   const allStats = {}, allLabels = {};
   AT.cols.forEach((c, i) => { if (c !== "Team" && atRow[i] !== null && atRow[i] !== undefined) { allStats[c] = atRow[i]; allLabels[c] = AT.labels[i]; } });
-  const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
+  const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: pickValue(PK, B, y, r, o) }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
   const leagueAvg = (k) => { const v = Object.values(t.league_ages).map((a) => k ? a.by_pos?.[k] : a.avg).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -673,7 +749,7 @@ async function h2h() {
         const c = m.cells[`${a}|${b}`];
         if (!c) return "<td>—</td>";
         const w = c[key[0]], l = c[key[1]];
-        if (!w && !l) return `<td class="self" title="Never met here">0-0</td>`;
+        if (!w && !l) return `<td class="self" title="Never met here"></td>`;
         W += w; L += l;
         const p = w + l ? w / (w + l) : 0.5;
         const bg = w + l ? `background:color-mix(in srgb, ${p >= 0.5 ? "var(--good)" : "var(--bad)"} ${Math.round(Math.abs(p - 0.5) * 120)}%, transparent)` : "";
@@ -797,7 +873,7 @@ async function faab(_, query, live) {
   const [B, meta, PK] = await Promise.all([loadBoard(), load("meta.json"), load("picks.json")]);
   if (!B) { $app.innerHTML = `<h1>FAAB values</h1><p class="muted">The board is not published yet.</p>`; return; }
   const held = {};
-  for (const [t, ps] of Object.entries(livePicks(PK, live))) held[t] = ps.map(([y, r, o]) => ({ y, r, o, v: futurePickValue(B, y, r) }));
+  for (const [t, ps] of Object.entries(livePicks(PK, live))) held[t] = ps.map(([y, r, o]) => ({ y, r, o, v: pickValue(PK, B, y, r, o) }));
   const params = new URLSearchParams(query || "");
   let pos = params.get("pos") || "", owner = params.get("owner") || "", q = "";
   // owners: Sleeper's rosters right now when reachable, else the board's (its date)
@@ -849,7 +925,7 @@ async function faab(_, query, live) {
       { k: "np", label: "# picks" },
       { k: (r) => r.top?.value, label: "Most valuable", left: true, html: (r) => (r.top ? `${playerLink(r.top.name)} ${money(r.top.value)}` : "—") },
     ], totals, { sort: 1 })}
-      <p class="muted small">Total = rostered players' board values + every rookie pick held for the next ${PK.years.length} drafts (${PK.years[0]}–${PK.years[PK.years.length - 1]}, rounds 1–${PK.rounds}). A future pick is worth its round's average slot value on this board, 5% less for each draft past the next one: the FAAB model's own pick rule. Pick ownership is the build's (trades, the commissioner's off-platform moves, Sleeper).</p></div>
+      <p class="muted small">Total = rostered players' board values + every rookie pick held for the next ${PK.years.length} drafts (${PK.years[0]}–${PK.years[PK.years.length - 1]}, rounds 1–${PK.rounds}). Each pick is priced by the FAAB system's own rule: next year's picks by the original team's projected draft slot (roster strength blended with this season's record), so a likely top pick is worth more; later drafts at the round's average, on the system's weekly pick-price schedule. Pick ownership is the build's (trades, the commissioner's off-platform moves, Sleeper).</p></div>
     <div class="card"><h2>Picks held</h2>${table([
       { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
       ...PK.years.map((y) => ({ k: (r) => (held[r.t] || []).filter((p) => p.y === y).reduce((a, p) => a + p.v, 0), label: String(y), left: true,
@@ -1114,22 +1190,39 @@ async function pick(rest) {
     <div class="card"><h2>History</h2>${lines ? historyList(lines) : `<p class="muted">${hist.has_workbook ? "No history note for this pick." : "The history notes come from the weekly build's workbook and appear after the next deploy."}</p>`}</div>`;
 }
 
-// ---------- an NFL team: who in the league has its players
+// ---------- an NFL team: its depth chart, the league's view of its players
 async function nfl(code, _q, live) {
   code = String(code || "").toUpperCase();
-  const [N, B, meta] = await Promise.all([loadNfl(), loadBoard(), load("meta.json")]);
+  const [N, B, meta, SP, LW] = await Promise.all([loadNfl(), loadBoard(), load("meta.json"), load("season_players.json"), load("live_watch.json").catch(() => ({ rates: {}, kickoffs: {} }))]);
   const value = Object.fromEntries((B ? B.players : []).map((x) => [x.sid, x.value]));
-  const rows = Object.entries(N).filter(([, v]) => v[2] === code).map(([pid, v]) => ({
-    pid, name: v[0], pos: v[1], age: v[3], own: live ? live.owner[pid] || null : null, value: value[pid] ?? null }))
-    .filter((r) => r.own || NAMES_BY_ID[r.pid] || r.value);
-  $app.innerHTML = `<h1>${esc(code)} players in the league</h1>
-    <p class="muted">Current NFL team per Sleeper's player list. Owners ${liveNote(live)}</p>
-    <div class="card">${table([
-      { k: "name", label: "Player", left: true, html: (r) => NAMES_BY_ID[r.pid] ? `<a href="#/player/${esc(r.pid)}">${esc(r.name)}</a>` : esc(r.name) },
+  const players = Object.entries(N).filter(([, v]) => v[2] === code).map(([pid, v]) => ({
+    pid, name: v[0], pos: v[1], age: v[3], inj: v[4], depth: v[5], dpos: v[6] || v[1],
+    own: live ? live.owner[pid] || null : null, value: value[pid] ?? null, proj: LW.rates[pid] ?? null, s: SP.rows[pid] || null }));
+  const kos = Object.entries(LW.kickoffs || {}).map(([w, m]) => [+w, m[code]]).filter(([, k]) => k).sort((a, b) => a[0] - b[0]);
+  const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const next = kos.find(([, k]) => new Date(k) > new Date(nowET - 4 * 36e5));
+  const nameCell = (r) => `${NAMES_BY_ID[r.pid] ? `<a href="#/player/${esc(r.pid)}">${esc(r.name)}</a>` : esc(r.name)}${r.inj ? ` <span class="chip live">${esc(r.inj)}</span>` : ""}`;
+  const owner = (r) => r.own ? teamLink(r.own) : (live ? '<span class="muted">FA</span>' : "—");
+  const depth = ["QB", "RB", "WR", "TE"].map((pos) => {
+    // grouped by the player's position (Sleeper charts receivers as LWR / RWR / SWR), ordered by depth
+    const ps = players.filter((r) => r.pos === pos).sort((a, b) => (a.depth ?? 99) - (b.depth ?? 99) || (b.value ?? 0) - (a.value ?? 0) || (b.proj ?? 0) - (a.proj ?? 0));
+    return `<div class="depth"><h3>${pos}</h3>${ps.length ? `<ol>${ps.slice(0, pos === "WR" ? 7 : 6).map((r) => `<li>${nameCell(r)}${r.dpos && r.dpos !== pos ? ` <span class="muted small">${esc(r.dpos)}</span>` : ""} <span class="muted small">${owner(r)}${r.value != null ? " · " + money(r.value) : ""}</span></li>`).join("")}</ol>` : '<p class="muted small">—</p>'}</div>`;
+  }).join("");
+  const SPc = SP.cols;
+  const rows = players.filter((r) => r.own || NAMES_BY_ID[r.pid] || r.value || r.s);
+  $app.innerHTML = `<h1>${esc(code)}</h1>
+    <p class="muted">${next ? `Next kickoff: week ${next[0]}, ${esc(new Date(next[1]).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} ET · ` : ""}owners ${liveNote(live)}</p>
+    <div class="card"><h2>Depth chart</h2><div class="depthgrid">${depth}</div>
+      <p class="muted small">NFL depth chart order from Sleeper's player list (as of the last build); each player's league owner and FAAB value.</p></div>
+    <div class="card"><h2>${esc(code)} players and the league</h2>${table([
+      { k: "name", label: "Player", left: true, html: nameCell },
       { k: "pos", label: "Pos", left: true }, { k: "age", label: "Age", spec: { d: 2 } },
-      { k: "own", label: "Owner", left: true, html: (r) => r.own ? teamLink(r.own) : '<span class="muted">Free agent</span>' },
+      { k: "own", label: "Owner", left: true, html: owner },
       { k: "value", label: "FAAB value", html: (r) => r.value == null ? "—" : money(r.value) },
-    ], rows, { sort: 4 })}<p class="muted small">Players the league has rostered or the FAAB board values. Every player-week on ${esc(code)}: <a href="#/data/player_week?c=NFL%20team&v=${esc(code)}&y=all">data →</a></p></div>`;
+      { k: "proj", label: "Proj./wk", spec: { d: 2 } },
+      ...SPc.map((c, i) => ({ k: (r) => r.s ? r.s[i] : null, label: SP.labels[i], spec: SP.fmt[c], col: c })),
+    ], rows, { sort: 4, defs: "player_year" })}
+      <p class="muted small">${SP.season} stats are the league's (this season, while rostered). Proj./wk = the forecast's rate blended with this season's PPG. Every ${esc(code)} player-week: <a href="#/data/player_week?c=NFL%20team&v=${esc(code)}&y=all">data →</a></p></div>`;
 }
 
 // ---------- router

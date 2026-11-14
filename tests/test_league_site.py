@@ -395,6 +395,30 @@ def _live_layer_has_what_it_needs():
     assert all(y in pk["years"] and o in teams and t in teams for y, _r, o, t in pk["sleeper_at_build"])
 
 
+def _record_watch_inputs_are_right():
+    """The live watch's boards reproduce the sheets, its kickoffs use Sleeper's
+    team codes, and held picks carry per-pick FAAB values where the index loads."""
+    lw = _load("live_watch.json")
+    tw = pd.read_csv(_ROOT / "exports" / "team_week.csv", low_memory=False)
+    pw = pd.read_csv(_ROOT / "exports" / "player_week.csv", low_memory=False)
+    b = {x["id"]: x for x in lw["boards"]}
+    assert abs(b["pf"]["values"][0] - pd.to_numeric(tw.PF, errors="coerce").max()) < 1e-6
+    assert abs(b["pf_lo"]["values"][0] - pd.to_numeric(tw.PF, errors="coerce").min()) < 1e-6
+    st = pw[pw["Starter/Bench"] == "Starter"]
+    assert abs(b["p_st"]["values"][0] - pd.to_numeric(st.Points, errors="coerce").max()) < 1e-6
+    wr = st[st.Position == "WR"]
+    assert abs(b["p_st_WR"]["values"][0] - pd.to_numeric(wr.Points, errors="coerce").max()) < 1e-6
+    for x in lw["boards"]:
+        assert x["values"] == sorted(x["values"], reverse=x["hi"]), x["id"]
+    codes = {v[2] for v in _load("nfl_players.json").values() if v[2]}
+    for wk, teams in lw["kickoffs"].items():
+        assert set(teams) <= codes, (wk, set(teams) - codes)           # e.g. LA must read LAR
+        assert len(teams) >= 24, wk                                     # at most 8 teams on bye
+    pk = _load("picks.json")
+    held = {f"{y}|{r}|{o}" for ps in pk["held"].values() for y, r, o in ps}
+    assert set(pk.get("values", {})) <= held
+
+
 def _output_has_nothing_private():
     assert privacy_problems(_built()) == []
     # the generator names no private source in its code (docstrings aside)
@@ -420,6 +444,7 @@ def test_built_site_reconciles():
                   _every_export_cell_is_on_the_site,
                   _held_picks_match_future_draft_capital, _record_boards_follow_the_digest,
                   _every_detail_link_resolves, _live_layer_has_what_it_needs,
+                  _record_watch_inputs_are_right,
                   _output_has_nothing_private):
         check()
 
