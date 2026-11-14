@@ -204,6 +204,7 @@ async function home() {
     { k: (r) => r.w - r.l, label: "W-L", html: (r) => `${r.w}-${r.l}` },
     { k: "pf", label: "PF", spec: { d: 2 } },
     { k: "pa", label: "PA", spec: { d: 2 } },
+    { k: "max_pf", label: "Max PF", spec: { d: 2 } },
     { k: (r) => +r.ap.split("-")[0], label: "All-play", html: (r) => r.ap },
     { k: "form", label: "Last 5", left: true, html: (r) => r.form.split("").map((c) => `<span class="${c === "W" ? "w" : "lo"}">${c}</span>`).join("") },
   ];

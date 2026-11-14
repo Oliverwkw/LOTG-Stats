@@ -774,6 +774,7 @@ class Site:
         cur = self.tw[(self.tw.Year == self.season)
                       & self.tw["Week Name"].astype(str).str.startswith("Week ")].copy()
         cur["PF"] = pd.to_numeric(cur["PF"], errors="coerce")
+        cur["Max PF"] = pd.to_numeric(cur.get("Max PF"), errors="coerce")
         cur["Points against"] = pd.to_numeric(cur["Points against"], errors="coerce")
         cur["W"] = cur["Win?"].astype(str).str.lower().eq("true")
         # all-play: beat how many of the week's other scores
@@ -794,6 +795,8 @@ class Site:
                 streak = f"{'W' if last else 'L'}{n}"
             out.append({"team": team, "w": w, "l": int(len(g) - w),
                         "pf": round(float(g.PF.sum()), 2), "pa": round(float(g["Points against"].sum()), 2),
+                        # the most the team could have scored with its best lineup each week
+                        "max_pf": round(float(g["Max PF"].sum()), 2) if g["Max PF"].notna().any() else None,
                         "ap": f"{int(g.AP.sum())}-{int((g.APN - g.AP).sum())}",
                         "streak": streak,
                         "form": "".join("W" if x else "L" for x in g.W.tail(5))})

@@ -238,8 +238,10 @@ def _standings_count_regular_season_games():
     cur = tw[(pd.to_numeric(tw.Year, errors="coerce") == meta["season"])
              & tw["Week Name"].astype(str).str.startswith("Week ")]
     games = cur.groupby("Team").size()
+    maxpf = pd.to_numeric(cur["Max PF"], errors="coerce").groupby(cur.Team).sum()
     for r in home["standings"]:
         assert r["w"] + r["l"] == games[r["team"]]
+        assert abs(r["max_pf"] - maxpf[r["team"]]) < 0.01 and r["max_pf"] >= r["pf"] - 0.01
     assert sorted(r["rank"] for r in home["standings"]) == list(range(1, len(games) + 1))
 
 
