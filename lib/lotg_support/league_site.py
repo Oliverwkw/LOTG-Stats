@@ -1179,7 +1179,20 @@ class Site:
                                 bn.Points[bn.Position.astype(str) == pos], bn, labels=plab))
         return {"boards": boards, "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
                 "kickoffs": self._kickoffs(), "season": self.season,
-                "roster_positions": self._roster_positions()}
+                "roster_positions": self._roster_positions(), "playoff": self._playoff_shape()}
+
+    def _playoff_shape(self) -> Dict[str, object]:
+        """The season's calendar for the predictions page (inquiry.SeasonMeta):
+        regular weeks, the semifinal week (+5 to the higher seed) and the final's
+        weeks (two from 2026, summed)."""
+        try:
+            from . import inquiry as Q
+            m = Q.season_meta(self.season)
+            start, teams = int(m.playoff_week_start), int(m.playoff_teams)
+        except Exception:                                # pragma: no cover
+            start, teams = 15, 4
+        return {"teams": teams, "regular_weeks": start - 1, "semifinal_week": start,
+                "final_weeks": list(range(start + 1, 18)), "semifinal_bonus": 5}
 
     def _weekly_rates(self) -> Dict[str, float]:
         """Sleeper id -> projected points for a week: the forecast's preseason

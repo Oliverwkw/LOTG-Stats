@@ -414,6 +414,9 @@ def _record_watch_inputs_are_right():
     for wk, teams in lw["kickoffs"].items():
         assert set(teams) <= codes, (wk, set(teams) - codes)           # e.g. LA must read LAR
         assert len(teams) >= 24, wk                                     # at most 8 teams on bye
+    po = lw["playoff"]          # the predictions page's calendar
+    assert po["semifinal_week"] == po["regular_weeks"] + 1 and po["final_weeks"] and po["teams"] == 4
+    assert po["final_weeks"][0] == po["semifinal_week"] + 1
     pk = _load("picks.json")
     held = {f"{y}|{r}|{o}" for ps in pk["held"].values() for y, r, o in ps}
     assert set(pk.get("values", {})) <= held
