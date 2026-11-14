@@ -419,7 +419,10 @@ function tradeCard(t, meta, full) {
 }
 
 async function team(slug, _q, live) {
-  const [t, tr, PK, B] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard(), loadPickRows()]);
+  const [t, tr, PK, B, , AT] = await Promise.all([load(`team/${slug}.json`), load("trades.json"), load("picks.json"), loadBoard(), loadPickRows(), load("all_time.json")]);
+  const atRow = AT.rows.find((r) => r[AT.cols.indexOf("Team")] === t.team) || [];
+  const allStats = {}, allLabels = {};
+  AT.cols.forEach((c, i) => { if (c !== "Team" && atRow[i] !== null && atRow[i] !== undefined) { allStats[c] = atRow[i]; allLabels[c] = AT.labels[i]; } });
   const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: B ? futurePickValue(B, y, r) : null }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
@@ -448,41 +451,42 @@ async function team(slug, _q, live) {
     ], rows);
     rosterNote = `${rows.length} players on Sleeper now (Now = current lineup role).${gone.length ? ` Gone since the last build: ${gone.map(esc).join(", ")}.` : ""} Ages are this season's, for players the build has seen.`;
   }
+  const HEAD = ["All time record", "All time win %", "Championships", "Number of playoff appearances", "Number of championship appearances", "Avg points", "All-play win %", "Trading skill"];
+  const sec = (id, title, html) => `<section class="card" id="sec-${id}"><h2>${title}</h2>${html}</section>`;
+  const nav = [["season", "This season"], ["roster", "Roster"], ["picks", "Picks"], ["h2h", "Head to head"], ["seasons", "Seasons"], ["style", "Style"], ["trades", "Trades"], ["draft", "Draft"]];
   $app.innerHTML = `
     <h1>${esc(t.team)}</h1>
-    ${tiles(t.summary, t.summary_labels, t.summary_fmt, null, "team_all_time")}
-    <p class="small">Every row: ${[["team_week", "weeks"], ["team_year", "seasons"], ["team_all_time", "all-time"], ["trades", "trades"], ["add_drops", "add/drops"], ["player_additions", "pickups"], ["rookie_picks", "rookie picks"]].map(([s, n]) => `<a href="#/data/${s}?c=Team&v=${encodeURIComponent(t.team)}">${n}</a>`).join(" · ")} · <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB values</a></p>
-    <div class="grid">
-      <div class="card"><h2>Head to head</h2>${table([
-        { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
-        { k: (r) => r.w / Math.max(1, r.w + r.l), label: "W-L", html: (r) => `${r.w}-${r.l}` },
-        ...[["reg", "Regular"], ["playoffs", "Playoffs"], ["third", "3rd place"], ["toilet", "Toilet"], ["trash", "Toilet losers"]].map(([k, n]) =>
-          ({ k: (r) => r[k + "w"] / Math.max(1, r[k + "w"] + r[k + "l"]), label: n, html: (r) => `${r[k + "w"]}-${r[k + "l"]}` })),
-        { k: "pf", label: "Avg PF", spec: { d: 2 } },
-        { k: "pa", label: "Avg PA", spec: { d: 2 } },
-      ], t.h2h, { sort: 1 })}<p class="small"><a href="#/h2h">Full matrix →</a></p></div>
-      <div class="card"><h2>Roster age</h2>
-        <p>Whole roster <b>${fmt({ d: 2 }, ages.avg)}</b> · starters <b>${fmt({ d: 2 }, ages.starters)}</b> · league avg ${fmt({ d: 2 }, leagueAvg(null))}</p>
-        ${table([{ k: 0, label: "Pos", left: true }, { k: 1, label: "Age", spec: { d: 2 } }, { k: 2, label: "League avg", spec: { d: 2 } },
-                 { k: (r) => (r[1] ?? 0) - (r[2] ?? 0), label: "vs league", html: (r) => r[1] == null ? "—" : `<span class="${r[1] > r[2] ? "neg" : "pos"}">${signed({ d: 2 }, r[1] - r[2])}</span>` }], ageRows)}
-      </div>
-    </div>
-    <div class="card"><h2>Future picks held (${mine.length}) ${liveNote(live)}</h2>
-      ${table([{ k: "y", label: "Draft", left: true }, { k: (r) => r.ps.length, label: "Picks", html: (r) => pickDots(r.ps, t.team) },
+    ${tiles(t.summary, t.summary_labels, t.summary_fmt, HEAD, "team_all_time")}
+    <details class="more"><summary class="small">All ${Object.keys(allStats).length} all-time stats</summary>${tiles(allStats, allLabels, AT.fmt, Object.keys(allStats).filter((k) => !HEAD.includes(k)), "team_all_time")}</details>
+    <nav class="secnav">${nav.map(([id, n]) => `<button data-sec="${id}">${n}</button>`).join("")}</nav>
+    ${sec("season", "This season", dataTable(t.weeks, { hide: ["Week"], defs: "team_week", links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } }))}
+    ${sec("roster", `Current roster ${liveNote(live)}`, `${roster}<p class="muted small">${rosterNote}</p>
+      <h3>Roster age</h3><p>Whole roster <b>${fmt({ d: 2 }, ages.avg)}</b> · starters <b>${fmt({ d: 2 }, ages.starters)}</b> · league avg ${fmt({ d: 2 }, leagueAvg(null))} <span class="muted small">(current roster, this season's ages)</span></p>
+      ${table([{ k: 0, label: "Pos", left: true }, { k: 1, label: "Age", spec: { d: 2 } }, { k: 2, label: "League avg", spec: { d: 2 } },
+               { k: (r) => (r[1] ?? 0) - (r[2] ?? 0), label: "vs league", html: (r) => r[1] == null ? "—" : `<span class="${r[1] > r[2] ? "neg" : "pos"}">${signed({ d: 2 }, r[1] - r[2])}</span>` }], ageRows)}`)}
+    ${sec("picks", `Future picks held (${mine.length}) ${liveNote(live)}`, `${table([{ k: "y", label: "Draft", left: true }, { k: (r) => r.ps.length, label: "Picks", left: true, html: (r) => pickDots(r.ps, t.team) },
         { k: (r) => r.ps.map((p) => p.o === t.team ? "" : `${ORD[p.r]} from ${p.o}`).filter(Boolean).join(", "), label: "Acquired", left: true },
         { k: (r) => r.ps.reduce((a, p) => a + (p.v || 0), 0), label: "Value", html: (r) => B ? money(r.ps.reduce((a, p) => a + (p.v || 0), 0)) : "—" }],
         PK.years.map((y) => ({ y, ps: mine.filter((p) => p.y === y) })))}
-      ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab">Compare teams →</a></p>` : ""}</div>
-    <div class="card"><h2>This season</h2>${dataTable(t.weeks, { hide: ["Week"], links: { "Week Name": (v, r, cols) => `<a href="#/game/${r[cols.indexOf("Year")]}/${r[cols.indexOf("Week")]}/${tslug(t.team)}">${esc(v)}</a>`, Opponent: (v) => teamLink(v) } })}</div>
-    <div class="card"><h2>Seasons</h2>${dataTable(t.seasons, { defs: "team_year" })}</div>
-    ${t.swing && t.swing.rows && t.swing.rows.length && t.swing.cols.length > 1 ? `<div class="card"><h2>Scoring style</h2>${dataTable(t.swing)}
-      <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p></div>
-    <div class="card"><h2>Lineup risk and stacks</h2>${dataTable(t.risk)}
-      <p class="muted small">Riskiness 1.00 = the usual swing for a lineup of that projected strength; above 1 = boom-or-bust picks. Underdog = pre-week win % under 50%; risky = riskiness 1.00 or more. League-wide, risk has not helped underdogs (see the record book's League season).</p></div>` : ""}
-    <div class="card"><h2>Current roster ${liveNote(live)}</h2>${roster}<p class="muted small">${rosterNote}</p></div>
-    <div class="card"><h2>Trades (${t.trades.length})</h2>${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
-      ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}</div>
-    <div class="card"><h2>Rookie draft picks</h2>${dataTable(t.draft, { hide: ["Team", "_row"], pin: 2, defs: "rookie_picks", links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } })}</div>`;
+      ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB board →</a></p>` : ""}`)}
+    ${sec("h2h", "Head to head", `${table([
+        { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
+        { k: (r) => r.w / Math.max(1, r.w + r.l), label: "W-L", html: (r) => `${r.w}-${r.l}` },
+        ...[["reg", "Regular"], ["playoffs", "Playoffs"], ["final", "Final"], ["third", "3rd place"], ["toilet", "Toilet"], ["trash", "Toilet losers"]].map(([k, n]) =>
+          ({ k: (r) => r[k + "w"] / Math.max(1, r[k + "w"] + r[k + "l"]), label: n, html: (r) => (r[k + "w"] || r[k + "l"]) ? `${r[k + "w"]}-${r[k + "l"]}` : '<span class="muted">—</span>' })),
+        { k: "pf", label: "Avg PF", spec: { d: 2 } },
+        { k: "pa", label: "Avg PA", spec: { d: 2 } },
+      ], t.h2h, { sort: 1 })}<p class="small"><a href="#/h2h">Full matrix →</a></p>`)}
+    ${sec("seasons", "Seasons", dataTable(t.seasons, { defs: "team_year" }))}
+    ${t.swing && t.swing.rows && t.swing.rows.length && t.swing.cols.length > 1 ? sec("style", "Scoring style", `${dataTable(t.swing, { defs: "team_year" })}
+      <p class="muted small">Swing = how far a typical week lands from the team's average (starters' points; the semifinal +5 left out). "To this point" compares every season over the weeks played so far this season. Boom / bust = a week at least 120% / at most 80% of the league's middle score.</p>
+      <h3>Lineup risk and stacks</h3>${dataTable(t.risk, { defs: "team_year" })}
+      <p class="muted small">Riskiness 1.00 = the usual swing for a lineup of that projected strength; above 1 = boom-or-bust picks. Underdog = pre-week win % under 50%; risky = riskiness 1.00 or more.</p>`) : ""}
+    ${sec("trades", `Trades (${t.trades.length})`, `${t.trades.slice(0, 15).map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}
+      ${t.trades.length > 15 ? `<p><a href="#/trades?team=${encodeURIComponent(t.team)}">All ${t.trades.length} trades →</a></p>` : ""}`)}
+    ${sec("draft", "Rookie draft picks", dataTable(t.draft, { hide: ["Team", "_row"], pin: 2, defs: "rookie_picks", links: { Number: (v, r, cols) => `<a href="#/pick/rookie_picks/${r[cols.indexOf("_row")]}">${esc(v)}</a>`, "Player Picked": (v) => playerLink(v), "Original Team": (v) => teamLink(v) } }))}
+    <p class="small">Every row in the data: ${[["team_week", "weeks"], ["team_year", "seasons"], ["team_all_time", "all-time"], ["trades", "trades"], ["add_drops", "add/drops"], ["player_additions", "pickups"], ["rookie_picks", "rookie picks"]].map(([s, n]) => `<a href="#/data/${s}?c=Team&v=${encodeURIComponent(t.team)}">${n}</a>`).join(" · ")}</p>`;
+  $app.querySelector(".secnav").onclick = (e) => { const b = e.target.closest("[data-sec]"); if (!b) return; const el = document.getElementById("sec-" + b.dataset.sec); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 110, behavior: "smooth" }); };
 }
 
 async function player(key, _q, live) {
@@ -890,6 +894,13 @@ async function data(sheet, query) {
   if (!sheet) {
     $app.innerHTML = `<h1>Data</h1>
       <p class="muted">Every sheet of the league's stats exports, every row and every column, to browse, filter, sort or download. The workbook's sheets, as CSV.</p>
+      <div class="card"><h2>Find a record the boards don't keep</h2><p class="small">Pick a sheet, add a filter for each condition, then tap a column to sort. For example:</p>
+        <ul class="small">
+          <li><a href="#/data/player_week?y=all&c=Position&v=WR&c2=Win%3F&v2=no&c3=Starter%2FBench&v3=Starter&sort=Points">Most points by a WR starter in a loss</a></li>
+          <li><a href="#/data/team_week?c=Win%3F&v=yes&sort=PF&dir=lo">Fewest points in a win</a></li>
+          <li><a href="#/data/player_week?y=all&c=Rookie%3F&v=yes&c2=Starter%2FBench&v2=Starter&sort=Points">Best week by a rookie starter</a></li>
+          <li><a href="#/data/team_week?c=Week%20Name&v=Final&sort=Margin">Biggest final win</a></li>
+        </ul></div>
       <div class="grid">${ix.sheets.map((m) => `<div class="card"><h2><a href="#/data/${m.sheet}">${esc(SHEET_NAMES[m.sheet] || m.sheet)}</a></h2>
         <p class="muted small">${m.sheet}.csv · ${m.rows.toLocaleString()} rows · ${m.cols.length} columns${m.chunks.length > 1 ? ` · by ${esc(m.season_col)}` : ""}</p>
         <p><a href="#/data/${m.sheet}">Browse</a> · <a href="${m.csv}" download>Download CSV (${kb(m.csv_bytes)})</a></p></div>`).join("")}</div>`;
@@ -899,8 +910,15 @@ async function data(sheet, query) {
   if (!m) throw new Error("No sheet " + sheet);
   const params = new URLSearchParams(query || "");
   let chunk = params.get("y") || (m.chunks.length > 1 ? m.chunks[m.chunks.length - 1][1] : "all");
-  let q = params.get("q") || "", fc = params.get("c") || "", fo = params.get("o") || "=", fv = params.get("v") || "";
-  let sortBy = -1, asc = false, page = 0;
+  let q = params.get("q") || "";
+  // column filters, all must hold: c/o/v, c2/o2/v2, …
+  let filters = [];
+  for (let i = 1; i <= 8; i++) {
+    const sfx = i === 1 ? "" : String(i);
+    if (params.get("c" + sfx)) filters.push({ c: params.get("c" + sfx), o: params.get("o" + sfx) || "=", v: params.get("v" + sfx) || "" });
+  }
+  if (!filters.length) filters.push({ c: "", o: "=", v: "" });
+  let sortBy = m.cols.indexOf(params.get("sort") || ""), asc = params.get("dir") === "lo", page = 0;
   const all = m.cols.map((_, i) => i);
   let shown = prefs.get("cols:" + sheet, null);
   if (!Array.isArray(shown) || shown.some((i) => i >= m.cols.length)) shown = m.cols.length <= 30 ? all : all.slice(0, 18);
@@ -914,22 +932,21 @@ async function data(sheet, query) {
     if (sheet === "trades" && !tradeIds) tradeIds = tradeIndex(await load("trades.json"));
   }
   let tradeIds = null;
-  const fi = () => m.cols.indexOf(fc);
+  // yes/no cells match "yes", "true", "won" … the way people type them
+  const asText = (x) => typeof x === "boolean" ? (x ? "true yes y won win" : "false no n lost loss") : String(x ?? "").toLowerCase();
+  function passes(r, f) {
+    const ci = m.cols.indexOf(f.c);
+    if (ci < 0 || f.v === "") return true;
+    const x = r[ci], want = f.v.toLowerCase().trim(), num = parseFloat(f.v);
+    if (f.o === "=") return typeof x === "boolean" ? asText(x).split(" ").includes(want) : (typeof x === "number" && !isNaN(num) ? x === num : asText(x) === want);
+    if (f.o === "!=") return !passes(r, { ...f, o: "=" });
+    if (f.o === "~") return asText(x).includes(want);
+    if (typeof x !== "number" || isNaN(num)) return false;
+    return f.o === ">" ? x > num : f.o === "<" ? x < num : f.o === ">=" ? x >= num : x <= num;
+  }
   function filtered() {
     const ql = q.trim().toLowerCase();
-    const ci = fi();
-    const num = parseFloat(fv);
-    return rows.filter((r) => {
-      if (ql && !r.some((x) => x !== null && String(x).toLowerCase().includes(ql))) return false;
-      if (ci >= 0 && fv !== "") {
-        const x = r[ci];
-        if (fo === "=") return String(x ?? "").toLowerCase() === fv.toLowerCase();
-        if (fo === "~") return String(x ?? "").toLowerCase().includes(fv.toLowerCase());
-        if (typeof x !== "number" || isNaN(num)) return false;
-        return fo === ">" ? x > num : fo === "<" ? x < num : fo === ">=" ? x >= num : x <= num;
-      }
-      return true;
-    });
+    return rows.filter((r) => (!ql || r.some((x) => x !== null && asText(x).includes(ql))) && filters.every((f) => passes(r, f)));
   }
   function draw() {
     let rs = filtered();
@@ -970,11 +987,7 @@ async function data(sheet, query) {
       ${m.chunks.length > 1 ? `<select id="dy">${m.chunks.map(([n, s, k]) => `<option value="${s}" ${s === chunk ? "selected" : ""}>${esc(m.season_col)} ${esc(n)} (${k.toLocaleString()} rows)</option>`).join("")}<option value="all" ${chunk === "all" ? "selected" : ""}>All (${m.rows.toLocaleString()} rows, slower)</option></select>` : ""}
       <input class="f" id="dq" type="search" placeholder="Search every cell" value="${esc(q)}">
     </div>
-    <div class="controls">
-      <select id="dc"><option value="">Filter a column…</option>${m.cols.map((c, i) => `<option value="${esc(c)}" ${c === fc ? "selected" : ""}>${esc(m.labels[i])}</option>`).join("")}</select>
-      <select id="do">${["=", "~", ">", ">=", "<", "<="].map((o) => `<option value="${o}" ${o === fo ? "selected" : ""}>${{ "=": "is", "~": "contains", ">": ">", ">=": "≥", "<": "<", "<=": "≤" }[o]}</option>`).join("")}</select>
-      <input class="f" id="dv" placeholder="value" value="${esc(fv)}">
-    </div>
+    <div id="filters"></div>
     <details><summary>Columns (${m.cols.length})</summary>
       <p><span class="seg" style="margin:0"><button id="call">All</button><button id="cnone">None</button><button id="cdef">Default</button></span></p>
       <div id="cp">${colPicker()}</div></details>
@@ -995,12 +1008,28 @@ async function data(sheet, query) {
   document.getElementById("dpg").onclick = (e) => { const b = e.target.closest("button[data-p]"); if (!b) return; page += +b.dataset.p; draw(); document.getElementById("dcount").scrollIntoView(); };
   let deb;
   document.getElementById("dq").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { q = e.target.value; page = 0; draw(); }, 200); };
-  document.getElementById("dc").onchange = (e) => { fc = e.target.value; page = 0; draw(); };
-  document.getElementById("do").onchange = (e) => { fo = e.target.value; page = 0; draw(); };
-  document.getElementById("dv").oninput = (e) => { clearTimeout(deb); deb = setTimeout(() => { fv = e.target.value; page = 0; draw(); }, 200); };
+  const OPS = { "=": "is", "!=": "is not", "~": "contains", ">": ">", ">=": "≥", "<": "<", "<=": "≤" };
+  function drawFilters() {
+    document.getElementById("filters").innerHTML = filters.map((f, i) => `<div class="controls frow" data-i="${i}">
+      <select data-k="c"><option value="">${i ? "and a column…" : "Filter a column…"}</option>${m.cols.map((c, j) => `<option value="${esc(c)}" ${c === f.c ? "selected" : ""}>${esc(m.labels[j])}</option>`).join("")}</select>
+      <select data-k="o">${Object.entries(OPS).map(([o, n]) => `<option value="${o}" ${o === f.o ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <input class="f" data-k="v" placeholder="value (yes / no for ✓ columns)" value="${esc(f.v)}">
+      ${filters.length > 1 ? `<button class="b" data-x="${i}" title="Remove">×</button>` : ""}</div>`).join("") +
+      `<button class="b" id="fadd">+ Add a filter</button>`;
+  }
+  const fl = document.getElementById("filters");
+  fl.onchange = (e) => { const row = e.target.closest(".frow"); if (!row || !e.target.dataset.k) return; filters[+row.dataset.i][e.target.dataset.k] = e.target.value; const ci = m.cols.indexOf(filters[+row.dataset.i].c); if (ci >= 0 && !shown.includes(ci)) shown = [...shown, ci].sort((a, b) => a - b); page = 0; draw(); };
+  fl.oninput = (e) => { if (e.target.dataset.k !== "v") return; const row = e.target.closest(".frow"); clearTimeout(deb); deb = setTimeout(() => { filters[+row.dataset.i].v = e.target.value; page = 0; draw(); }, 200); };
+  fl.onclick = (e) => {
+    if (e.target.id === "fadd") { filters.push({ c: "", o: "=", v: "" }); drawFilters(); }
+    if (e.target.dataset.x) { filters.splice(+e.target.dataset.x, 1); drawFilters(); page = 0; draw(); }
+  };
+  drawFilters();
   if (document.getElementById("dy")) document.getElementById("dy").onchange = async (e) => { chunk = e.target.value; page = 0; await fetchRows(); draw(); };
-  // a column filter from a link shows that column
-  if (fi() >= 0 && !shown.includes(fi())) shown = [fi(), ...shown];
+  // columns a filter uses are shown
+  // the columns a link sorts or filters by come right after the first one, so the answer is in view
+  const front = [sortBy, ...filters.map((f) => m.cols.indexOf(f.c))].filter((ci) => ci > 0);
+  if (front.length) shown = [shown[0], ...front, ...shown.slice(1).filter((ci) => !front.includes(ci))];
   await fetchRows();
   draw();
 }
