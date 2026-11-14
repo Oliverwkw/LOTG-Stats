@@ -27,7 +27,15 @@ def _index():
     picks = pd.DataFrame([("2024-07-01", "1.01", 2000.0), ("2024-07-01", "1.05", 1050.0), ("2024-07-01", "2.01", 400.0),
                           ("2025-07-12", "1.01", 2200.0), ("2025-07-12", "1.05", 1000.0), ("2025-07-12", "2.01", 380.0)],
                          columns=["draft_day", "slot", "price"])
-    return FH.FaabIndex(pd.DataFrame(rows, columns=["sid", "date", "value"]), picks)
+    return FH.FaabIndex(pd.DataFrame(rows, columns=["sid", "date", "value"]), picks, schedule=_schedule())
+
+
+def _schedule():
+    """a synthetic fixed pick schedule: these base prices, 10% (log) lower from 30+ weeks before the NFL draft"""
+    from lotg_support import faab_pick_schedule as PS
+    w = list(range(-156, 21))
+    f = [-0.1 if x <= -30 else 0.0 for x in w]
+    return PS.Schedule({"1.01": 2200.0, "1.05": 1000.0, "2.01": 380.0}, pd.DataFrame(dict(week=w, A=f, B=f)))
 
 
 def test_player_lookup_rules():
@@ -50,16 +58,16 @@ def test_player_lookup_rules():
 
 
 def test_pick_price_rules():
+    import math
     f = _index()
-    assert f.pick("2026 1.05", "2026-03-01") == 1000.0               # same-year slot before September
+    assert f.pick("2026 1.05", "2026-03-01") == 1000.0               # same-year slot before September (8 weeks out)
     assert f.pick("2026 1.??", "2026-03-01") == (2200 + 1000) / 2    # unknown slot: round average
-    assert abs(f.pick("2027 2.01", "2026-03-01") - 380.0 * 0.95) < 1e-9   # one draft further out
+    assert abs(f.pick("2027 2.01", "2026-03-01") - 380.0 * math.exp(-0.1)) < 1e-9   # 61 weeks before its NFL draft
     assert f.pick("2026 5.01", "2026-03-01") == 20.0
     assert f.pick("2025 1.05", "2025-08-01") is None                 # its draft was held: value the player
-    # before the first league draft: that draft's slot prices (Oliver, 2026-11-10)
-    assert f.pick("2024 1.05", "2024-06-01") == 1050.0
-    assert f.pick("2024 1.??", "2024-06-01") == (2000 + 1050) / 2
-    assert abs(f.pick("2025 1.??", "2024-06-01") - (2000 + 1050) / 2 * 0.95) < 1e-9
+    # one standard in every year (Oliver, 2026-11-11): the same slot at the same point of its cycle costs the same
+    assert f.pick("2024 1.05", "2024-03-01") == f.pick("2026 1.05", "2026-03-01")
+    assert f.pick("2024 1.??", "2024-06-01") == (2200 + 1000) / 2
 
 
 def test_trade_diff_twins_the_ktc_rules():
@@ -76,7 +84,7 @@ def test_trade_diff_twins_the_ktc_rules():
 def test_drafted_pick_becomes_the_player():
     f = _index()
     drafted = ("2", date(2025, 9, 2))
-    assert FH.pick_value(f, "2025 1.05", drafted, "2025-07-01") == 1050.0      # before its draft: the price from earlier drafts
+    assert FH.pick_value(f, "2025 1.05", drafted, "2025-07-01") == 1000.0      # before its draft: the schedule's price
     assert FH.pick_value(f, "2025 1.05", drafted, "2025-09-02") == 300.0       # after: the drafted player
     assert FH.pick_value(f, "2025 1.05", None, "2025-09-02") is None
     assert FH.net(None, None) is None and FH.net(5.0, None) == 5.0 and FH.net(None, 2.0) == -2.0

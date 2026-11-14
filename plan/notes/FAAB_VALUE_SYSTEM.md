@@ -333,13 +333,43 @@ Hurts calls.
 "FAAB value should be calculable for any player at any time."
 - **Rookies** are valued from their NFL draft day (`faab_features.NFL_DRAFT`), not from the league's rookie draft (`faab_formula.frame_at`). Players not yet drafted into the NFL still have no value.
 - **Before the league's rookie draft**, a rookie's draft price is estimated from his NFL draft capital (`Formula.expected_dprice`). The estimate is an isotonic fit of league price against NFL overall pick, over the rookie drafts held before that date. Before any had been held it uses the first one; the 2020 startup board is excluded. The estimate is a floor only: it lifts thin rookies, for example Michael Carter 2021 from $2 to $43, and never pulls a rookie the stats rate higher down (Javonte Williams stays $1,297).
-- **Picks before the first rookie draft (2021-08-29)** take that draft's slot prices (Oliver's choice), in `faab_inputs.Picks.slot_values` and `faab_history.FaabIndex.slot_values`.
+- **Picks before the first rookie draft (2021-08-29)** took that draft's slot prices (Oliver's choice); since 2026-11-11 every pick reads the one fixed weekly schedule (below).
 - **Effect, rebuilt from the cached models with no refit:**
   - 5,915 new history rows.
   - 5 newly fitted trades: 4 on 2021-08-29 and Jayden Reed 2023-06-11.
   - On the 214 trades fitted before: mean error 0.4769 to 0.4793; far-off 52 to 52.
   - Calls 129/129. Cuts and votes unchanged.
 - **Interim measure.** The league's draft and trade prices are still KTC money-curve prices (`acquisition.py`), so this estimate inherits them until the KTC-free redesign replaces them.
+
+## One fixed weekly pick schedule (Oliver 2026-11-11)
+
+"For picks/faab, choose a standard value that they are worth at each time as is currently based on KTC (ex 1.01 in
+June vs in January the year before are different etc), and keep that standard across all years." / "Do weeks not
+months. As close to current values as possible."
+
+`lotg_support.faab_pick_schedule`: a rounds 1-4 pick's price on date d is `base[slot] × exp(shape(overall pick, w))`,
+w = whole weeks from d to the NFL draft of the pick's class. It replaces the per-draft slot medians (which moved as
+each draft was added: the 1.01 went $1,889 -> $1,754 between the 2021 and 2026 blocks) and the flat 5%-a-draft
+future discount. `faab_inputs.Picks.value`, `FaabIndex.pick` and the rating page's pick prices all read it; the
+slot fade-in (`faab_pick_slots`) weights the schedule's slot prices exactly as before.
+- `base` (data/faab_value/pick_schedule_base.csv): today's draft-day slot prices (the median over the 2021-26
+  drafts, the block faab_inputs used after the 2026 draft), frozen. shape = 0 at NFL draft + 11 weeks (mid-July,
+  the league's usual draft week), so at the league draft a pick costs exactly what it does now.
+- `shape` (data/faab_value/pick_schedule_weeks.csv, w -156..+20): from KTC's weekly pick history (Early/Mid/Late
+  1st-4th, classes 2021-2029), band A = overall 1-12, band B = 13-32, interpolated between. Within a year of the
+  draft: the class's own series, de-trended by its tier's KTC drift across classes. Further out: chained from
+  same-day quotes of the next class (so KTC's year-to-year drift cancels). Non-decreasing up to the NFL draft.
+- What it says (1.01): $1,383 three years out, $1,513 two years out, $1,727 a year out, $1,782 in November-January,
+  peak $1,795 at the NFL draft, $1,754 at the league draft. A 3.04: $75 / $81 / $92 / $92 / $95 / $91. Old rule:
+  $1,754 flat for the next class, x0.95 per draft beyond it.
+- KTC is read only by `fit_shape` (scripts/faab_pick_schedule.py fit). If KTC vanished no price would change. A refit
+  is a reviewed PR.
+- Result (no refit, committed params, evidence repriced): 217 of 219 trades' pick sides move, median |change| 7%
+  (2021-22 sides fall most: the old 2021 block priced the 1.08 / 2.01 at $860, the base at $615); calls 129/129,
+  far-off trades 53 -> 52 at +$25 and 24 -> 24 at +$100, trade error 0.8454 -> 0.8516, total 3.669 -> 3.688.
+- Football reason: a pick far from its draft is an unknown class at an unknown slot and a long wait; the NFL draft
+  fixes landing spots and the value peaks; it then settles to the drafted player's price by the league draft.
+- Classes 2027+: the NFL draft date is the Thursday in Apr 23-29 (every draft 2020-26 fits); `NFL_DRAFT` overrides.
 
 ## The noise bar, and every rule needs a reason
 
