@@ -232,6 +232,25 @@ def test_prediction_cache_returns_the_same_floats():
         assert np.array_equal(pc2.predict(("t", 0, 1), fn, X), ref) and calls == [500]
 
 
+def test_frames_split_by_player_equal_one_process():
+    """faab_frame.build_parallel / faab_features.add_x_parallel against build / add_x on real rows (needs the cached
+    stat downloads; skipped without them)"""
+    if not (kp.CACHE / "sp_2024.csv").exists() or not (_ROOT / "exports" / "snapshot" / "sleeper_players_nfl.json").exists():
+        print("  skipped: no cached stat downloads"); return
+    from lotg_support import faab_inputs as I
+    pa = I.player_additions_sid()
+    sids = sorted(set(pa.sid.dropna().astype(str)))[::25]
+    dates = pd.date_range("2021-01-05", "2026-01-06", freq="13W-TUE")
+    G = pd.DataFrame([(s_, d) for s_ in sids for d in dates], columns=["sid", "date"]).assign(ktc=np.nan)
+    a, b = kp.build(G), kp.build_parallel(G, workers=3, min_rows=1)
+    pd.testing.assert_frame_equal(a, b, check_exact=True)
+    try:
+        X.load_store()
+    except Exception:                    # noqa: BLE001 - no feature store
+        print("  skipped add_x: no feature store"); return
+    pd.testing.assert_frame_equal(X.add_x(a), X.add_x_parallel(a, workers=3, min_rows=1), check_exact=True)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
         print(f"{fn.__name__}:")

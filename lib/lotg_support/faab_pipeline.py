@@ -382,7 +382,7 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     ED = evidence_dates(TR, pa)
     # the grid from the supply universe's first Tuesday: rows before the first valued date (the 2020 startup draft)
     # are the universe only
-    F_all = X.add_x(I.grid_frame(pa, E, start=FZ.UNIVERSE_START, end=end, dates=ED))
+    F_all = X.add_x_parallel(I.grid_frame(pa, E, start=FZ.UNIVERSE_START, end=end, dates=ED))
     U = FZ.universe(F_all)
     seasons = B.load_seasons(last)
     classes = draft_classes()

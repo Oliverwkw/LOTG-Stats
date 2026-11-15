@@ -1259,6 +1259,42 @@ def add_x(df):
     out.index = df.index
     return pd.concat([df, out], axis=1)
 
+_ADDX_ROWS = None
+
+
+def _add_x_part(m):
+    return add_x(_ADDX_ROWS[m])
+
+
+def add_x_parallel(df, workers=None, min_rows=20000):
+    """add_x(df) with the rows split by player id over `workers` forked processes (default faab_base.WORKERS; 1 = in
+    this process; serial under `min_rows` rows): every e_x_ column is a function of the row (id, date) and the loaded
+    store, so the parts, put back in df's row order, are the same frame"""
+    global _ADDX_ROWS
+    if not workers:
+        try:
+            from . import faab_base as B
+            workers = B.WORKERS
+        except Exception:                 # noqa: BLE001 - no scikit-learn: one process
+            workers = 1
+    g = np.array([x if isinstance(x, str) else "" for x in df.gsis.to_numpy(dtype=object)], dtype=object)   # no id: one part
+    ug = sorted(set(g)); n = min(max(1, int(workers)), len(ug))
+    if n <= 1 or len(df) < min_rows:
+        return add_x(df)
+    part = {x: i % n for i, x in enumerate(ug)}
+    pid = np.array([part[x] for x in g])
+    masks = [pid == i for i in range(n)]
+    import multiprocessing as mp
+    _ADDX_ROWS = df
+    try:
+        with mp.get_context("fork").Pool(n) as pool:
+            out = pool.map(_add_x_part, masks, chunksize=1)
+    finally:
+        _ADDX_ROWS = None
+    pos = np.concatenate([np.flatnonzero(m) for m in masks])
+    return pd.concat(out).iloc[np.argsort(pos, kind="stable")]
+
+
 def xcols(df): return [c for c in df.columns if c.startswith("e_x_")]
 
 
