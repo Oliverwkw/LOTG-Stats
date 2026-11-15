@@ -247,6 +247,35 @@ def qb_base(R, idx):
     return np.array([look.get(i, np.nan) for i in idx], dtype=float)
 
 
+def backup_table(R, pa):
+    """backup_columns on every (sid, date) row of the grid frame R (finished_values' rows, in its order), with the
+    keys they are a function of (sid, gsis, date, pos): computed once and read by both the history and the exported
+    rows. None when it cannot be built (each caller then computes its own, as before)."""
+    try:
+        Rd = R.drop_duplicates(["sid", "date"]).reset_index(drop=True)
+        E0 = Rd[["sid", "date", "pos"]].copy()
+        out = backup_columns(E0, Rd.gsis.values, pa)
+        cols = [c for c in out.columns if c not in ("sid", "date", "pos")]
+        key = pd.MultiIndex.from_arrays([Rd.sid.astype(str).values, pd.Series(Rd.gsis).astype(str).values,
+                                         pd.to_datetime(Rd.date).values.astype("datetime64[ns]"), Rd.pos.astype(str).values])
+        return dict(values=out[cols].reset_index(drop=True), key=key, n=len(Rd))
+    except Exception:               # noqa: BLE001 - only a shortcut: the callers compute their own
+        return None
+
+
+def take_backup(E, gsis, pa, table):
+    """backup_columns(E, gsis, pa) read from backup_table's rows (each column is a function of the row's sid, gsis,
+    date and position only), or computed when a row is not there"""
+    if table is not None:
+        key = pd.MultiIndex.from_arrays([E.sid.astype(str).values, pd.Series(gsis).astype(str).values,
+                                         pd.to_datetime(E.date).values.astype("datetime64[ns]"), E.pos.astype(str).values])
+        ix = table["key"].get_indexer(key) if table["key"].is_unique else None
+        if ix is not None and (ix >= 0).all():
+            v = table["values"].iloc[ix]
+            return E.assign(**{c: v[c].values for c in v.columns})
+    return backup_columns(E, gsis, pa)
+
+
 def backup_columns(E, gsis, pa, workers=None):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
     (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
@@ -324,7 +353,7 @@ def _run_jobs(jobs, workers=None):
         _JOBS = None
 
 
-def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
+def export(R, tr, cut, out=V.DATA, responses=None, pa=None, backup=None):
     """the committed inputs: the as-of board + every evidence row + every voted row, and the evidence structure"""
     now = R.date.max(); latest = np.where(R.date.values == np.datetime64(now))[0]
     vi, vd = vote_rows(R, responses)
@@ -341,7 +370,7 @@ def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
     E = R.iloc[idx][need].copy()
     E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
     E["e_x_qb_base"] = np.round(qb_base(R, idx), 5)
-    if pa is not None and "gsis" in R: E = backup_columns(E, R.gsis.values[idx], pa)
+    if pa is not None and "gsis" in R: E = take_backup(E, R.gsis.values[idx], pa, backup)
     E["date"] = pd.to_datetime(E.date).dt.strftime("%Y-%m-%d")
     for c in E.columns:
         if E[c].dtype.kind == "f": E[c] = E[c].astype("float64").round(5)
@@ -435,9 +464,10 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     R = add_rank(latest_status(R, players))
     R.to_parquet(WORK / ("raw.parquet" if end is None else "raw_partial.parquet"))
     tr, cut = evidence_rows(R, TR, pa, picks, drops)
-    n = export(R, tr, cut, out or V.DATA, pa=pa)
+    BK = backup_table(R, pa)              # the league-spend / NFL-draft columns once, for the inputs and the history
+    n = export(R, tr, cut, out or V.DATA, pa=pa, backup=BK)
     log(f"exported {n} input rows, {len(tr)} trades, {len(cut)} cuts as of {R.date.max().date()} ({time.time() - t0:.0f}s)")
-    write_history(R, pa, picks, out or V.DATA, log=log)
+    write_history(R, pa, picks, out or V.DATA, log=log, backup=BK)
     return R
 
 
@@ -470,13 +500,13 @@ def formula_frames(F, workers=None):
         _FORMULA = None
 
 
-def write_history(R, pa, picks, out=V.DATA, log=print):
+def write_history(R, pa, picks, out=V.DATA, log=print, backup=None):
     """the build's dated FAAB values (lotg_support.faab_history): every grid row valued with the committed params.
     A failure here never blocks the inputs: the previous history stays committed."""
     from . import faab_history as FH
     t1 = time.time()
     try:
-        H = FH.finished_values(R, pa, V.load_params())
+        H = FH.finished_values(R, pa, V.load_params(), backup=backup)
         n = FH.write(H, FH.pick_price_table(picks), out)
         log(f"history: {n} player-date values, {H.date.nunique()} dates, {H.sid.nunique()} players ({time.time() - t1:.0f}s)")
         return n

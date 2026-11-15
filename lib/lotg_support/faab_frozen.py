@@ -599,16 +599,41 @@ class FrozenBase:
 
     @classmethod
     def load(cls, path=DIR):
-        import joblib
         path = Path(path); meta = json.loads((path / "manifest.json").read_text())
-        bags = []
+        files = []
         for b in range(meta["bags"]):
             f = path / f"bag{b}.joblib"
-            want = meta.get("files", {}).get(f.name)
-            if want and hashlib.sha256(f.read_bytes()).hexdigest() != want:
+            got = hashlib.sha256(f.read_bytes()).hexdigest(); want = meta.get("files", {}).get(f.name)
+            if want and got != want:
                 raise ValueError(f"{f} does not match the manifest's sha256: refreeze or restore it")
-            bags.append(joblib.load(f))
+            files.append((f, got))
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(min(len(files), 5) or 1) as ex:
+            bags = list(ex.map(lambda t: _load_bag(*t), files))
         return cls(bags, meta)
+
+
+MODEL_CACHE = ROOT / ".cache" / "faab" / "frozen_models"
+
+
+def _load_bag(f, sha):
+    """one bag file: joblib's xz pickle reads through its pure-Python unpickler (~3 s a bag), so the same objects are
+    kept once as a plain pickle (zlib level 1) under MODEL_CACHE, named by the file's sha256, and read back from there
+    (~0.7 s): the same models either way. A missing or unreadable copy is rebuilt from the file."""
+    import pickle, zlib
+    c = MODEL_CACHE / f"{sha}.pkl.z"
+    try:
+        if c.exists(): return pickle.loads(zlib.decompress(c.read_bytes()))
+    except Exception:                       # noqa: BLE001 - a bad copy: read the file and write it again
+        pass
+    import joblib
+    obj = joblib.load(f)
+    try:
+        c.parent.mkdir(parents=True, exist_ok=True); tmp = c.with_suffix(f".tmp{id(obj)}")
+        tmp.write_bytes(zlib.compress(pickle.dumps(obj, protocol=5), 1)); tmp.replace(c)
+    except Exception:                       # noqa: BLE001 - no cache (read-only disk): the file is the source anyway
+        pass
+    return obj
 
 
 def _date_chunks(d, freq):

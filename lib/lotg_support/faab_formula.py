@@ -167,11 +167,13 @@ class Formula:
         else:
             p = self.PW[(self.PW.Year == s) & (self.PW.Week <= n)]; inj = p[p["Injury?"].astype(str).str.lower().isin(["true", "yes", "1"])]
             cur = set(inj[inj.Week == n].Player); start = {}
-            for sid, nm in d.name.items():
-                if nm in cur:
-                    st_[sid] = "Out"; wks = set(inj[inj.Player == nm].Week); w = n
-                    while w - 1 in wks: w -= 1
-                    start[sid] = w
+            hit = [i for i, nm in enumerate(d.name.values) if nm in cur]
+            if hit: st_.iloc[hit] = "Out"
+            for i in hit:
+                sid, nm = d.index[i], d.name.values[i]
+                wks = set(inj[inj.Player == nm].Week); w = n
+                while w - 1 in wks: w -= 1
+                start[sid] = w
         return st_, bp, {k: KO[s] + pd.Timedelta(days=7 * (w - 1) - 3) for k, w in start.items()}
 
     def frame_at(self, date, stats_date=None):
@@ -187,7 +189,7 @@ class Formula:
         nfl = pd.to_datetime(dy.map(lambda y: NFL_DRAFT.get(y, f"{max(y, 1900)}-05-01"))).values
         d = d[(dy < date.year) | ((dy == date.year) & (np.datetime64(date) >= nfl))]
         d["st"] = np.minimum(d.exp.fillna(0), 3)
-        dp = self.DR[self.DR.d <= date].drop_duplicates("sid", keep="last").set_index("sid")["Price paid (FAAB)"]
+        dp = self._draft_prices(date)
         d["dprice"] = d.index.map(dp)
         # this year's rookies before the league's rookie draft: the price their NFL draft capital predicts
         dd_ = self.DRAFT_DAY.get(date.year)
@@ -196,15 +198,32 @@ class Formula:
         if pre.any(): d.loc[pre, "dprice"] = self.expected_dprice(date, d.dovr.values[pre])
         inj, bp, start = self.injuries_at(sd, d); d["injury"] = inj.reindex(d.index).fillna("")
         s_ko = KO[weeks_done(sd)[0]]
-        for sid, t0 in start.items():   # injured: the best of now, just before the injury and preseason
-            hd, hl = self._hist.get(sid, (np.array([], "datetime64[ns]"), None))
-            for t_ in (t0, s_ko - pd.Timedelta(days=1)):
-                j = np.searchsorted(hd, np.datetime64(t_), side="right") - 1
-                if j >= 0: d.loc[sid, "Lf"] = max(d.loc[sid, "Lf"], hl[j])
+        if start:                       # injured: the best of now, just before the injury and preseason
+            lf = d.Lf; new = {}
+            for sid, t0 in start.items():
+                hd, hl = self._hist.get(sid, (np.array([], "datetime64[ns]"), None)); v = lf.loc[sid]
+                for t_ in (t0, s_ko - pd.Timedelta(days=1)):
+                    j = np.searchsorted(hd, np.datetime64(t_), side="right") - 1
+                    if j >= 0: v = max(v, hl[j])
+                new[sid] = v
+            for sid, v in new.items(): d.loc[sid, "Lf"] = v
         d["c_ppg_raw"], d["c_gp_raw"] = d.c_ppg, d.c_gp
         d.loc[d.injury != "", ["c_ppg", "c_gp"]] = np.nan
         d["bp"] = bp.reindex(d.index).fillna(""); d["a_y"] = d.a_y.astype(float)
         return d
+
+    def _draft_prices(self, date):
+        """each player's latest league rookie-draft price on or before the date (DR is sorted by date: the rows on or
+        before it are its first k, so each k once)"""
+        k = int(np.searchsorted(self.DR.d.values, np.datetime64(pd.Timestamp(date)), side="right"))
+        memo = self.__dict__.setdefault("_dpm", {})
+        if k not in memo:
+            memo[k] = self.DR[self.DR.d <= date].drop_duplicates("sid", keep="last").set_index("sid")["Price paid (FAAB)"]
+        return memo[k]
+
+    def _slot_dict(self):
+        if "_slotd" not in self.__dict__: self._slotd = self.SLOT_OF.to_dict()
+        return self._slotd
 
     def expected_dprice(self, date, dovr):
         """the league price a rookie at NFL overall pick `dovr` (NaN = undrafted) is expected to go for: an isotonic
@@ -304,7 +323,7 @@ class Formula:
         fade = 1 - np.clip((d.age.values - a0) / (a1 - a0), 0, 1); fade = np.where(elite_now, smax(fade, 0.5), fade)
         leg = self.legacy_t(d, P["h"], date); Lb = Lb + P["leg_cap"] * (1 - np.exp(-leg / P["kappa"])) * fade
         L = Lb + self.breakout(d, Lb, 1.3, P["top_lo"], P["top_hi"], ROB)
-        slot = pd.Series(d.index.map(self.SLOT_OF.to_dict()), index=d.index); sv = slot.map(slotv.to_dict()).values.astype(float)
+        slot = pd.Series(d.index.map(self._slot_dict()), index=d.index); sv = slot.map(slotv.to_dict()).values.astype(float)
         dp = np.where(np.isnan(sv), np.nan_to_num(d.dprice.values.astype(float)), sv)
         LAST = np.expm1(d.a_y.values)
         dp = np.fmax(dp, np.where(d.st.values <= 1, P["last_w"] * np.nan_to_num(LAST), 0.0))
@@ -333,7 +352,7 @@ class Formula:
         d = self.frame_at(date, stats_date); rob = self.rob_at(sd); off = d.c_gp.notna().mean() < 0.03 * self.C_MAX
         v = pd.Series(self.final(d, sd, off, self._recal_fn, self.slotv_at(date), rob), index=d.index)
         # rookies: the draft slot's price x how they have played (3+ games); hurt before playing x0.8
-        slot = d.index.map(lambda s: self.SLOT_OF.get(str(s))); sv = pd.Series(slot, index=d.index).map(self.slotv_at(date).to_dict()) * P["scale"]
+        SD = self._slot_dict(); slot = d.index.map(lambda s: SD.get(str(s))); sv = pd.Series(slot, index=d.index).map(self.slotv_at(date).to_dict()) * P["scale"]
         dy = d.dyear.fillna(0).astype(int).values
         end = pd.to_datetime([KO.get(y, pd.Timestamp(f"{max(y, 2000)}-09-08")) + pd.Timedelta(weeks=19) for y in dy]).values
         nxt = pd.to_datetime([self.DRAFT_DAY.get(y + 1, pd.Timestamp(f"{max(y, 2000) + 1}-07-15")) for y in dy]).values

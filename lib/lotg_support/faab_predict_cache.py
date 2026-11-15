@@ -121,13 +121,18 @@ class PredictCache:
         d = self.path / "parts"
         parts = [np.load(f) for f in sorted(d.glob("*.npz"))] if d.exists() else []
         keys = sorted({f.rsplit(".", 1)[0] for z in parts for f in z.files})
-        arrs = {}
+        arrs = {}; same = set(keys) == {_name(k) for k in self.old}
         for name in keys:
             k = _key(name); pieces = []
             us = [z[name + ".u"] for z in parts if name + ".u" in z.files]
+            fresh = [(z[name + ".h1"], z[name + ".h2"], z[name + ".v"]) for z in parts if name + ".h1" in z.files]
             if us and k in self.old:
-                u = np.unique(np.concatenate(us)); pieces.append(tuple(a[u] for a in self.old[k]))
-            pieces += [(z[name + ".h1"], z[name + ".h2"], z[name + ".v"]) for z in parts if name + ".h1" in z.files]
+                u = np.unique(np.concatenate(us))
+                if not fresh and len(u) == len(self.old[k][0]):     # every stored entry read back, none new: kept as is
+                    arrs[name + ".h1"], arrs[name + ".h2"], arrs[name + ".v"] = self.old[k]; continue
+                pieces.append(tuple(a[u] for a in self.old[k]))
+            same = False
+            pieces += fresh
             h1, h2, v = (np.concatenate([p_[i] for p_ in pieces]) for i in range(3))
             o = np.lexsort((h2, h1)); h1, h2, v = h1[o], h2[o], v[o]
             keep = np.r_[True, (h1[1:] != h1[:-1]) | (h2[1:] != h2[:-1])]
@@ -136,6 +141,9 @@ class PredictCache:
             arrs[name + ".h1"], arrs[name + ".h2"], arrs[name + ".v"] = h1[~dup], h2[~dup], v[~dup]
         for z in parts: z.close()
         self.old = {}
+        if same and (self.path / "store.npz").exists():    # the store as it was (sorted, one entry per hash): no rewrite
+            for f in d.glob("*.npz"): f.unlink()
+            return
         tmp = self.path / "store.tmp.npz"
         np.savez(tmp, **arrs)
         tmp.replace(self.path / "store.npz")
