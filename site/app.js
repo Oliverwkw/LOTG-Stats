@@ -1361,10 +1361,12 @@ async function predict(_a, _q, live) {
     return clinchStatus(w, left, P.teams);
   };
   const delta = (a, b) => { const d = Math.round((a - b) * 100); return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d}</span>` : ""; };
+  // the same, in the column's own units (wins, points), to one decimal
+  const delta1 = (a, b) => { const d = Math.round((a - b) * 10) / 10; return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d.toFixed(1)}</span>` : ""; };
   function draw() {
     const res = simulate(true);
     const T = res.tally;
-    const rows = teams.map((t) => ({ t, ...T[t], mean: res.L[t].mean, base: base.tally[t] })).sort((a, b) => b.title - a.title || b.playoffs - a.playoffs);
+    const rows = teams.map((t) => ({ t, ...T[t], mean: res.L[t].mean, base: base.tally[t], baseMean: base.L[t].mean })).sort((a, b) => b.title - a.title || b.playoffs - a.playoffs);
     const ST = status();
     const pct = (x, t, cap) => oddsText(x, !cap && ST.sure.has(t), ST.out.has(t), false);
     document.getElementById("pres").innerHTML = table([
@@ -1373,13 +1375,13 @@ async function predict(_a, _q, live) {
       { k: "final", label: "Final", html: (r) => `${pct(r.final / N, r.t, true)} ${delta(r.final / N, r.base.final / N)}` },
       { k: "title", label: "Title", html: (r) => `<b>${pct(r.title / N, r.t, true)}</b> ${delta(r.title / N, r.base.title / N)}` },
       { k: (r) => (base0[r.t] || {}).w, label: "Now", html: (r) => `${(base0[r.t] || {}).w || 0}-${(base0[r.t] || {}).l || 0}` },
-      { k: "wins", label: "Proj. wins", html: (r) => fmt({ d: 1 }, r.wins / N) },
+      { k: "wins", label: "Proj. wins", html: (r) => `${fmt({ d: 1 }, r.wins / N)} ${delta1(r.wins / N, r.base.wins / N)}` },
       { k: "seed1", label: "1st seed", html: (r) => `${pct(r.seed1 / N, r.t, true)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
-      { k: "mean", label: "Pts/wk", html: (r) => fmt({ d: 1 }, r.mean) },
+      { k: "mean", label: "Pts/wk", html: (r) => `${fmt({ d: 1 }, r.mean)} ${delta1(r.mean, r.baseMean)}` },
     ], rows);
     document.getElementById("pmoves").innerHTML = moves.length ? `<ul class="small">${moves.map((m, i) => `<li>${esc((nfl[m.pid] || [])[0] || m.pid)} → ${m.to === "out" ? "out for the season" : esc(m.to)} <button class="b mini" data-undo="${i}">undo</button></li>`).join("")}</ul>` : `<p class="muted small">No roster changes.</p>`;
     const changed = Object.keys(picks).length + moves.length;
-    document.getElementById("pstate").textContent = changed ? `${changed} change${changed === 1 ? "" : "s"} · small +/− numbers = percentage points vs no changes` : "No changes yet: these are the baseline odds.";
+    document.getElementById("pstate").textContent = changed ? `${changed} change${changed === 1 ? "" : "s"} · small +/− = change vs no changes (percentage points for odds; wins and points for those columns)` : "No changes yet: these are the baseline odds.";
   }
   const byWeek = weeks.map((w) => [w, games.map((g, i) => [g, i]).filter(([g]) => g.w === w)]);
   const allPlayers = teams.flatMap((t) => (live.rosterOf[t]?.players || []).map((pid) => [pid, t])).filter(([pid]) => (nfl[pid] || [])[1])
