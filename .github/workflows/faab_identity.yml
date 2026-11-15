@@ -1,0 +1,166 @@
+name: FAAB old-vs-new identity check
+
+# For a FAAB change that must not move any value (a speed-up, a refactor): runs main's pipeline and this branch's on
+# the same restored cache, each on its own runner at the same time, and byte-compares every output. Jobs (parallel):
+#   main / branch rebuild   - the weekly rebuild (--no-fetch) + publish: inputs, evidence, history, pick prices,
+#                             awards, the rating page's board and questions, and every cached pipeline frame
+#   main / branch history   - --history-only from the cached grid frame
+#   branch cold (optional)  - the branch rebuild with the prediction cache off (FAAB_PREDICT_CACHE=0)
+# then one compare job. Read-only: nothing is committed; the only cache it writes is the prediction cache
+# (faabpc-*, never the rebuild's faab-* cache), from main's tree, when the restored one does not fit main's base.
+#
+# Run it from the Actions tab (Run workflow, pick the branch) or by pushing a change to this file.
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/faab_identity.yml"]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Ref to compare against"
+        type: string
+        default: main
+      cold:
+        description: "Also run the branch with the prediction cache off (slower, ~14 min)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: faab-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PC: .cache/faab/pipeline/predict
+
+jobs:
+  run:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.cold && '[{"name":"main rebuild","tree":"main","mode":"rebuild"},{"name":"branch rebuild","tree":"branch","mode":"rebuild"},{"name":"main history","tree":"main","mode":"history"},{"name":"branch history","tree":"branch","mode":"history"},{"name":"branch cold","tree":"branch","mode":"cold"}]' || '[{"name":"main rebuild","tree":"main","mode":"rebuild"},{"name":"branch rebuild","tree":"branch","mode":"rebuild"},{"name":"main history","tree":"main","mode":"history"},{"name":"branch history","tree":"branch","mode":"history"}]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.tree == 'main' && (inputs.base || 'main') || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests pyyaml pytest
+      - name: Restore pipeline cache (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-none
+          restore-keys: faab-
+      - name: Does the restored prediction cache fit this tree's base?
+        id: pc
+        if: matrix.mode == 'rebuild'
+        run: |
+          python - <<'PY' | tee -a "$GITHUB_OUTPUT"
+          import json, sys, pathlib
+          sys.path.insert(0, "lib")
+          from lotg_support import faab_frozen as FB
+          want = FB.cache_tag(json.loads(pathlib.Path("data/faab_value/frozen/manifest.json").read_text()))
+          m = pathlib.Path("${{ env.PC }}/meta.json")
+          have = json.loads(m.read_text()).get("tag") if m.exists() else None
+          print("fits=" + ("true" if have == want else "false"))
+          PY
+      - name: Restore the prediction cache
+        if: matrix.mode == 'rebuild' && steps.pc.outputs.fits != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PC }}
+          key: faabpc-none
+          restore-keys: faabpc-
+      - name: Check it again
+        id: pc2
+        if: matrix.mode == 'rebuild' && steps.pc.outputs.fits != 'true'
+        run: |
+          python - <<'PY' | tee -a "$GITHUB_OUTPUT"
+          import json, sys, pathlib
+          sys.path.insert(0, "lib")
+          from lotg_support import faab_frozen as FB
+          want = FB.cache_tag(json.loads(pathlib.Path("data/faab_value/frozen/manifest.json").read_text()))
+          m = pathlib.Path("${{ env.PC }}/meta.json")
+          have = json.loads(m.read_text()).get("tag") if m.exists() else None
+          print("fits=" + ("true" if have == want else "false"))
+          PY
+      - name: Run
+        env:
+          FAAB_PREDICT_CACHE: ${{ matrix.mode == 'cold' && '0' || '1' }}
+        run: |
+          set -euo pipefail
+          echo "${{ matrix.name }}: $(git rev-parse --short HEAD), $(nproc) cores, prediction cache fits: ${{ steps.pc.outputs.fits }} / ${{ steps.pc2.outputs.fits }}"
+          mkdir -p out; s=$(date +%s)
+          if [ "${{ matrix.mode }}" = "history" ]; then
+            python scripts/faab_rebuild.py --history-only --out out 2>&1 | tee out/run.log
+          else
+            python scripts/faab_rebuild.py --no-fetch 2>&1 | tee out/run.log
+            python scripts/faab_value.py publish
+            for f in data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/history.csv data/faab_value/pick_prices.csv data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json; do cp "$f" out/; done
+          fi
+          echo "${{ matrix.name }}: $(( $(date +%s) - s ))s" > out/time.txt; cat out/time.txt
+      - name: Hash the cached pipeline frames
+        if: matrix.mode != 'history'
+        run: |
+          python - <<'PY' > out/frames.txt
+          import hashlib, pathlib, pandas as pd
+          for f in sorted(pathlib.Path(".cache/faab/pipeline").glob("*.parquet")):
+              d = pd.read_parquet(f); h = hashlib.sha256(repr([(c, str(t)) for c, t in d.dtypes.items()]).encode())
+              h.update(pd.util.hash_pandas_object(d, index=True).to_numpy().tobytes())
+              print(f.name, len(d), h.hexdigest())
+          PY
+          cat out/frames.txt
+      - name: Save the prediction cache (main's tree, when the restored one did not fit)
+        if: matrix.tree == 'main' && matrix.mode == 'rebuild' && steps.pc.outputs.fits != 'true' && steps.pc2.outputs.fits != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PC }}
+          key: faabpc-${{ github.run_id }}
+      - name: FAAB tests
+        if: matrix.tree == 'branch' && matrix.mode == 'history'
+        run: python -m pytest -q tests/test_faab_speed.py tests/test_faab_frozen.py tests/test_faab_value.py tests/test_faab_pipeline.py tests/test_faab_history.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.tree }}-${{ matrix.mode }}
+          path: out/
+          retention-days: 7
+
+  compare:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: r
+      - name: Compare
+        run: |
+          set -uo pipefail
+          bad=0
+          same() { if cmp -s "$1" "$2"; then echo "IDENTICAL $3"; else echo "DIFFERENT $3"; bad=1; fi; }
+          for f in inputs.csv evidence.json history.csv pick_prices.csv awards.csv board.json questions.json; do
+            same r/main-rebuild/$f r/branch-rebuild/$f "rebuild $f"
+            [ -d r/branch-cold ] && same r/main-rebuild/$f r/branch-cold/$f "cold-cache $f"
+          done
+          for f in history.csv pick_prices.csv; do same r/main-history/$f r/branch-history/$f "history-only $f"; done
+          same r/main-rebuild/frames.txt r/branch-rebuild/frames.txt "cached pipeline frames"
+          [ -d r/branch-cold ] && same r/main-rebuild/frames.txt r/branch-cold/frames.txt "cold-cache pipeline frames"
+          diff r/main-rebuild/frames.txt r/branch-rebuild/frames.txt || true
+          grep -h "prediction cache" r/*/run.log || true
+          cat r/*/time.txt
+          { echo '```'; cat r/*/time.txt; echo; grep -h "prediction cache" r/*/run.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $bad
