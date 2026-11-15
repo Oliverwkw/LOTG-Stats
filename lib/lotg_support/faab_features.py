@@ -518,15 +518,17 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
     if not len(a): return out, nan
     gs_row = rows.gsis.astype(str).values
     team_row = team_on(gs_row, dt, roster)
+    r_pos = rows.pos.values; r_sid = rows.sid.astype(str).to_numpy(dtype=object)
     for (s, sid), g in a.groupby(["s", "sid"]):
         pos, gs = inf.pos.get(sid), inf.gsis.get(sid)
         if pos is None or pd.isna(gs): continue
-        m = np.where((s_row == s) & (rows.pos.values == pos) & (rows.sid.astype(str).values != sid))[0]
+        m = np.where((s_row == s) & (r_pos == pos) & (r_sid != sid))[0]
         if not len(m): continue
         g = g.sort_values("date"); got = np.maximum.accumulate(g.spend.values)
         k = np.searchsorted(g.date.values.astype("datetime64[ns]"), dt[m].astype("datetime64[ns]"), side="right")
         paid = np.where(k > 0, got[np.clip(k - 1, 0, None)], 0.0)
-        tr = team_on(np.full(len(m), str(gs)), dt[m], roster)
+        ud, inv = np.unique(dt[m], return_inverse=True)        # the rookie's team is a function of the date: once per date
+        tr = team_on(np.full(len(ud), str(gs)), ud, roster)[inv.ravel()]
         out[m] += paid * ((tr == team_row[m]) & pd.notna(tr))
     held = nan.copy()
     if gl is None: return out, held
@@ -606,7 +608,7 @@ def ypc_with_current(rows, gl):
     kn = {k: (v.season.values, v.known.values) for k, v in by.items()}
     dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
     memo = {}            # the rows read depend only on (player, season, this season's games known): each once
-    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).values, s_row)):
+    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).to_numpy(dtype=object), s_row)):
         v = by.get(gs)
         if v is None: continue
         se, kw = kn[gs]
@@ -638,15 +640,16 @@ def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
         if q is None or q["count"] < min_games or t is None: continue
         k = (t, x.position, y); best[k] = max(best.get(k, 0.0), float(q["mean"]))
     memo = {}            # a row reads only (player, season, position): each once
+    gsv, posv = rows.gsis.to_numpy(dtype=object), rows.pos.to_numpy(dtype=object)      # numpy: no per-row column lookups
     for i in range(len(rows)):
-        gs, y = str(rows.gsis.values[i]), int(s_row[i]) - 1
-        mk = (gs, y, rows.pos.values[i]); r = memo.get(mk, memo)
+        gs, y = str(gsv[i]), int(s_row[i]) - 1
+        mk = (gs, y, posv[i]); r = memo.get(mk, memo)
         if r is memo:
             r = None
             q = g.loc[(gs, y)] if (gs, y) in g.index else None
             t = last.get((gs, y))
             if not (q is None or q["count"] < own_min or t is None):
-                b = best.get((t, rows.pos.values[i], y), 0.0)
+                b = best.get((t, posv[i], y), 0.0)
                 if not (d.draft_year[d.gsis_id == gs] == y).any():                 # not a rookie himself
                     r = float(np.clip((b - q["mean"]) / gap, 0, 1))
             memo[mk] = r

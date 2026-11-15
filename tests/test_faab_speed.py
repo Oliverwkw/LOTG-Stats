@@ -188,6 +188,50 @@ def test_quarter_chunks_come_back_in_year_chunk_order():
     pd.testing.assert_frame_equal(serial, par)
 
 
+def test_polyval_by_pos_matches_np_polyval():
+    from lotg_support import faab_base as B
+    rng = np.random.default_rng(5)
+    coefs = {"QB": np.array([-0.0021, 0.11, -1.37]), "RB": np.array([-0.004, 0.19, -2.1]), "WR": rng.normal(size=4)}
+    pos = rng.choice(np.array(["QB", "RB", "WR", "TE", None], dtype=object), 3000)
+    for dt in ("float64", "float32"):
+        age = (rng.normal(26, 4, 3000)).astype(dt)
+        for k in (0, 1, 3):
+            ref = np.array([np.polyval(coefs[p], a + k) if p in coefs else 0 for p, a in zip(pos, age)])
+            got = B.polyval_by_pos(coefs, pos, age + k)
+            assert got.dtype == ref.dtype and np.array_equal(got, ref), (dt, k)
+            ref2 = np.array([np.clip(np.polyval(coefs[p], a + k), -1.0, 0.3) if p in coefs else 0.0 for p, a in zip(pos, age)])
+            assert np.array_equal(np.clip(got, -1.0, 0.3), ref2)
+
+
+def test_prediction_cache_returns_the_same_floats():
+    import tempfile
+    from lotg_support import faab_predict_cache as PCM
+    rng = np.random.default_rng(6)
+    X = pd.DataFrame(dict(a=rng.normal(size=500), b=rng.integers(0, 5, 500).astype(float), c=rng.normal(size=500)))
+    X.loc[::7, "a"] = np.nan
+    calls = []
+    def fn(d):
+        calls.append(len(d)); return np.nan_to_num(d.a.values) * 3.1 + d.b.values ** 2 - np.sin(d.c.values)
+    ref = fn(X); calls.clear()
+    with tempfile.TemporaryDirectory() as tmp:
+        pc = PCM.PredictCache(tmp, "t1")
+        assert np.array_equal(pc.predict(("t", 0, 1), fn, X), ref) and calls == [500]
+        pc.save()
+        pc = PCM.PredictCache(tmp, "t1"); calls.clear()
+        Y = pd.concat([X.iloc[100:300], X.iloc[:50].assign(c=lambda d: d.c + 1e-12)])      # 200 seen rows, 50 changed
+        got = pc.predict(("t", 0, 1), fn, Y)
+        assert np.array_equal(got, fn(Y)) and calls == [50, 250], calls
+        assert pc.hits == 200 and pc.misses == 50
+        pc.save()                                       # keeps what this run used: rows 100-300 and the 50 changed
+        pc = PCM.PredictCache(tmp, "t1"); calls.clear()
+        assert np.array_equal(pc.predict(("t", 0, 1), fn, X), ref) and calls == [300] and pc.hits == 200
+        assert np.array_equal(pc.predict(("t", 0, 1), fn, Y), fn(Y)) and pc.hits == 200 + 250
+        calls.clear()
+        assert np.array_equal(pc.predict(("t", 0, 2), fn, X), ref) and calls == [500]          # another model: its own store
+        pc2 = PCM.PredictCache(tmp, "t2"); calls.clear()                                            # another tag: cold
+        assert np.array_equal(pc2.predict(("t", 0, 1), fn, X), ref) and calls == [500]
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]:
         print(f"{fn.__name__}:")

@@ -58,6 +58,15 @@ jobs:
           s=$(date +%s)
           python scripts/faab_rebuild.py --no-fetch 2>&1 | tee "$RUNNER_TEMP/new_rebuild.log"
           echo "branch rebuild: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
+      - name: Rebuild again (warm prediction cache) - branch
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cold"
+          for f in inputs.csv evidence.json history.csv pick_prices.csv; do cp data/faab_value/$f "$RUNNER_TEMP/cold/$f"; done
+          du -sh .cache/faab/pipeline/predict || true
+          s=$(date +%s)
+          python scripts/faab_rebuild.py --no-fetch 2>&1 | tee "$RUNNER_TEMP/warm_rebuild.log"
+          echo "branch rebuild, warm cache: $(( $(date +%s) - s ))s" | tee -a "$RUNNER_TEMP/times.txt"
       - name: History-only - main and branch
         run: |
           set -euo pipefail
@@ -78,6 +87,9 @@ jobs:
           M="$RUNNER_TEMP/main"; bad=0
           for f in data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/history.csv data/faab_value/pick_prices.csv data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json; do
             if cmp -s "$M/$f" "$f"; then echo "IDENTICAL $f"; else echo "DIFFERENT $f"; bad=1; fi
+          done
+          for f in inputs.csv evidence.json history.csv pick_prices.csv; do
+            if cmp -s "$M/data/faab_value/$f" "$RUNNER_TEMP/cold/$f"; then echo "IDENTICAL cold-cache $f"; else echo "DIFFERENT cold-cache $f"; bad=1; fi
           done
           for f in history.csv pick_prices.csv; do
             if cmp -s "$RUNNER_TEMP/h_old/$f" "$RUNNER_TEMP/h_new/$f"; then echo "IDENTICAL history-only $f"; else echo "DIFFERENT history-only $f"; bad=1; fi

@@ -102,6 +102,20 @@ def aging_curves(s):
     return cur
 
 
+def polyval_by_pos(coefs, pos, x):
+    """np.polyval(coefs[pos[i]], x[i]) for every row (0 where the position has no curve): the same Horner steps
+    np.polyval takes on each scalar, run on all of a position's rows at once, so the same floats"""
+    x = np.asarray(x); out = np.zeros(len(x))
+    pos = np.asarray(pos, dtype=object)
+    for p, c in coefs.items():
+        m = pos == p
+        if not m.any(): continue
+        xm = x[m]; y = np.zeros_like(xm)
+        for cv in np.asarray(c): y = y * xm + cv
+        out[m] = y
+    return out
+
+
 def production_value(df, R, cur, years=5, disc=0.75, games=15):
     """R: each row's replacement level (Football.repl_rows)"""
     pos = df.pos.values; R = np.asarray(R, dtype=float)
@@ -114,7 +128,7 @@ def production_value(df, R, cur, years=5, disc=0.75, games=15):
     pv = np.zeros(len(df)); ppg = base.copy()
     for y in range(years):
         pv += disc ** y * games * np.clip(ppg - R, 0, None)
-        lr = np.array([np.polyval(cur[p], a + y) if p in cur else 0 for p, a in zip(pos, age)])
+        lr = polyval_by_pos(cur, pos, age + y)
         ppg = ppg * np.exp(np.clip(lr, -0.5, 0.3))
     pv[~has] = np.nan
     return pv, base
@@ -262,7 +276,7 @@ class Football:
         level, R, pos, games, has, age = self.pv8_level(df, ceil_w, R)
         out = np.zeros(len(df), bool) if out_now is None else np.asarray(out_now, bool)
         cw = np.nan_to_num(df.c_weeks.values.astype(float)); f = np.where(cw > 0, np.clip(cw / 18, 0, 1), 0.0)
-        lr = np.array([[np.clip(np.polyval(self.cur2[p], a_ + k), -1.0, 0.3) if p in self.cur2 else 0.0 for k in range(7)] for p, a_ in zip(pos, age)])
+        lr = np.column_stack([np.clip(polyval_by_pos(self.cur2, pos, age + k), -1.0, 0.3) for k in range(7)])   # 0 = no curve
         cum = np.concatenate([np.zeros((len(df), 1)), np.cumsum(lr, axis=1)], axis=1)
         pv = np.zeros(len(df))
         for y in range(6):

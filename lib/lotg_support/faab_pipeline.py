@@ -400,7 +400,9 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
         log(f"frozen base {fdir} (frozen {FB.meta.get('freeze_date')}, {FB.meta['bags']} bags)")
     LRv = LR[LR.date <= (pd.Timestamp(end) if end else LR.date.max())]
     Fg = F_all[F_all.date >= FZ.GRID_START]; del F_all       # one copy of the grid in memory while the base runs
-    Bk = FB.apply(Fg, LRv, U, seasons, log=log, classes=classes)
+    import os               # FAAB_PREDICT_CACHE=0: predict every row (the cache returns the same floats, only faster)
+    pc = None if os.environ.get("FAAB_PREDICT_CACHE", "1") == "0" else WORK / "predict"
+    Bk = FB.apply(Fg, LRv, U, seasons, log=log, classes=classes, cache=pc)
     del Fg
     # rows that exist only for an evidence date's full board are smoothed after the others, so adding them changes no
     # other row's value (each is smoothed with the rows before it)
