@@ -409,6 +409,12 @@ slot fade-in (`faab_pick_slots`) weights the schedule's slot prices exactly as b
   far-off trades 53 -> 52 at +$25 and 24 -> 24 at +$100, trade error 0.8454 -> 0.8516, total 3.669 -> 3.688.
 - Football reason: a pick far from its draft is an unknown class at an unknown slot and a long wait; the NFL draft
   fixes landing spots and the value peaks; it then settles to the drafted player's price by the league draft.
+- **Strictly decreasing board** (2026-11-14, Oliver: "a second can't be worth a first"; the FAAB page showed a 2027 2nd
+  locked at 2.01 for $626, the same as the 1.08): the slot medians tied where the old non-increasing fix flattened them
+  (1.08 = 2.01, 2.08 = 3.01, 4.02 = 4.03, 4.04 = 4.05). `strict_board` keeps the first of a tied run and steps the rest
+  geometrically toward the next lower price (2.01 $615 -> $528, 3.01 $160 -> $134, 4.03 $41 -> $36, 4.05 $32 -> $28);
+  the 2.09 is priced as the 2.08 ($184 -> $160). Committed params, evidence repriced: calls 125/129, trade error
+  0.836 -> 0.845, far-off 56/24 -> 58/25 (the round-2 and round-3 averages fall with it).
 - Classes 2027+: the NFL draft date is the Thursday in Apr 23-29 (every draft 2020-26 fits); `NFL_DRAFT` overrides.
 
 ## The noise bar, and every rule needs a reason

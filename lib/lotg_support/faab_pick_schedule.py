@@ -129,6 +129,31 @@ def load(data: Path = DATA) -> Schedule:
     return _CACHE[k]
 
 
+def strict_board(base: Dict[str, float]) -> Dict[str, float]:
+    """the slot prices made strictly decreasing down the board (Oliver, 2026-11-14: "a second can't be worth a first").
+    The slot medians tie where the old non-increasing fix flattened them (1.08 = 2.01, 2.08 = 3.01, 4.02 = 4.03,
+    4.04 = 4.05): in a run of k tied slots the first keeps its price and the rest step geometrically toward the next
+    lower price (i-th: v * (next / v) ** (i / k)), so every later pick is worth less than every earlier one. The 2.09
+    (the toilet-bowl pick) is valued as the 2.08, as everywhere in the league's pick conventions."""
+    order = sorted((s for s in base if overall(s) is not None and s != "2.09"), key=overall)
+    v = [float(base[s]) for s in order]
+    out = dict(base)
+    i = 0
+    while i < len(v):
+        j = i
+        while j + 1 < len(v) and v[j + 1] >= v[i] - 1e-9:
+            j += 1
+        if j > i:
+            k = j - i + 1
+            nxt = v[j + 1] if j + 1 < len(v) else v[i] * 0.9 ** k
+            for m in range(1, k):
+                out[order[i + m]] = round(v[i] * (nxt / v[i]) ** (m / k), 3)
+        i = j + 1
+    if "2.09" in out and "2.08" in out:
+        out["2.09"] = out["2.08"]
+    return out
+
+
 # --------------------------------------------------------------------------------------------- design (KTC, offline)
 
 BANDS = {"A": [0, 1, 2], "B": [3, 4, 5, 6, 7]}      # KTC 12-team quarters: 0 = Early 1st ... 7 = Mid 3rd (overall 29-32)

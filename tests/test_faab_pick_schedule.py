@@ -35,6 +35,24 @@ def test_further_out_never_dearer_before_the_nfl_draft():
         assert all(a <= b + 1e-12 for a, b in zip(v, v[1:]))
 
 
+def test_every_later_pick_worth_less_at_every_week():
+    """a second is never worth a first (Oliver, 2026-11-14): strictly decreasing down the board, every week"""
+    S = PS.load()
+    slots = sorted((s for s in S.base if s != "2.09"), key=PS.overall)
+    for w in range(-200, 25, 3):
+        d = PS.nfl_draft(2027) + pd.Timedelta(weeks=w)
+        t = S.table(2027, d)
+        v = [t[s] for s in slots]
+        assert all(a > b for a, b in zip(v, v[1:])), (w, [(s, round(x)) for s, x in zip(slots, v)])
+    assert S.base["2.09"] == S.base["2.08"]
+
+
+def test_strict_board_spreads_ties():
+    b = PS.strict_board({"1.07": 800.0, "1.08": 600.0, "2.01": 600.0, "2.02": 450.0, "2.08": 100.0, "2.09": 180.0})
+    assert b["1.08"] == 600.0 and 450.0 < b["2.01"] < 600.0
+    assert b["2.09"] == b["2.08"] == 100.0
+
+
 def test_runtime_reads_no_ktc():
     src = (ROOT / "lib" / "lotg_support" / "faab_pick_schedule.py").read_text()
     head = src[:src.index("# ---------------------------------------------------------------------------------------------")]
