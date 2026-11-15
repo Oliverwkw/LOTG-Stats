@@ -247,35 +247,81 @@ def qb_base(R, idx):
     return np.array([look.get(i, np.nan) for i in idx], dtype=float)
 
 
-def backup_columns(E, gsis, pa):
+def backup_columns(E, gsis, pa, workers=None):
     """e_x_rookie_backup (league spend on this season's same-team, same-position rookies) and e_x_rookie_backup_use
     (the player's own usage so far over his last season) and e_x_draft_comp (same-team, same-position rookies the NFL
-    took in rounds 1-2 this season) for the exported rows; needs the feature store (load_store)"""
+    took in rounds 1-2 this season) for the exported rows; needs the feature store (load_store).
+
+    Each feature is its own function of the rows and the store, so they run side by side over `workers` forked
+    processes (default faab_base.WORKERS; 1 = in this process; serial for a small E) and are assigned in the order
+    they always were: the same columns either way."""
     if getattr(X, "RW", None) is None: return E
     adds = pd.DataFrame(dict(sid=pa.sid.astype(str), date=pd.to_datetime(pa.Date.astype(str).str[:10]), type=pa["Addition type"],
                              price=pa["Price paid (FAAB)"])).dropna(subset=["sid"])
     info = kp.player_info(sorted(set(adds.sid)))
     rows = pd.DataFrame(dict(sid=E.sid.astype(str).values, gsis=pd.Series(gsis).astype(str).values, date=pd.to_datetime(E.date).values, pos=E.pos.values))
-    sp, sn = X.rookie_backup_spend(rows, adds, info, X.RW, X.GL)
     dp = pd.read_csv(ROOT / "exports" / "snapshot" / "dynastyprocess_playerids.csv", low_memory=False)
-    dc = X.nfl_draft_comp(rows, dp, X.RW, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
-    dc1 = X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=X.departed(dp, X.RW, X.GL) if X.GL is not None else None)
-    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=dc, e_x_draft_comp_r1=dc1)
-    E = E.assign(e_x_league_undrafted=np.round(X.league_undrafted(rows, adds), 5))
-    E = E.assign(e_x_league_draft_done=X.league_draft_done(rows, adds))
+    pos_of = dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position
+    gone = lambda: X.departed(dp, X.RW, X.GL) if X.GL is not None else None
+
+    def contracts():
+        try:
+            from . import contracts as CT
+            return X.vet_deal_cap(rows, CT.load_contracts())
+        except Exception as e:      # no contracts file (offline, no pyarrow): the rule reads NaN and stays off
+            return e
+    jobs = dict(spend=lambda: X.rookie_backup_spend(rows, adds, info, X.RW, X.GL),
+                dc=lambda: X.nfl_draft_comp(rows, dp, X.RW, gone=gone()),
+                dc1=lambda: X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=gone()),
+                undrafted=lambda: X.league_undrafted(rows, adds),
+                draft_done=lambda: X.league_draft_done(rows, adds),
+                contracts=contracts)
     if X.GL is not None:
-        E = E.assign(e_x_te_one_off=X.te_one_off(rows, X.GL, X.RW), e_x_ypc_3s=np.round(X.ypc_with_current(rows, X.GL), 5),
-                     e_x_overtaken=np.round(X.overtaken_by_rookie(rows, X.GL, X.RW, dp), 5), e_x_te_top3=X.te_top3(rows, X.GL, pos=dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position))
-        pos_of = dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").set_index(dp.dropna(subset=["gsis_id"]).drop_duplicates("gsis_id").gsis_id.astype(str)).position
-        E = E.assign(**{k: (np.round(v, 5) if np.asarray(v).dtype.kind == "f" else v) for k, v in X.round5_columns(rows, X.GL, pos_of, adds).items()})
-        rk, cp = X.rb_room(rows, X.GL, X.RW, dp, pos_of)
+        jobs.update(te_one_off=lambda: X.te_one_off(rows, X.GL, X.RW), ypc=lambda: X.ypc_with_current(rows, X.GL),
+                    overtaken=lambda: X.overtaken_by_rookie(rows, X.GL, X.RW, dp), te_top3=lambda: X.te_top3(rows, X.GL, pos=pos_of),
+                    round5=lambda: X.round5_columns(rows, X.GL, pos_of, adds), rb_room=lambda: X.rb_room(rows, X.GL, X.RW, dp, pos_of))
+    J = _run_jobs(jobs, workers if len(E) >= 2000 else 1)
+    sp, sn = J["spend"]
+    E = E.assign(e_x_rookie_backup=np.round(sp, 5), e_x_rookie_backup_held=np.round(sn, 5), e_x_draft_comp=J["dc"], e_x_draft_comp_r1=J["dc1"])
+    E = E.assign(e_x_league_undrafted=np.round(J["undrafted"], 5))
+    E = E.assign(e_x_league_draft_done=J["draft_done"])
+    if X.GL is not None:
+        E = E.assign(e_x_te_one_off=J["te_one_off"], e_x_ypc_3s=np.round(J["ypc"], 5),
+                     e_x_overtaken=np.round(J["overtaken"], 5), e_x_te_top3=J["te_top3"])
+        E = E.assign(**{k: (np.round(v, 5) if np.asarray(v).dtype.kind == "f" else v) for k, v in J["round5"].items()})
+        rk, cp = J["rb_room"]
         E = E.assign(e_x_rb_prev_rank=rk, e_x_rb_comp=cp)
-    try:
-        from . import contracts as CT
-        E = E.assign(e_x_vet_deal_cap=X.vet_deal_cap(rows, CT.load_contracts()))
-    except Exception as e:      # no contracts file (offline, no pyarrow): the rule reads NaN and stays off
-        print(f"contracts unavailable ({type(e).__name__}): e_x_vet_deal_cap left empty")
+    if isinstance(J["contracts"], Exception):
+        print(f"contracts unavailable ({type(J['contracts']).__name__}): e_x_vet_deal_cap left empty")
+    else:
+        E = E.assign(e_x_vet_deal_cap=J["contracts"])
     return E
+
+
+_JOBS = None
+
+
+def _job(name):
+    return _JOBS[name]()
+
+
+def _run_jobs(jobs, workers=None):
+    """{name: thunk()} for independent thunks, over forked processes (they share the parent's tables); the children
+    run pandas / numpy only, no OpenMP"""
+    global _JOBS
+    if not workers:
+        from . import faab_base as B
+        workers = B.WORKERS
+    n = min(max(1, int(workers)), len(jobs))
+    if n <= 1:
+        return {k: f() for k, f in jobs.items()}
+    import multiprocessing as mp
+    _JOBS = jobs
+    try:
+        with mp.get_context("fork").Pool(n) as pool:
+            return dict(zip(jobs, pool.map(_job, list(jobs), chunksize=1)))
+    finally:
+        _JOBS = None
 
 
 def export(R, tr, cut, out=V.DATA, responses=None, pa=None):
@@ -353,8 +399,9 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
         FB = FZ.FrozenBase.load(FZ.ensure(fdir, log=log))
         log(f"frozen base {fdir} (frozen {FB.meta.get('freeze_date')}, {FB.meta['bags']} bags)")
     LRv = LR[LR.date <= (pd.Timestamp(end) if end else LR.date.max())]
-    Bk = FB.apply(F_all[F_all.date >= FZ.GRID_START], LRv, U, seasons, log=log, classes=classes)
-    del F_all
+    Fg = F_all[F_all.date >= FZ.GRID_START]; del F_all       # one copy of the grid in memory while the base runs
+    Bk = FB.apply(Fg, LRv, U, seasons, log=log, classes=classes)
+    del Fg
     # rows that exist only for an evidence date's full board are smoothed after the others, so adding them changes no
     # other row's value (each is smoothed with the rows before it)
     old = set(zip(E.sid.astype(str), pd.to_datetime(E.date).values.astype("datetime64[ns]")))

@@ -173,10 +173,11 @@ def supply_ctx(rows, s, U, uval, levels=DEPTH_LEVELS):
     j = np.searchsorted(ud, rd, side="right") - 1
     lv = np.asarray(levels, dtype=float)
     out = np.full((len(rows), 1 + len(lv)), np.nan)
-    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).values
+    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).to_numpy(dtype=object)   # numpy: iterating an
+    # arrow-backed column is ~10x slower
     gi = pd.Series(np.arange(len(U))).groupby([Ud, Up]).indices
     own = dict(zip(zip(Us, Ud), uval))
-    rp = rows.pos.values; rs = rows.sid.astype(str).values; s = np.asarray(s, dtype=float)
+    rp = rows.pos.values; rs = rows.sid.astype(str).to_numpy(dtype=object); s = np.asarray(s, dtype=float)
     keys = pd.Series(np.arange(len(rows))).groupby([np.where(j >= 0, j, -1), rp]).indices
     for (jj, p), ix in keys.items():
         if jj < 0: continue
@@ -446,32 +447,71 @@ class FrozenBase:
             if m.any(): S1[m] = Tb[k].predict(F[m])
         return S1
 
-    def apply(self, F, LR, U, seasons, log=print, chunk="YS", classes=None):
-        """the base (L, S and the context columns) on every row of F, a chunk of dates at a time"""
+    def apply(self, F, LR, U, seasons, log=print, chunk="YS", classes=None, workers=None):
+        """the base (L, S and the context columns) on every row of F, a chunk of dates at a time.
+
+        Every step is a function of the row (its own columns, the shared universe and league history), so the result
+        does not depend on how the rows are chunked. With `workers` > 1 (default faab_base.WORKERS; 1 = in this
+        process) the universe's 25 translator predictions, the league history and then quarter-sized chunks run over
+        forked processes, one tree thread each (the trees' predictions do not depend on the thread count), and come back
+        in date order: the same frame as one process. Forked so the rows and models are shared, not copied; the parent
+        runs no OpenMP code before it forks (every prediction happens in the children)."""
         import time
         t0 = time.time()
+        n = max(1, int(workers or B.WORKERS))
         fb = self.football(seasons)
         Uc = fb.add_pv(U.copy()).reset_index(drop=True)
-        UP = self.universe_values(Uc)
         classes = class_table_from_universe(Uc) if classes is None else classes
-        hist = self.league_history(LR, Uc, UP, fb, classes)
-        log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
         d = pd.to_datetime(F.date)
-        edges = list(pd.date_range(d.min().normalize() - pd.offsets.YearBegin(1), d.max() + pd.offsets.YearBegin(1), freq=chunk))
-        out = []
-        for lo, hi in zip(edges[:-1], edges[1:]):
-            m = ((d >= lo) & (d < hi)).values
-            if not m.any(): continue
-            C = self.context(F[m], hist, Uc, UP, fb, classes)
-            C["L"], C["S"] = self.apply_rows(C)
-            C["sqS"] = np.sqrt(C.S.clip(0)); C["fold"] = B.fold_of(C.sid, 0)
-            C["a_dS"] = C.sqS.values - np.sqrt(np.clip(C["aS0"].values, 0, None))
-            C = C.drop(columns=[c for c in C.columns if c.startswith("_S1_")])
-            for c in C.columns:
-                if C[c].dtype == "float64" and c not in ("L", "S"): C[c] = C[c].astype("float32")
-            out.append(C)
-            log(f"frozen base: {lo.date()} .. {hi.date()}: {int(m.sum())} rows ({time.time() - t0:.0f}s)")
-        return pd.concat(out, ignore_index=True)
+        spans, masks = _date_chunks(d, chunk)
+        if n <= 1:
+            UP = self.universe_values(Uc)
+            hist = self.league_history(LR, Uc, UP, fb, classes)
+            log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
+            out = []
+            for (lo, hi), m in zip(spans, masks):
+                out.append(self._apply_chunk(F[m], hist, Uc, UP, fb, classes))
+                log(f"frozen base: {lo.date()} .. {hi.date()}: {int(m.sum())} rows ({time.time() - t0:.0f}s)")
+            return pd.concat(out, ignore_index=True)
+        import gc
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+        global _FZ_STATE
+        keys = [(b, k) for b in range(len(self.bags)) for k in range(5)]
+        _, qmasks = _date_chunks(d, "QS")                  # smaller pieces for the processes (less memory each, better balance)
+
+        def pool():
+            return ProcessPoolExecutor(n, mp_context=mp.get_context("fork"), initializer=_one_thread)
+        gc.collect(); gc.freeze()                # the children share the parent's objects: keep the collector off them
+        try:
+            _FZ_STATE = dict(FB=self, Uc=Uc, fb=fb, classes=classes, LR=LR)
+            with pool() as ex:
+                UP = dict(zip(keys, ex.map(_fork_universe, keys)))
+                hist = ex.submit(_fork_history, UP).result()
+            log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
+            _FZ_STATE.update(UP=UP, hist=hist, F=F, masks=qmasks)
+            with pool() as ex:
+                out = list(ex.map(_fork_chunk, range(len(qmasks))))
+        except BrokenProcessPool as e:          # a process died (out of memory): the same result, one process
+            log(f"frozen base: worker process lost ({e}); running in one process")
+            _FZ_STATE = None; gc.unfreeze()
+            return self.apply(F, LR, U, seasons, log=log, chunk=chunk, classes=classes, workers=1)
+        finally:
+            _FZ_STATE = None; gc.unfreeze()
+        log(f"frozen base: {len(qmasks)} quarter chunks, {int(sum(m.sum() for m in qmasks))} rows, over {n} processes ({time.time() - t0:.0f}s)")
+        # each piece keeps F's row order; put the rows back in the order one process returns them (by `chunk`, then F's order)
+        return pd.concat(out, ignore_index=True).iloc[_serial_order(qmasks, masks)].reset_index(drop=True)
+
+    def _apply_chunk(self, Fm, hist, Uc, UP, fb, classes):
+        C = self.context(Fm, hist, Uc, UP, fb, classes)
+        C["L"], C["S"] = self.apply_rows(C)
+        C["sqS"] = np.sqrt(C.S.clip(0)); C["fold"] = B.fold_of(C.sid, 0)
+        C["a_dS"] = C.sqS.values - np.sqrt(np.clip(C["aS0"].values, 0, None))
+        C = C.drop(columns=[c for c in C.columns if c.startswith("_S1_")])
+        for c in C.columns:
+            if C[c].dtype == "float64" and c not in ("L", "S"): C[c] = C[c].astype("float32")
+        return C
 
     # ---- store
     @staticmethod
@@ -520,6 +560,53 @@ class FrozenBase:
                 raise ValueError(f"{f} does not match the manifest's sha256: refreeze or restore it")
             bags.append(joblib.load(f))
         return cls(bags, meta)
+
+
+def _date_chunks(d, freq):
+    """(spans, row masks) of the dates `d` cut at `freq` edges counted from the first year's 1 January (empty pieces left out)"""
+    edges = list(pd.date_range(d.min().normalize() - pd.offsets.YearBegin(1), d.max() + pd.offsets.YearBegin(1), freq=freq))
+    sp, ms = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = ((d >= lo) & (d < hi)).values
+        if m.any(): sp.append((lo, hi)); ms.append(m)
+    return sp, ms
+
+
+def _serial_order(pieces, masks):
+    """the positions that put rows stacked piece by piece (each piece in F's order) into the order of rows stacked
+    chunk by chunk under `masks` (each chunk in F's order); every piece must sit inside one chunk or span several whole
+    ones in order"""
+    pos = np.concatenate([np.flatnonzero(m) for m in pieces])
+    cid = np.full(len(masks[0]), -1)
+    for i, m in enumerate(masks): cid[m] = i
+    return np.lexsort((pos, cid[pos]))
+
+
+_FZ_STATE = None
+
+
+def _one_thread():
+    try:
+        from threadpoolctl import threadpool_limits
+        global _LIMITS
+        _LIMITS = threadpool_limits(1)
+    except Exception:                  # noqa: BLE001 - only a speed setting
+        pass
+
+
+def _fork_universe(bk):
+    b, k = bk; S = _FZ_STATE
+    return S["FB"].bags[b]["trans"][k].predict(S["Uc"])
+
+
+def _fork_history(UP):
+    S = _FZ_STATE
+    return S["FB"].league_history(S["LR"], S["Uc"], UP, S["fb"], S["classes"])
+
+
+def _fork_chunk(i):
+    S = _FZ_STATE
+    return S["FB"]._apply_chunk(S["F"][S["masks"][i]], S["hist"], S["Uc"], S["UP"], S["fb"], S["classes"])
 
 
 def exists(path=DIR):

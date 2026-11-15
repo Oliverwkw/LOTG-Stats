@@ -347,7 +347,8 @@ def smooth_route(tl, hist, a=0.1, b=1.0, k=1.0, c=0.25):
     days = (tl.date - prev).dt.days.fillna(0).values
     g = np.where(prev.isna(), 0, kp.nfl_weeks_between(prev.fillna(tl.date), tl.date))
     lam = np.where(prev.isna(), 1.0, 1 - np.exp(-(a * days / 30 + b * g)))
-    Ls = np.empty(len(tl)); sid = tl.sid.values; L = tl.L.values
+    Ls = np.empty(len(tl)); sid = tl.sid.to_numpy(dtype=object); L = tl.L.to_numpy()      # numpy arrays: per-element reads of an
+    # arrow-backed column are ~20x slower in this loop
     for i in range(len(tl)):
         Ls[i] = L[i] if (i == 0 or sid[i] != sid[i - 1]) else Ls[i - 1] + lam[i] * (L[i] - Ls[i - 1])
     tl["Ls"] = Ls

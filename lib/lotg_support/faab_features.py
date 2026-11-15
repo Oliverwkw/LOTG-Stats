@@ -777,18 +777,27 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         y2 = sum(rc.rush_yds.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).fillna(0).values for k in range(2))
         out["ypc_2y"] = np.where(c2 >= 100, y2 / np.maximum(c2, 1), np.nan)
     g = g.sort_values(["gsis", "known"]); groups = {k: (v.known.values.astype("datetime64[ns]"), v.ppr.values.astype(float), v.season.values.astype(int)) for k, v in g.groupby("gsis")}
+    memo = {}           # a row's values depend only on (player, games known by the date, last complete season)
     for i in range(N):
         t = groups.get(gsis[i])
         if t is None: continue
         k = int(np.searchsorted(t[0], date_v[i], side="right"))          # games known by the date
-        cs = np.r_[0.0, np.cumsum(t[1][:k])]
-        if k >= n: out["form_last"][i] = (cs[k] - cs[k - n]) / n
-        if k >= 2 * n: out["form_prev"][i] = (cs[k - n] - cs[k - 2 * n]) / n
-        cur = t[2][:k] == l0_s[i] + 1                                    # this season's games so far (none in the offseason)
-        out["gp_cur"][i] = cur.sum()
-        if cur.any(): out["ppg_cur"][i] = t[1][:k][cur].mean()
-        rec = t[2][:k] >= l0_s[i] - 1                                    # the last two complete seasons and this one
-        if rec.any(): out["max_2y"][i] = t[1][:k][rec].max()
+        key = (gsis[i], k, l0_s[i]); r = memo.get(key)
+        if r is None:
+            cs = np.r_[0.0, np.cumsum(t[1][:k])]
+            fl = (cs[k] - cs[k - n]) / n if k >= n else None
+            fp = (cs[k - n] - cs[k - 2 * n]) / n if k >= 2 * n else None
+            cur = t[2][:k] == l0_s[i] + 1                                # this season's games so far (none in the offseason)
+            gc = cur.sum(); pc = t[1][:k][cur].mean() if cur.any() else None
+            rec = t[2][:k] >= l0_s[i] - 1                                # the last two complete seasons and this one
+            mx = t[1][:k][rec].max() if rec.any() else None
+            r = memo[key] = (fl, fp, gc, pc, mx)
+        fl, fp, gc, pc, mx = r
+        if fl is not None: out["form_last"][i] = fl
+        if fp is not None: out["form_prev"][i] = fp
+        out["gp_cur"][i] = gc
+        if pc is not None: out["ppg_cur"][i] = pc
+        if mx is not None: out["max_2y"][i] = mx
     return out
 
 
@@ -804,17 +813,22 @@ def since_injury(gl, iw, gsis, date_v):
     w = iw.assign(gsis=lambda x: x.gsis.astype(str), k=lambda x: x.season.astype(int) * 100 + x.week.astype(int)).sort_values("known")
     G = {a: (v.known.values.astype("datetime64[ns]"), v.k.values, v.ppr.values.astype(float)) for a, v in g.groupby("gsis")}
     I_ = {a: (v.known.values.astype("datetime64[ns]"), np.maximum.accumulate(v.k.values)) for a, v in w.groupby("gsis")}
+    memo = {}
     for i in range(N):
         t = I_.get(gsis[i])
         if t is None: continue
         j = int(np.searchsorted(t[0], date_v[i], side="right"))
         if j == 0: continue
-        last = t[1][j - 1]; ppg_, gp_ = np.nan, 0
         u = G.get(gsis[i])
-        if u is not None:
-            k = int(np.searchsorted(u[0], date_v[i], side="right")); m = u[1][:k] > last
-            gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
-        ppg[i], gp[i] = ppg_, gp_
+        k = int(np.searchsorted(u[0], date_v[i], side="right")) if u is not None else -1
+        key = (gsis[i], j, k); r = memo.get(key)       # depends only on the weeks out and games known by the date
+        if r is None:
+            last = t[1][j - 1]; ppg_, gp_ = np.nan, 0
+            if u is not None:
+                m = u[1][:k] > last
+                gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
+            r = memo[key] = (ppg_, gp_)
+        ppg[i], gp[i] = r
     return ppg, gp
 
 
