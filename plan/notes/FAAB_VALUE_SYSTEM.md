@@ -504,8 +504,8 @@ one process. Most of the weekly run (~26 of 37 min) is the current quarter's 5 f
 (The speed numbers and the reproduction below describe the quarterly walk-forward base the frozen base replaced.)
 
 **Speed, frozen base (2026-11-15, PR #598; outputs byte-identical to main, checked old vs new on the same cache, with
-the prediction cache cold and warm):** the weekly rebuild takes ~8 min locally with a warm prediction cache (~10 min
-cold; main took ~19), and the history-only rebuild ~70 s on CI (was ~134 s). What changed, none of it a value change:
+the prediction cache cold and warm):** the weekly rebuild takes ~9 min on CI with a warm prediction cache (533 s; 858 s
+cold; main 1269 s on the same runner; locally ~7 / ~12 / ~19 min), and the history-only rebuild 88 s on CI (main 198 s). What changed, none of it a value change:
 - `FrozenBase.apply` runs the universe's 25 translator predictions, the league history and then quarter-sized row
   chunks over forked processes (one tree thread each; tree predictions do not depend on the thread count), and puts
   the rows back in the one-process order. A worker that dies (out of memory) reruns the stage in one process.
