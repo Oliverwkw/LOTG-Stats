@@ -404,9 +404,14 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
     refreeze = refreeze or full or not FZ.exists(fdir)
     last = D.current_season()
     if fetch: D.fetch_all(last, log=log)
-    X.build_store(last, log=log); X.load_store()
+    # the feature store (it writes only its own files) is built in a forked process while this one reads the league
+    # tables and the league-date stats frame, which never read the store; then the store is loaded as before
+    child = _fork(X.build_store, last)
     pa = I.player_additions_sid(); TR = I.trades(pa); drops = I.drops(pa); picks = I.Picks(pa)
-    o0 = X.add_x(I.league_frame(pa)); LR = B.league_rows(o0, pa)
+    LF = I.league_frame(pa)
+    _join(child, X.build_store, last, log)
+    X.load_store()
+    o0 = X.add_x(LF); LR = B.league_rows(o0, pa)
     E = I.evidence(LR)
     ED = evidence_dates(TR, pa)
     # the grid from the supply universe's first Tuesday: rows before the first valued date (the 2020 startup draft)
@@ -472,6 +477,22 @@ def rebuild(full=False, fetch=True, log=print, end=None, out=None, max_minutes=N
 
 
 _FORMULA = None
+
+
+def _fork(fn, *a):
+    """fn(*a) in a forked process (None where fork is unavailable: _join then runs it here)"""
+    try:
+        import multiprocessing as mp, sys
+        sys.stdout.flush(); sys.stderr.flush()      # (or the child would print this process's buffered lines again)
+        p = mp.get_context("fork").Process(target=fn, args=a); p.start(); return p
+    except Exception:          # noqa: BLE001 - no fork: run it in this process
+        return None
+
+
+def _join(p, fn, last, log):
+    if p is None: return fn(last, log=log)
+    p.join()
+    if p.exitcode != 0: raise RuntimeError(f"{fn.__name__} failed in its process (exit {p.exitcode})")
 
 
 def _formula_at(g):
