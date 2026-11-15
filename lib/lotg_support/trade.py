@@ -30,6 +30,7 @@ import pandas as pd
 
 from . import fast
 from . import forecast as F
+from . import ir_status as IR
 from . import inquiry as Q
 
 
@@ -108,6 +109,8 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     teams = Q.teams(tr.year)
     rid_of = {v: k for k, v in teams.items()}
     notes = F.research_overrides(tr.year)
+    known = max(Q.played_weeks(tr.year) or [0])
+    on_ir = F._on_ir(tr.year, known) if _injury_curve() and known else {}
     rows = []
     for side, d, owner in (("gives", tr.give, tr.team), ("gets", tr.get, tr.partner)):
         for pid, name in d.items():
@@ -126,14 +129,26 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
             p = avail.get(name, base.get(pos, base.get("_default")))
             flag = desig.get(pid, "")
             reserve = pid in state.get(rid_of.get(owner), {}).get("reserve", frozenset())
-            note = notes.get(name)
+            note = notes.get(pid)
+            if note is not None and not note.applies(known):
+                note = None                       # describes weeks already played
             capped = (reserve or flag in F.OUT_DESIGNATIONS)
             if capped and not _injury_curve():
                 p = min(p, F.AvailabilityModel().reserve_availability)
-            if note is not None and note.availability is not None:
-                p = note.availability
-            row["fcst avail"] = (round(p, 2) if p is not None else None) if not (capped and _injury_curve()) \
-                else "return curve"
+            # the same precedence the forecast uses: a dated note, then IR, then the curve
+            if note is not None and note.out_through_week is not None:
+                shown = f"out thru wk {note.out_through_week}"
+            elif note is not None and note.availability is not None:
+                shown = round(note.availability, 2)
+            elif pid in on_ir:
+                placed, missed = on_ir[pid]
+                back = known + 1 + max(IR.ir_min_games(tr.year) - missed, 0)
+                shown = f"IR (wk {placed}): wk {back}+ on IR curve"
+            elif capped and _injury_curve():
+                shown = "return curve"
+            else:
+                shown = round(p, 2) if p is not None else None
+            row["fcst avail"] = shown
             row["status"] = ", ".join(x for x in (flag, "IR slot" if reserve else "",
                                                   f"research note x{note.rate_multiplier:g}" if note else "") if x) or "-"
             rows.append(row)
@@ -283,7 +298,7 @@ def _patched(tr: Optional[Trade], rate: Dict[str, float], healthy: Iterable[str]
     healthy_names = {_norm(n) for n in healthy}
     players = Q.players()
     orig = (F.startable_pool, F.player_rates, F._designations, F._roster_state,
-            None, F.research_overrides)
+            None, F.research_overrides, F._on_ir)
     teams = Q.teams(tr.year) if tr else {}
     rid_of = {v: k for k, v in teams.items()}
 
@@ -333,17 +348,23 @@ def _patched(tr: Optional[Trade], rate: Dict[str, float], healthy: Iterable[str]
         out = orig[5](year)
         if not healthy_names:
             return out
-        return {n: (_no_avail(v) if _norm(n) in healthy_names else v) for n, v in out.items()}
+        return {k: (_no_avail(v) if _norm(v.player) in healthy_names or is_healthy(k) else v)
+                for k, v in out.items()}
+
+    def on_ir(year, through_week):
+        return {k: v for k, v in orig[6](year, through_week).items() if not is_healthy(k)}
 
     F.startable_pool, F.player_rates = pool, rates
     F._designations, F._roster_state = designations, roster_state
     F.research_overrides = research
+    F._on_ir = on_ir
     _clear()
     try:
         yield
     finally:
         (F.startable_pool, F.player_rates, F._designations, F._roster_state) = orig[:4]
         F.research_overrides = orig[5]
+        F._on_ir = orig[6]
         _clear()
 
 
@@ -356,7 +377,7 @@ def _clear() -> None:
 
 def _no_avail(note):
     import dataclasses
-    return dataclasses.replace(note, availability=None)
+    return dataclasses.replace(note, availability=None, out_through_week=None)
 
 
 @dataclass
