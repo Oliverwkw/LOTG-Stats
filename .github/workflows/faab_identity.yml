@@ -35,6 +35,11 @@ concurrency:
 
 env:
   PC: .cache/faab/pipeline/predict
+  # The jobs land on different runner CPUs (some with AVX-512, some without), and numpy / OpenBLAS pick their
+  # vector kernels by CPU, which moves the last digits of some float sums. Both sides use the same AVX2 kernels so
+  # a difference here comes from the code, not the hardware.
+  NPY_DISABLE_CPU_FEATURES: "X86_V4 AVX512_ICL AVX512_SPR"
+  OPENBLAS_CORETYPE: Haswell
 
 jobs:
   run:
@@ -110,7 +115,7 @@ jobs:
             python scripts/faab_value.py publish
             for f in data/faab_value/inputs.csv data/faab_value/evidence.json data/faab_value/history.csv data/faab_value/pick_prices.csv data/faab_value/awards.csv docs/rate/board.json docs/rate/questions.json; do cp "$f" out/; done
           fi
-          echo "${{ matrix.name }}: $(( $(date +%s) - s ))s" > out/time.txt; cat out/time.txt
+          echo "${{ matrix.name }}: $(( $(date +%s) - s ))s on $(lscpu | sed -n 's/^Model name: *//p')" > out/time.txt; cat out/time.txt
       - name: Hash the cached pipeline frames
         if: matrix.mode != 'history'
         run: |
@@ -147,6 +152,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: r
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
+        continue-on-error: true
       - name: Compare
         run: |
           set -uo pipefail
@@ -160,6 +170,28 @@ jobs:
           same r/main-rebuild/frames.txt r/branch-rebuild/frames.txt "cached pipeline frames"
           [ -d r/branch-cold ] && same r/main-rebuild/frames.txt r/branch-cold/frames.txt "cold-cache pipeline frames"
           diff r/main-rebuild/frames.txt r/branch-rebuild/frames.txt || true
+          # how far apart any differing table is (rows, columns, the largest gap)
+          python - <<'PY' || true
+          import pathlib, pandas as pd, numpy as np
+          pairs = {"main-rebuild": ("branch-rebuild", "branch-cold"), "main-history": ("branch-history",)}
+          for a in sorted(pathlib.Path("r").glob("main-*/*.csv")):
+              for side in pairs[a.parent.name]:
+                  b = pathlib.Path("r") / side / a.name
+                  if not b.exists() or a.read_bytes() == b.read_bytes(): continue
+                  x, y = pd.read_csv(a), pd.read_csv(b)
+                  if x.shape != y.shape or list(x.columns) != list(y.columns): print(side, a.name, "shape", x.shape, y.shape); continue
+                  rows = np.zeros(len(x), bool)
+                  for c in x.columns:
+                      u, v = x[c], y[c]
+                      if pd.api.types.is_numeric_dtype(u) and pd.api.types.is_numeric_dtype(v):
+                          d = (u - v).abs(); m = d.fillna(0).gt(0) | (u.isna() != v.isna())
+                          if m.any(): print(f"{side} {a.name} {c}: {int(m.sum())} rows, max gap {d.max():.3g} (largest value {u.abs().max():.3g})")
+                      else:
+                          m = u.astype(str) != v.astype(str)
+                          if m.any(): print(f"{side} {a.name} {c}: {int(m.sum())} rows differ (text)")
+                      rows |= m.to_numpy()
+                  print(f"{side} {a.name}: {int(rows.sum())} of {len(x)} rows differ")
+          PY
           grep -h "prediction cache" r/*/run.log || true
           cat r/*/time.txt
           { echo '```'; cat r/*/time.txt; echo; grep -h "prediction cache" r/*/run.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
