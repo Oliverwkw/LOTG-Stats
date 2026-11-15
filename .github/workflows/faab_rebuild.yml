@@ -42,6 +42,12 @@ concurrency:
   group: faab-values-write
   cancel-in-progress: false
 
+# The same numpy / OpenBLAS vector kernels on every runner CPU (some have AVX-512, some not): the kernel choice
+# moves the last digits of some float sums, which can flip a tree split and move a value (Oliver, 2026-11-15: pin it).
+env:
+  NPY_DISABLE_CPU_FEATURES: "X86_V4 AVX512_ICL AVX512_SPR"
+  OPENBLAS_CORETYPE: Haswell
+
 jobs:
   rebuild:
     runs-on: ubuntu-latest

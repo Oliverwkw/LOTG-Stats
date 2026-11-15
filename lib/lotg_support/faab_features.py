@@ -232,13 +232,19 @@ def build_week(X, FC, OUT, years):
     st["p5"] = st.college_conference.isin(P5).astype(float)
     # college usage (ESPN ids carry over from college to the NFL)
     us = pd.concat([pd.read_parquet(f) for f in glob.glob(f"{X}/cfb/usage_players_*.parquet")], ignore_index=True)
+    us = us[us.player_id.notna()]                    # (a blank id matched whichever NFL player has a blank ESPN id)
     us["gsis"] = us.player_id.astype(str).map(ESPN2G); us = us.dropna(subset=["gsis"])
+    # one row per player and season: his team's row, the one with the most opportunities (an all-star game is a row
+    # of its own; picking between them by sort order changed past values whenever nflverse's player table changed)
+    us = (us.assign(_o=us.opportunities.astype(float).fillna(-1), _t=us.touches.astype(float).fillna(-1), _p=us.pos_team.astype(str))
+          .sort_values(["gsis", "season", "_o", "_t", "_p"], kind="mergesort").drop_duplicates(["gsis", "season"], keep="last")
+          .drop(columns=["_o", "_t", "_p"]))
     us = us.merge(st[["gsis", "birth_date", "draft_year"]], on="gsis", how="left")
     us = us[us.season < us.draft_year.fillna(9999)]
     us["age_s"] = (pd.to_datetime(us.season.astype(str) + "-09-01") - pd.to_datetime(us.birth_date)).dt.days / 365.25
     us["share"] = us[["target_share", "touch_share"]].max(axis=1)
-    last = us.sort_values("season").groupby("gsis").tail(1).set_index("gsis")
-    bo = us[us.share >= 0.20].sort_values("season").groupby("gsis").head(1).set_index("gsis").age_s
+    last = us.sort_values(["gsis", "season"], kind="mergesort").groupby("gsis").tail(1).set_index("gsis")
+    bo = us[us.share >= 0.20].sort_values(["gsis", "season"], kind="mergesort").groupby("gsis").head(1).set_index("gsis").age_s
     cu = pd.DataFrame({"c_last_tgt_share": last.target_share, "c_last_touch_share": last.touch_share, "c_last_epa_opp": last.epa_per_opportunity,
                        "c_max_share": us.groupby("gsis").share.max(), "c_breakout_age": bo, "c_seasons": us.groupby("gsis").season.nunique(),
                        "c_rz_share": last.rz_touches / last.team_touches.replace(0, np.nan)})
