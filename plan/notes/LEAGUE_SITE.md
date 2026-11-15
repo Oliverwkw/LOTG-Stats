@@ -19,7 +19,7 @@ A static site for league-mates, published on GitHub Pages at
 | Week: every matchup that week | `#/week/<year>/<week>` | same |
 | Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
-| Predictions: pick winners and move players, season odds re-simulated in the browser. Who can play each week comes from the forecast's injury model (`home.json` `forecast.avail`: P(he plays) per Sleeper id per remaining week from `forecast.avail_from`; Out players on the return curve, IR players not before the NFL minimum, research-file "out through week" notes); a player it did not price falls back to "out / IR / reserve slot = out for the season" | `#/predict` | `data/home.json`, `data/live_watch.json`, Sleeper live |
+| Predictions: pick winners and move players, season odds re-simulated in the browser. Who can play each week comes from the forecast's injury model (`home.json` `forecast.avail`: P(he plays) per Sleeper id per remaining week from `forecast.avail_from`; Out players on the return curve, IR players not before the NFL minimum, research-file "out through week" notes, ESPN's daily timelines: `forecast.espn` labels, listed in an "Injury timelines from ESPN" card); a player it did not price falls back to "out / IR / reserve slot = out for the season" | `#/predict` | `data/home.json`, `data/live_watch.json`, Sleeper live |
 
 **"Still counting"** on the record boards is decided per cell (`Counting`, `column_clock` in league_site.py). Each column of a move sheet runs on its own clock, read from its definition in formulas.csv:
 

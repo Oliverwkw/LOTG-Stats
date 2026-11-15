@@ -111,6 +111,8 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     notes = F.research_overrides(tr.year)
     known = max(Q.played_weeks(tr.year) or [0])
     on_ir = F._on_ir(tr.year, known) if _injury_curve() and known else {}
+    espn = (F._espn_timelines(tr.year, known + 1, F.AvailabilityModel().espn_max_age_days)[0]
+            if _injury_curve() and known else {})
     rows = []
     for side, d, owner in (("gives", tr.give, tr.team), ("gets", tr.get, tr.partner)):
         for pid, name in d.items():
@@ -135,11 +137,19 @@ def player_table(tr: Trade, pw: Optional[pd.DataFrame] = None) -> pd.DataFrame:
             capped = (reserve or flag in F.OUT_DESIGNATIONS)
             if capped and not _injury_curve():
                 p = min(p, F.AvailabilityModel().reserve_availability)
-            # the same precedence the forecast uses: a dated note, then IR, then the curve
+            # the same precedence the forecast uses: a dated note, then ESPN's
+            # timeline, then IR, then the curve
+            es = espn.get(pid)
+            if es is not None and es.status not in F.ESPN_HOLD:
+                es = None
             if note is not None and note.out_through_week is not None:
                 shown = f"out thru wk {note.out_through_week}"
             elif note is not None and note.availability is not None:
                 shown = round(note.availability, 2)
+            elif es is not None and es.season_ending:
+                shown = es.label()
+            elif es is not None and es.return_week and es.return_week > known + 1:
+                shown = es.label() + (" then IR curve" if pid in on_ir else " then curve")
             elif pid in on_ir:
                 placed, missed = on_ir[pid]
                 back = known + 1 + max(IR.ir_min_games(tr.year) - missed, 0)
@@ -298,7 +308,7 @@ def _patched(tr: Optional[Trade], rate: Dict[str, float], healthy: Iterable[str]
     healthy_names = {_norm(n) for n in healthy}
     players = Q.players()
     orig = (F.startable_pool, F.player_rates, F._designations, F._roster_state,
-            None, F.research_overrides, F._on_ir)
+            None, F.research_overrides, F._on_ir, F._espn_timelines)
     teams = Q.teams(tr.year) if tr else {}
     rid_of = {v: k for k, v in teams.items()}
 
@@ -354,10 +364,15 @@ def _patched(tr: Optional[Trade], rate: Dict[str, float], healthy: Iterable[str]
     def on_ir(year, through_week):
         return {k: v for k, v in orig[6](year, through_week).items() if not is_healthy(k)}
 
+    def espn_timelines(year, first_week, max_age):
+        rows, note = orig[7](year, first_week, max_age)
+        return {k: v for k, v in rows.items() if not is_healthy(k)}, note
+
     F.startable_pool, F.player_rates = pool, rates
     F._designations, F._roster_state = designations, roster_state
     F.research_overrides = research
     F._on_ir = on_ir
+    F._espn_timelines = espn_timelines
     _clear()
     try:
         yield
@@ -365,6 +380,7 @@ def _patched(tr: Optional[Trade], rate: Dict[str, float], healthy: Iterable[str]
         (F.startable_pool, F.player_rates, F._designations, F._roster_state) = orig[:4]
         F.research_overrides = orig[5]
         F._on_ir = orig[6]
+        F._espn_timelines = orig[7]
         _clear()
 
 
@@ -488,7 +504,11 @@ def caveats(tr: Trade, run_: Optional[TradeRun], table: pd.DataFrame,
     capped = table[table["status"].str.contains("IR|Out|IR slot", case=False, regex=True)]
     for r in capped.itertuples(index=False):
         if _injury_curve():
-            out.append(f"{r.Player}: {r.status} -> the forecast's injury return curve; --healthy \"{r.Player}\" drops it")
+            how = str(r[table.columns.get_loc("fcst avail")])
+            how = how if how.startswith("ESPN") else "the forecast's injury return curve"
+            out.append(f"{r.Player}: {r.status} -> {how}; --healthy \"{r.Player}\" drops it"
+                       + (" (ESPN dates are estimates, not yet validated: check the news)"
+                          if how.startswith("ESPN") else ""))
             continue
         out.append(f"{r.Player}: {r.status} -> capped at {r[table.columns.get_loc('fcst avail')]} availability "
                    f"every remaining week (draws are independent weekly; 'out now, back week N' is not modelled)"

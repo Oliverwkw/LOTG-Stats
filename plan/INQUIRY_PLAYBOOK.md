@@ -126,6 +126,7 @@ the answer, not a silent choice.
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/streaks/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, runs beating / missing a projection, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
+| `lotg_support.espn_injuries` (`scripts/capture_espn_injuries.py`) | ESPN's daily injury list: status, estimated return week, season-ending flag, by Sleeper id (`data/espn_injuries.csv`); `calibration()` scores the logged dates |
 | `lotg_support.ir_status` (`scripts/ir_history.py`) | injured reserve: who is on it at a cutoff and since when (tracker from 2026, nflverse weekly rosters before), the NFL minimum by season, and the IR return curve the forecast uses |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
@@ -637,6 +638,18 @@ minimum (3 games in 2021, 4 from 2022; `lotg_support.ir_status`), then comes
 back on an IR-specific curve fitted from nflverse's weekly rosters
 (`plan/notes/ir_spells.csv`, rebuilt by `scripts/ir_history.py`), not on the
 general one. Who is on IR comes from `data/injury_tracker.csv` from 2026.
+
+*How long a listed player is out comes from ESPN, daily, without Claude.*
+`.github/workflows/espn_injuries.yml` captures ESPN's injury list for every NFL
+team each morning into `data/espn_injuries.csv` (`lotg_support.espn_injuries`,
+`scripts/capture_espn_injuries.py`). A LIVE forecast holds an IR / Out / PUP /
+suspended player out for the season when ESPN dates his return after the season
+AND the reporting says season-ending (or it is an ACL / Achilles / patellar
+tear; ESPN uses the same after-season date for "no timeline"), and out until
+ESPN's estimated return week otherwise, then on the curve's first-week hazard.
+A research-file row wins. The dates are NOT validated (ESPN keeps no history);
+`data/espn_injury_log.csv` logs every change so `espn_injuries.calibration()`
+can score them after the season. A capture over 10 days old is ignored.
 
 *The backtest may not see the present.* Today's injury designations, today's
 free agents and a research file written today are all future information to a
