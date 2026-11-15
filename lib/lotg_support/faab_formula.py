@@ -112,12 +112,25 @@ class Formula:
             self._wk[s] = w[w.season_type == "REG"]
         return self._wk[s]
 
+    def _memo(self, name, key, fn):
+        """fn() once per key (the pieces below are functions of the season and weeks played, or of the drafts held:
+        most grid dates share them); a copy, so a caller can never change the stored one"""
+        m = self.__dict__.setdefault("_memo_" + name, {})
+        if key not in m: m[key] = fn()
+        return m[key].copy()
+
     def rob_at(self, date):
         s, n = weeks_done(date)
+        return self._memo("rob", (s, n), lambda: self._rob(s, n))
+
+    def _rob(self, s, n):
         w = self._wkfile(s); w = w[w.week <= n]
         return w.groupby("player_id").fantasy_points_ppr.apply(lambda s_: (lambda p: (sum(p) - 0.5 * p[-1]) / (len(p) - 0.5) if len(p) >= 4 else sum(p) / len(p))(sorted(s_)))
 
     def _prov(self, season, n):
+        return self._memo("prov", (season, n), lambda: self._prov_(season, n))
+
+    def _prov_(self, season, n):
         w = self._wkfile(season); w = w[w.week <= n]
         g = w.groupby(["player_id", "position"]).fantasy_points_ppr.agg(["mean", "size"]).reset_index()
         g = g[g["size"] >= max(3, n * 8 / 17)]
@@ -232,7 +245,8 @@ class Formula:
 
     def slotv_at(self, date):
         m = self.m.dropna(subset=["Price paid (FAAB)"]); held = m.Year.astype(int).map(lambda y: self.DRAFT_DAY.get(y, pd.Timestamp(f"{y}-07-15")))
-        return m[held.values < pd.Timestamp(date)].groupby("Number")["Price paid (FAAB)"].median()
+        k = held.values < pd.Timestamp(date)
+        return self._memo("slotv", k.tobytes(), lambda: m[k].groupby("Number")["Price paid (FAAB)"].median())
 
     # ---- the formula pieces
     @staticmethod

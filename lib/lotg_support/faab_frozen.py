@@ -168,16 +168,18 @@ def supply_ctx(rows, s, U, uval, levels=DEPTH_LEVELS):
     at his position (his own player left out): column 0 = his rank (1 + the number valued above him), then one column
     per depth level = how many are valued above it (how deep the position is at the elite / starter / flex levels that
     week). `s` and `uval` must come from the same model (the row's fold)."""
-    ud = np.unique(U.date.values.astype("datetime64[ns]"))
+    ud, gi, sids, upos = _universe_index(U)
+    uval = np.asarray(uval)
     rd = pd.to_datetime(rows.date).values.astype("datetime64[ns]")
     j = np.searchsorted(ud, rd, side="right") - 1
     lv = np.asarray(levels, dtype=float)
     out = np.full((len(rows), 1 + len(lv)), np.nan)
-    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).to_numpy(dtype=object)   # numpy: iterating an
-    # arrow-backed column is ~10x slower
-    gi = pd.Series(np.arange(len(U))).groupby([Ud, Up]).indices
-    own = dict(zip(zip(Us, Ud), uval))
-    rp = rows.pos.values; rs = rows.sid.astype(str).to_numpy(dtype=object); s = np.asarray(s, dtype=float)
+    rp = rows.pos.values; s = np.asarray(s, dtype=float)
+    # the row's own universe value that Tuesday (the last universe row of his sid and that date), else -inf
+    code = sids.get_indexer(rows.sid.astype(str).to_numpy(dtype=object))
+    at = upos.reindex(np.where((code >= 0) & (j >= 0), code * len(ud) + j, -1)).to_numpy()
+    OV = np.full(len(rows), -np.inf); ok = ~np.isnan(at)
+    OV[ok] = uval[at[ok].astype(np.int64)]
     keys = pd.Series(np.arange(len(rows))).groupby([np.where(j >= 0, j, -1), rp]).indices
     for (jj, p), ix in keys.items():
         if jj < 0: continue
@@ -185,11 +187,31 @@ def supply_ctx(rows, s, U, uval, levels=DEPTH_LEVELS):
         if g is None: continue
         asc = np.sort(uval[g])
         cnt = len(asc) - np.searchsorted(asc, s[ix], side="right")
-        ov = np.array([own.get((x, u), -np.inf) for x in rs[ix]])
+        ov = OV[ix]
         out[ix, 0] = 1 + cnt - (ov > s[ix])
         above = len(asc) - np.searchsorted(asc, lv, side="right")
         out[ix, 1:] = above[None, :] - (ov[:, None] > lv[None, :])
     return out
+
+
+_UIX = {}
+
+
+def _universe_index(U):
+    """what supply_ctx reads from the universe itself, built once per universe frame (per process): its Tuesdays, the
+    rows of each (Tuesday, position), and each (sid, Tuesday)'s last row (the row a dict over the universe keeps)"""
+    if _UIX.get("U") is U and _UIX.get("n") == len(U): return _UIX["ix"]
+    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values
+    Us = U.sid.astype(str).to_numpy(dtype=object)     # numpy: iterating an arrow-backed column is ~10x slower
+    ud = np.unique(Ud)
+    gi = pd.Series(np.arange(len(U))).groupby([Ud, Up]).indices
+    sc, sids = pd.factorize(Us)
+    key = sc.astype(np.int64) * len(ud) + np.searchsorted(ud, Ud)
+    upos = pd.Series(np.arange(len(U), dtype=float), index=key)
+    upos = upos[~upos.index.duplicated(keep="last")]
+    ix = (ud, gi, pd.Index(sids), upos)
+    _UIX.clear(); _UIX.update(U=U, n=len(U), ix=ix)
+    return ix
 
 
 def supply_rank(rows, s, U, uval):
@@ -392,7 +414,8 @@ class FrozenBase:
 
     def universe_values(self, U):
         """the translator on the supply universe, every (bag, fold)"""
-        return {(b, k): _pred(("t", b, k), self.bags[b]["trans"][k].predict, U[self.bags[b]["trans"][k].F])
+        return {(b, k): _pred(("t", b, k), self.bags[b]["trans"][k].predict, lambda T=self.bags[b]["trans"][k]: U[T.F], base=U,
+                              cols=self.bags[b]["trans"][k].F)
                 for b in range(len(self.bags)) for k in range(5)}
 
     def context(self, F, hist, U, UP, football, classes=None):
@@ -409,7 +432,8 @@ class FrozenBase:
                 m = fd == k
                 if not m.any(): continue
                 T = self.bags[b]["trans"][k]
-                S1[m] = _pred(("t", b, k), T.predict, F.loc[m, T.F]); u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
+                S1[m] = _pred(("t", b, k), T.predict, lambda: F.loc[m, T.F], base=F, m=m, cols=T.F)
+                u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
             F[f"_S1_{b}"] = S1
             for i, c in enumerate(ucols(b)): F[c] = u[:, i]
             F[f"aS{b}"] = np.where(F.a_hi.values >= 0, hist[f"S{b}"].values[np.maximum(F.a_hi.values, 0)], np.nan)
@@ -426,6 +450,10 @@ class FrozenBase:
         """(L, S) of rows that carry their context (context()): a function of the rows' columns only (no date)"""
         L_all, S_all = [], []
         COLS = self.meta["COLS"]
+        TF = self.bags[0]["trans"][0].F
+        # the ld models read the translator's columns plus a few: their cache keys combine the translator columns' row
+        # hashes (taken once) with the rest's (a row's key is still a function of exactly the columns the model reads)
+        XT = [c for c in COLS if c not in set(TF)] if set(TF) <= set(COLS) else None
         for b, bg in enumerate(self.bags):
             S1 = F[f"_S1_{b}"].values if f"_S1_{b}" in F else self._S1(F, bg["trans"], b)
             S = self._S_rows(F, bg["trans"], bg["supply"], None, None, b, S1=S1, u=F[ucols(b)].values, cols=self.meta["SUPPLY_COLS"])
@@ -436,7 +464,9 @@ class FrozenBase:
                 m = fd == k
                 if not m.any(): continue
                 r = Fb[m]
-                LD = _pred(("ld", b, k), lambda X, ms=bg["ld"][k]: B.ld_pred(ms, X, COLS), r[COLS])
+                fn = lambda X, ms=bg["ld"][k]: B.ld_pred(ms, X, COLS)
+                if XT is None: LD = _pred(("ld", b, k), fn, r[COLS])
+                else: LD = _pred(("ld", b, k), fn, lambda r=r: r[COLS], base=F, m=m, cols=TF, extra=r[XT])
                 L[m] = B.hybrid(LD, B.LG8(r, bg["cv"][k], bg["qS"][k], bg["qP"][k], B.A_PV, B.NM))
             L_all.append(B.gated_boost(Fb, L, B.BOOST, 2, 30)); S_all.append(S)
         return np.mean(L_all, axis=0), np.mean(S_all, axis=0)
@@ -615,7 +645,7 @@ def _one_thread():
 
 def _fork_universe(bk):
     b, k = bk; S = _FZ_STATE; T = S["FB"].bags[b]["trans"][k]
-    return _pred(("t", b, k), T.predict, S["Uc"][T.F]), _pc_new()
+    return _pred(("t", b, k), T.predict, lambda: S["Uc"][T.F], base=S["Uc"], cols=T.F), _pc_new()
 
 
 def _fork_history(UP):
@@ -631,9 +661,33 @@ def _fork_chunk(i):
 PC = None           # the prediction cache (faab_predict_cache.PredictCache) while apply() runs with one
 
 
-def _pred(key, fn, X):
-    """fn(X): a model's predictions for the rows of X (exactly the columns it reads), through the cache when one is set"""
-    return fn(X) if PC is None else PC.predict(key, fn, X)
+def _pred(key, fn, X, base=None, m=None, cols=None, extra=None):
+    """fn(X): a model's predictions for the rows of X (exactly the columns it reads), through the cache when one is set.
+    X may be a function returning the frame: it is then built only for rows the cache does not hold.
+    `base`, `cols` (with `m`, a row mask of base): X's rows are base.loc[m] and the cache keys are read from base's row
+    hashes over `cols`, taken once for every model that reads them (a row's hash is a function of that row only);
+    `extra`: a frame of the rows' other columns, whose hashes are combined in (X = those columns plus `extra`'s)."""
+    if PC is None: return fn(X() if callable(X) else X)
+    h = None
+    if base is not None:
+        h1, h2 = _frame_hashes(base, tuple(cols))
+        h = (h1, h2) if m is None else (h1[m], h2[m])
+        if extra is not None:
+            from . import faab_predict_cache as PCM
+            h = PCM.combine(h, PCM.row_hashes(extra))
+    return PC.predict(key, fn, X, h=h)
+
+
+_FH = []            # (frame, columns, hashes) of the frames whose row hashes were taken in this process (the last few)
+
+
+def _frame_hashes(base, cols):
+    for b, c, h in _FH:
+        if b is base and c == cols: return h
+    from . import faab_predict_cache as PCM
+    h = PCM.row_hashes(base[list(cols)])
+    _FH.append((base, cols, h)); del _FH[:-4]
+    return h
 
 
 def _pc_new():
@@ -647,7 +701,7 @@ def _pc_add(new):
 def cache_tag(meta):
     """the cache's identity: the base's manifest plus the code of the functions whose outputs it stores"""
     from . import faab_predict_cache as PCM
-    return PCM.tag_for(meta, "|".join(PCM.code_id(f) for f in (kp.StatsModel.predict, B.ld_pred, _Z, PCM.row_hashes)))
+    return PCM.tag_for(meta, "|".join(PCM.code_id(f) for f in (kp.StatsModel.predict, B.ld_pred, _Z, PCM.row_hashes, PCM.combine)))
 
 
 def exists(path=DIR):

@@ -519,6 +519,7 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
     gs_row = rows.gsis.astype(str).values
     team_row = team_on(gs_row, dt, roster)
     r_pos = rows.pos.values; r_sid = rows.sid.astype(str).to_numpy(dtype=object)
+    parts = []
     for (s, sid), g in a.groupby(["s", "sid"]):
         pos, gs = inf.pos.get(sid), inf.gsis.get(sid)
         if pos is None or pd.isna(gs): continue
@@ -528,16 +529,28 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
         k = np.searchsorted(g.date.values.astype("datetime64[ns]"), dt[m].astype("datetime64[ns]"), side="right")
         paid = np.where(k > 0, got[np.clip(k - 1, 0, None)], 0.0)
         ud, inv = np.unique(dt[m], return_inverse=True)        # the rookie's team is a function of the date: once per date
-        tr = team_on(np.full(len(ud), str(gs)), ud, roster)[inv.ravel()]
-        out[m] += paid * ((tr == team_row[m]) & pd.notna(tr))
+        parts.append((m, paid, str(gs), ud, inv.ravel()))
+    if parts:            # every rookie's team on his dates in one team_on call (it is row by row), added in the same order
+        tall = team_on(np.concatenate([np.full(len(p[3]), p[2]) for p in parts]), np.concatenate([p[3] for p in parts]), roster)
+        at = 0
+        for m, paid, _, ud, inv in parts:
+            tr = tall[at:at + len(ud)][inv]; at += len(ud)
+            out[m] += paid * ((tr == team_row[m]) & pd.notna(tr))
     held = nan.copy()
     if gl is None: return out, held
-    G = {key: g.sort_values("known") for key, g in gl.assign(gsis=gl.gsis.astype(str)).groupby(["gsis", "season"])}
-    GK = {key: np.sort(pd.to_datetime(g.known).values) for key, g in G.items()}
+    gls = gl.assign(gsis=gl.gsis.astype(str)); gix = gls.groupby(["gsis", "season"]).indices
+    G, GK = {}, {}
+
+    def grp(key):        # each (player, season)'s games, sorted by when known: built when a row first reads it
+        if key not in G:
+            ix = gix.get(key)
+            G[key] = None if ix is None else gls.iloc[np.sort(ix)].sort_values("known")
+            if ix is not None: GK[key] = np.sort(pd.to_datetime(G[key].known).values)
+        return G[key]
     memo = {}            # a row reads his games known by the date: each (player, season, position, games known) once
     for i in np.where(out > 0)[0]:
         cols = BACKUP_USE.get(rows.pos.values[i])
-        g1, g0 = G.get((gs_row[i], s_row[i])), G.get((gs_row[i], s_row[i] - 1))
+        g1, g0 = grp((gs_row[i], s_row[i])), grp((gs_row[i], s_row[i] - 1))
         if not cols or g1 is None or g0 is None: continue
         mk = (gs_row[i], s_row[i], rows.pos.values[i], int(np.searchsorted(GK[(gs_row[i], s_row[i])], dt[i], side="right")))
         if mk not in memo:
@@ -604,20 +617,23 @@ def ypc_with_current(rows, gl):
     between them); NaN otherwise. gl: one row per game played (gsis, season, known, rush_car, rush_yds)."""
     rows = rows.reset_index(drop=True); out = np.full(len(rows), np.nan)
     g = gl.dropna(subset=["rush_car"]).assign(gsis=lambda x: x.gsis.astype(str), known=lambda x: pd.to_datetime(x.known))
-    by = {k: v for k, v in g.groupby("gsis")}
-    kn = {k: (v.season.values, v.known.values) for k, v in by.items()}
-    dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
+    # per player: his games' season, known date, carries and yards as arrays, in the frame's order (the order the
+    # sums below have always added them in)
+    se_, kw_ = g.season.values, g.known.values.astype("datetime64[ns]")
+    car_, yds_ = g.rush_car.to_numpy(dtype=float), g.rush_yds.fillna(0).to_numpy(dtype=float)
+    kn = {k: (se_[ix], kw_[ix], car_[ix], yds_[ix]) for k, ix in g.groupby("gsis").indices.items()}
+    dt = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
     memo = {}            # the rows read depend only on (player, season, this season's games known): each once
     for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).to_numpy(dtype=object), s_row)):
-        v = by.get(gs)
+        v = kn.get(gs)
         if v is None: continue
-        se, kw = kn[gs]
+        se, kw, car, yds = v
         mk = (gs, y, int(((se == y) & (kw <= dt[i])).sum()))
         r = memo.get(mk, memo)
         if r is memo:
-            v = v[(v.season >= y - 2) & (v.season <= y) & ((v.season < y) | (v.known.values <= dt[i]))]
-            c = float(v.rush_car.sum())
-            r = memo[mk] = float(v.rush_yds.fillna(0).sum()) / c if c >= 100 else None
+            sel = (se >= y - 2) & (se <= y) & ((se < y) | (kw <= dt[i]))
+            c = float(car[sel].sum())
+            r = memo[mk] = float(yds[sel].sum()) / c if c >= 100 else None
         if r is not None: out[i] = r
     return out
 

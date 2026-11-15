@@ -31,6 +31,20 @@ def row_hashes(X):
             pd.util.hash_pandas_object(X, index=False, hash_key=K2).to_numpy(np.uint64))
 
 
+def _mix(x):
+    """splitmix64's finaliser (a bijection of 64-bit words that spreads every input bit over the output)"""
+    x = (x ^ (x >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    x = (x ^ (x >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return x ^ (x >> np.uint64(31))
+
+
+def combine(ha, hb):
+    """the key of rows whose columns are A's then B's, from each part's row_hashes (two 64-bit words per row each)"""
+    with np.errstate(over="ignore"):
+        return (_mix(ha[0] ^ _mix(hb[0] + np.uint64(0x9E3779B97F4A7C15))),
+                _mix(ha[1] ^ _mix(hb[1] + np.uint64(0xD1B54A32D192ED03))))
+
+
 class PredictCache:
     def __init__(self, path=None, tag=""):
         self.path = Path(path) if path else None
@@ -50,11 +64,13 @@ class PredictCache:
             except Exception:    # a broken store is just a cold cache
                 self.old = {}
 
-    def predict(self, key, fn, X):
-        """fn(X) row by row, from the store where the row's hashes are there"""
-        n = len(X)
-        if n == 0: return np.asarray(fn(X), dtype=float)
-        h1, h2 = row_hashes(X)
+    def predict(self, key, fn, X, h=None):
+        """fn(X) row by row, from the store where the row's hashes are there (`h`: X's row_hashes, when already taken)"""
+        if h is None:
+            if callable(X): X = X()
+            h = row_hashes(X)
+        h1, h2 = h; n = len(h1)
+        if n == 0: return np.asarray(fn(X() if callable(X) else X), dtype=float)
         out = np.empty(n); hit = np.zeros(n, bool)
         st = self.old.get(key)
         if st is not None and len(st[0]):
@@ -66,6 +82,7 @@ class PredictCache:
             if hit.any(): self.used.setdefault(key, []).append(jc[hit])
         miss = ~hit
         if miss.any():
+            if callable(X): X = X()
             out[miss] = np.asarray(fn(X.iloc[np.flatnonzero(miss)] if not miss.all() else X), dtype=float)
             self.new.setdefault(key, []).append((h1[miss], h2[miss], out[miss]))
         self.hits += int(hit.sum()); self.misses += int(miss.sum())
