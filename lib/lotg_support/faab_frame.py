@@ -176,9 +176,15 @@ def _tables(seasons):
         w = w[w.season_type == "REG"].copy()
         w["avail"] = _wkdate(y, w.week).values
         W.append(w)
-    T["Wg"] = {key: v.sort_values("avail") for key, v in pd.concat(W).groupby(["player_id", "season"])}
-    T["Wa"] = {key: v.avail.values for key, v in T["Wg"].items()}
-    T["Wc"] = {key: [np.ascontiguousarray(v[c].to_numpy()) for c in _WK_MEAN] for key, v in T["Wg"].items()}
+    # per (player, season): the weeks in avail order, as arrays (the same argsort a per-group sort_values runs, on the
+    # same values in the same order: building a DataFrame per group took ~10 s)
+    Wall = pd.concat(W)
+    av_all = Wall.avail.to_numpy(); wc_all = [Wall[c].to_numpy() for c in _WK_MEAN]
+    T["Wa"], T["Wc"] = {}, {}
+    for key, ix in Wall.groupby(["player_id", "season"]).indices.items():
+        o = ix[np.argsort(av_all[ix], kind="quicksort")]
+        T["Wa"][key] = av_all[o]; T["Wc"][key] = [np.ascontiguousarray(c[o]) for c in wc_all]
+    T["Wg"] = T["Wa"]                  # build() only asks whether a (player, season) has weeks
     D = []
     for y in seasons:
         d = _read(f"dc_{y}.csv")
@@ -195,9 +201,11 @@ def _tables(seasons):
         D.append(d[["gsis_id", "avail", "rank"]])
     D = pd.concat(D).groupby(["gsis_id", "avail"]).agg(rank=("rank", "min")).reset_index()
     T["snapdates"] = np.sort(D.avail.unique())
-    T["Dg"] = {key: v.sort_values("avail") for key, v in D.groupby("gsis_id")}
-    T["Da"] = {key: v.avail.values for key, v in T["Dg"].items()}
-    T["Dr"] = {key: (list(v.avail), v["rank"].to_numpy()) for key, v in T["Dg"].items()}
+    da_all, dr_all = D.avail.to_numpy(), D["rank"].to_numpy()
+    T["Da"], T["Dr"] = {}, {}
+    for key, ix in D.groupby("gsis_id").indices.items():
+        o = ix[np.argsort(da_all[ix], kind="quicksort")]
+        T["Da"][key] = da_all[o]; T["Dr"][key] = (list(pd.DatetimeIndex(da_all[o])), dr_all[o])
     dp = pd.read_csv(REPO / "exports/snapshot/dynastyprocess_playerids.csv")
     pfr2g = dict(zip(dp.pfr_id, dp.gsis_id))
     sn = []
@@ -223,6 +231,47 @@ def _tables(seasons):
     T["cp"] = {pid: g[["season", "ppg", "g"]].values for pid, g in car.groupby("player_id")}
     _TABLES.clear(); _TABLES.update(T)
     return _TABLES
+
+
+_BUILD_ROWS = None
+
+
+def _build_part(m):
+    return build(_BUILD_ROWS[m])
+
+
+def build_parallel(k: pd.DataFrame, workers=None, min_rows=20000) -> pd.DataFrame:
+    """build(k) with the rows split by player over `workers` forked processes (default faab_base.WORKERS; 1 = in this
+    process; serial for fewer than `min_rows` rows): every feature is a function of the row, its player and the
+    shared stat tables (built once here, before the fork), and the result is sorted on (sid, date) as build() sorts
+    it, so the same frame. The one cross-player step (contracts read through each id's position) is per id, so a
+    split by player only holds when no id belongs to two players: otherwise it runs in one process."""
+    global _BUILD_ROWS
+    if not workers:
+        try:
+            from . import faab_base as B
+            workers = B.WORKERS
+        except Exception:                 # noqa: BLE001 - no scikit-learn: one process
+            workers = 1
+    sid = k.sid.astype(str).to_numpy(dtype=object)
+    us = sorted(set(sid)); n = min(max(1, int(workers)), len(us))
+    if n <= 1 or len(k) < min_rows or k.duplicated(["sid", "date"]).any():
+        return build(k)
+    pi = player_info(us).dropna(subset=["gsis"])
+    if pi.groupby("gsis").sid.nunique().max() > 1:
+        return build(k)
+    _tables(sorted(int(y) for y in KO if (CACHE / f"sp_{y}.csv").exists()))      # shared with the children
+    part = {x: i % n for i, x in enumerate(us)}
+    pid = np.array([part[x] for x in sid])
+    masks = [pid == i for i in range(n)]
+    import multiprocessing as mp
+    _BUILD_ROWS = k
+    try:
+        with mp.get_context("fork").Pool(n) as pool:
+            out = pool.map(_build_part, masks, chunksize=1)
+    finally:
+        _BUILD_ROWS = None
+    return pd.concat(out, ignore_index=True).sort_values(["sid", "date"]).reset_index(drop=True)
 
 
 def build(k: pd.DataFrame) -> pd.DataFrame:
@@ -335,7 +384,7 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     df["k_gtd"] = df.k_gtd.values / nfl_cap(ly)                                  # guaranteed $M -> share of the cap
 
     # d_: depth-chart rank as of the date (weekly charts to 2024, daily ESPN snapshots 2025+)
-    snapdates, Dg, Da = T["snapdates"], T["Dg"], T["Da"]
+    snapdates, Da = T["snapdates"], T["Da"]
     dr = np.full(len(df), np.nan); dage = np.full(len(df), np.nan)
     memo = {}                          # a row reads the charts known by its date: each (player, charts known) once
     for i, (g, t) in enumerate(zip(gs_a, dt_a)):

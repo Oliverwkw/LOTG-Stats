@@ -206,7 +206,7 @@ def grid_frame(pa, extra, start="2020-09-09", end=None, dates=()):
     G = pd.DataFrame([(s, d) for s in sids for d in gd], columns=["sid", "date"])
     G = pd.concat([G, extra[["sid", "date"]].assign(date=lambda x: pd.to_datetime(x.date))]).drop_duplicates().reset_index(drop=True)
     G = G[G.date >= start]
-    F = kp.build(G.assign(ktc=np.nan)); F["date"] = F.date.astype("datetime64[ns]")
+    F = kp.build_parallel(G.assign(ktc=np.nan)); F["date"] = F.date.astype("datetime64[ns]")
     return F[F.pos.isin(["QB", "RB", "WR", "TE"])]
 
 

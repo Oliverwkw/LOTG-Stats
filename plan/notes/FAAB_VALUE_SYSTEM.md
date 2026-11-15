@@ -517,7 +517,12 @@ cold; main 1269 s on the same runner; locally ~7 / ~12 / ~19 min), and the histo
 - `backup_columns` computes its 12 independent features side by side; `game_form` / `since_injury` memoise each row
   on the inputs that determine it; the frames' and backup columns' per-row loops read numpy arrays instead of arrow
   columns; the aging curves' `np.polyval` runs per position on arrays (the same Horner steps, the same floats).
-- Checks: `tests/test_faab_speed.py` (memo vs row alone, jobs serial vs parallel, chunk order, polyval, the cache).
+- Frames (2026-11-15, second PR): the grid's `faab_frame.build` and `add_x` run split by player over forked processes
+  (`build_parallel` / `add_x_parallel`: each row's features read only its player and the shared tables; parts are
+  put back in order), and `_tables` builds its per-player week / depth arrays without a DataFrame per group. Frames
+  ~135 -> ~60 s locally; the weekly rebuild ~5 min warm / ~8 min cold locally, byte-identical to main.
+- Checks: `tests/test_faab_speed.py` (memo vs row alone, jobs serial vs parallel, chunk order, polyval, the cache,
+  frames split by player vs one process).
   Peak memory ~13 GB of the runner's 16.
 
 The port reproduces the research run exactly: every feature table, the base at two snapshots, and `V_raw` on five
