@@ -1263,19 +1263,20 @@ async function nfl(code, _q, live) {
 // ---------- predictions: set results and roster moves, see the season odds move
 // Each team's week is its best lineup from its roster's projections (forecast rate
 // blended with this season's PPG), with a spread from its starters. Who can play in
-// The injury timelines ESPN's daily capture set for rostered players (home.json
-// forecast.espn, lotg_support.espn_injuries), grouped by team.
+// Every hurt, tagged or ESPN-listed startable player and what the odds assume for
+// him (home.json forecast.injuries: [ESPN's timeline, the forecast's basis];
+// lotg_support.forecast FieldedDistribution.basis), grouped by team.
 function espnCard(F, nfl, live) {
-  const E = (F && F.espn) || {};
+  const E = (F && F.injuries) || {};
   const ids = Object.keys(E);
   if (!ids.length) return "";
   const teamOf = {};
   for (const [t, r] of Object.entries(live.rosterOf || {})) for (const pid of (r.players || [])) teamOf[pid] = t;
-  const rows = ids.map((pid) => [teamOf[pid] || "", (nfl[pid] || [])[0] || pid, E[pid].replace(/^ESPN: /, "")])
+  const rows = ids.map((pid) => [teamOf[pid] || "", (nfl[pid] || [])[0] || pid, E[pid][0] || "not listed", E[pid][1]])
     .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
-  return `<div class="card"><details><summary><b>Injury timelines from ESPN</b> <span class="muted small">(${ids.length} rostered player${ids.length === 1 ? "" : "s"}${F.espn_at ? ", captured " + esc(F.espn_at.slice(0, 16).replace("T", " ")) + " UTC" : ""})</span></summary>
-    <p class="muted small">ESPN's estimated return dates are earliest-return estimates and have not been checked against past seasons yet; a player is held out until that week, then returns on the league's curve.</p>
-    <table><thead><tr><th>Team</th><th>Player</th><th>Timeline</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table></details></div>`;
+  return `<div class="card"><details><summary><b>Injuries and what the odds assume</b> <span class="muted small">(${ids.length} player${ids.length === 1 ? "" : "s"}${F.espn_at ? "; ESPN captured " + esc(F.espn_at.slice(0, 16).replace("T", " ")) + " UTC" : ""})</span></summary>
+    <p class="muted small">ESPN column: ESPN's injury list (an estimated earliest return week, or out for the season when ESPN and the reporting say so). Assumed: what the odds use. A sourced research note wins over ESPN; IR players cannot return before the NFL minimum. ESPN's dates have not been checked against past seasons yet. Taxi-squad players are left out (they cannot start).</p>
+    <table><thead><tr><th>Team</th><th>Player</th><th>ESPN</th><th>Assumed</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("")}</tbody></table></details></div>`;
 }
 
 // each week comes from the forecast's injury model (home.json forecast.avail: P(he
