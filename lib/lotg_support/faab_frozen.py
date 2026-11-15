@@ -433,7 +433,7 @@ class FrozenBase:
                 if not m.any(): continue
                 T = self.bags[b]["trans"][k]
                 S1[m] = _pred(("t", b, k), T.predict, lambda: F.loc[m, T.F], base=F, m=m, cols=T.F)
-                u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
+                u[m] = supply_ctx(F.loc[m, ["sid", "date", "pos"]], S1[m], U, UP[(b, k)])     # (all it reads)
             F[f"_S1_{b}"] = S1
             for i, c in enumerate(ucols(b)): F[c] = u[:, i]
             F[f"aS{b}"] = np.where(F.a_hi.values >= 0, hist[f"S{b}"].values[np.maximum(F.a_hi.values, 0)], np.nan)
@@ -454,11 +454,12 @@ class FrozenBase:
         # the ld models read the translator's columns plus a few: their cache keys combine the translator columns' row
         # hashes (taken once) with the rest's (a row's key is still a function of exactly the columns the model reads)
         XT = [c for c in COLS if c not in set(TF)] if set(TF) <= set(COLS) else None
+        Fb = F.copy()            # F + this bag's S, sqS, a_dS (set per bag on one copy: the frame F.assign made each time)
         for b, bg in enumerate(self.bags):
             S1 = F[f"_S1_{b}"].values if f"_S1_{b}" in F else self._S1(F, bg["trans"], b)
             S = self._S_rows(F, bg["trans"], bg["supply"], None, None, b, S1=S1, u=F[ucols(b)].values, cols=self.meta["SUPPLY_COLS"])
-            Fb = F.assign(S=S, sqS=np.sqrt(np.clip(S, 0, None)),
-                          a_dS=np.sqrt(np.clip(S, 0, None)) - np.sqrt(np.clip(F[f"aS{b}"].values, 0, None)))
+            Fb["S"] = S; Fb["sqS"] = np.sqrt(np.clip(S, 0, None))
+            Fb["a_dS"] = np.sqrt(np.clip(S, 0, None)) - np.sqrt(np.clip(F[f"aS{b}"].values, 0, None))
             fd = B.fold_of(F.sid, b); L = np.zeros(len(F))
             for k in range(5):
                 m = fd == k

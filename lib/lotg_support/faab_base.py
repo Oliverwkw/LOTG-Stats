@@ -223,8 +223,19 @@ class Football:
         f = self._af.get(k)
         if f is None:
             n = max(0, int(round(a1 - a0)))
-            # the curve at a0, a0 + 1, ... in one array (each element the scalar polyval's float), summed left to right
-            f = self._af[k] = float(np.exp(sum(np.polyval(self.cur[pos], a0 + np.arange(n)).tolist()))) if pos in self.cur else 1.0
+            # the curve at a0, a0 + 1, ... (each element the scalar polyval's float; elementwise, so the same floats for
+            # any length), summed left to right: exp of the n-th running sum, kept per (pos, a0) for every n asked
+            if pos not in self.cur: f = 1.0
+            else:
+                e = self.__dict__.setdefault("_afp", {}).get((pos, a0))
+                if e is None or n >= len(e[0]):
+                    m = max(n + 1, 2 * len(e[0]) if e else 32)
+                    t = np.polyval(self.cur[pos], a0 + np.arange(m)).tolist(); ps = [0]; acc = 0
+                    for x in t: acc = acc + x; ps.append(acc)
+                    e = self._afp[(pos, a0)] = (ps, {})
+                f = e[1].get(n)
+                if f is None: f = e[1][n] = float(np.exp(e[0][n]))
+            self._af[k] = f
         return f
 
     def career_ceiling_aged(self, df, top=2):
