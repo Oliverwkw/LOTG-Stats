@@ -1,7 +1,7 @@
 name: FAAB pipeline smoke test
 
 # Runs the FAAB value pipeline end to end on a short window (Jan-Mar 2021, one fold bag) under the production
-# toolchain (Python 3.11, pandas 3, live downloads) whenever a PR touches it. Writes nothing to the repo.
+# toolchain (Python 3.11, pandas 3, the weekly rebuild's cached downloads, anything missing fetched live) whenever a PR touches it. Writes nothing to the repo.
 
 on:
   pull_request:
@@ -25,6 +25,20 @@ jobs:
           python-version: "3.11"
       - name: Install deps
         run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "pyarrow==25.0.1" "numpy==2.4.6" "scipy==1.17.1" "scikit-learn==1.9.1" requests pyyaml pytest
+      # The weekly rebuild's downloads (read-only), so the smoke does not wait on ~40 polite Wikipedia requests and
+      # every nflverse / college / KTC file again: anything missing or stale is still fetched live. The feature
+      # store, the frames and the prediction cache are dropped, so the smoke builds every stage itself.
+      - name: Restore downloads (read-only)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/faab
+            .cache/ktc_proxy
+            data/ktc_cache
+          key: faab-none
+          restore-keys: faab-
+      - name: Drop the cached stages
+        run: rm -rf .cache/faab/pipeline .cache/faab/xf
       - name: Pipeline smoke (2021-01-01 .. 2021-10-25, 1 bag)
         env:
           FAAB_BAGS: "1"
