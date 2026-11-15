@@ -173,10 +173,11 @@ def supply_ctx(rows, s, U, uval, levels=DEPTH_LEVELS):
     j = np.searchsorted(ud, rd, side="right") - 1
     lv = np.asarray(levels, dtype=float)
     out = np.full((len(rows), 1 + len(lv)), np.nan)
-    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).values
+    Ud = U.date.values.astype("datetime64[ns]"); Up = U.pos.values; Us = U.sid.astype(str).to_numpy(dtype=object)   # numpy: iterating an
+    # arrow-backed column is ~10x slower
     gi = pd.Series(np.arange(len(U))).groupby([Ud, Up]).indices
     own = dict(zip(zip(Us, Ud), uval))
-    rp = rows.pos.values; rs = rows.sid.astype(str).values; s = np.asarray(s, dtype=float)
+    rp = rows.pos.values; rs = rows.sid.astype(str).to_numpy(dtype=object); s = np.asarray(s, dtype=float)
     keys = pd.Series(np.arange(len(rows))).groupby([np.where(j >= 0, j, -1), rp]).indices
     for (jj, p), ix in keys.items():
         if jj < 0: continue
@@ -376,10 +377,10 @@ class FrozenBase:
             m = fd == k
             if not m.any(): continue
             r = rows[m]
-            s1 = Tb[k].predict(r) if S1 is None else S1[m]
+            s1 = _pred(("t", b, k), Tb[k].predict, r[Tb[k].F]) if S1 is None else S1[m]
             uu = supply_ctx(r, s1, U, UP[(b, k)]) if u is None else u[m]
             Z = _Z(r, s1, uu, cols)
-            S[m] = t_inv(Z.tS1.values + gb[k].predict(Z))
+            S[m] = t_inv(Z.tS1.values + _pred(("s", b, k), gb[k].predict, Z))
         return S
 
     def ucols(self, b):
@@ -391,7 +392,8 @@ class FrozenBase:
 
     def universe_values(self, U):
         """the translator on the supply universe, every (bag, fold)"""
-        return {(b, k): self.bags[b]["trans"][k].predict(U) for b in range(len(self.bags)) for k in range(5)}
+        return {(b, k): _pred(("t", b, k), self.bags[b]["trans"][k].predict, U[self.bags[b]["trans"][k].F])
+                for b in range(len(self.bags)) for k in range(5)}
 
     def context(self, F, hist, U, UP, football, classes=None):
         """every date-derived input on the rows: the replacement level and production value (ctx_repl, PV ...), the
@@ -406,7 +408,8 @@ class FrozenBase:
             for k in range(5):
                 m = fd == k
                 if not m.any(): continue
-                S1[m] = self.bags[b]["trans"][k].predict(F[m]); u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
+                T = self.bags[b]["trans"][k]
+                S1[m] = _pred(("t", b, k), T.predict, F.loc[m, T.F]); u[m] = supply_ctx(F[m], S1[m], U, UP[(b, k)])
             F[f"_S1_{b}"] = S1
             for i, c in enumerate(ucols(b)): F[c] = u[:, i]
             F[f"aS{b}"] = np.where(F.a_hi.values >= 0, hist[f"S{b}"].values[np.maximum(F.a_hi.values, 0)], np.nan)
@@ -433,7 +436,7 @@ class FrozenBase:
                 m = fd == k
                 if not m.any(): continue
                 r = Fb[m]
-                LD = B.ld_pred(bg["ld"][k], r, COLS)
+                LD = _pred(("ld", b, k), lambda X, ms=bg["ld"][k]: B.ld_pred(ms, X, COLS), r[COLS])
                 L[m] = B.hybrid(LD, B.LG8(r, bg["cv"][k], bg["qS"][k], bg["qP"][k], B.A_PV, B.NM))
             L_all.append(B.gated_boost(Fb, L, B.BOOST, 2, 30)); S_all.append(S)
         return np.mean(L_all, axis=0), np.mean(S_all, axis=0)
@@ -443,35 +446,91 @@ class FrozenBase:
         fd = B.fold_of(F.sid, b); S1 = np.zeros(len(F))
         for k in range(5):
             m = fd == k
-            if m.any(): S1[m] = Tb[k].predict(F[m])
+            if m.any(): S1[m] = _pred(("t", b, k), Tb[k].predict, F.loc[m, Tb[k].F])
         return S1
 
-    def apply(self, F, LR, U, seasons, log=print, chunk="YS", classes=None):
-        """the base (L, S and the context columns) on every row of F, a chunk of dates at a time"""
+    def apply(self, F, LR, U, seasons, log=print, chunk="YS", classes=None, workers=None, cache=None):
+        """the base (L, S and the context columns) on every row of F, a chunk of dates at a time.
+
+        Every step is a function of the row (its own columns, the shared universe and league history), so the result
+        does not depend on how the rows are chunked. With `workers` > 1 (default faab_base.WORKERS; 1 = in this
+        process) the universe's 25 translator predictions, the league history and then quarter-sized chunks run over
+        forked processes, one tree thread each (the trees' predictions do not depend on the thread count), and come back
+        in date order: the same frame as one process. Forked so the rows and models are shared, not copied; the parent
+        runs no OpenMP code before it forks (every prediction happens in the children).
+
+        `cache`: a folder for the prediction cache (faab_predict_cache): each model's prediction for a row whose inputs
+        are byte-identical to a row it predicted in the last run is read back instead of recomputed (the same float)."""
+        global PC
+        if cache is not None and PC is None:
+            from . import faab_predict_cache as PCM
+            PC = PCM.PredictCache(cache, cache_tag(self.meta))
+            try:
+                out = self.apply(F, LR, U, seasons, log=log, chunk=chunk, classes=classes, workers=workers)
+                h, m = PC.hits, PC.misses
+                PC.save()
+                log(f"frozen base: prediction cache {h} rows read back, {m} predicted")
+                return out
+            finally:
+                PC = None
         import time
         t0 = time.time()
+        n = max(1, int(workers or B.WORKERS))
         fb = self.football(seasons)
         Uc = fb.add_pv(U.copy()).reset_index(drop=True)
-        UP = self.universe_values(Uc)
         classes = class_table_from_universe(Uc) if classes is None else classes
-        hist = self.league_history(LR, Uc, UP, fb, classes)
-        log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
         d = pd.to_datetime(F.date)
-        edges = list(pd.date_range(d.min().normalize() - pd.offsets.YearBegin(1), d.max() + pd.offsets.YearBegin(1), freq=chunk))
-        out = []
-        for lo, hi in zip(edges[:-1], edges[1:]):
-            m = ((d >= lo) & (d < hi)).values
-            if not m.any(): continue
-            C = self.context(F[m], hist, Uc, UP, fb, classes)
-            C["L"], C["S"] = self.apply_rows(C)
-            C["sqS"] = np.sqrt(C.S.clip(0)); C["fold"] = B.fold_of(C.sid, 0)
-            C["a_dS"] = C.sqS.values - np.sqrt(np.clip(C["aS0"].values, 0, None))
-            C = C.drop(columns=[c for c in C.columns if c.startswith("_S1_")])
-            for c in C.columns:
-                if C[c].dtype == "float64" and c not in ("L", "S"): C[c] = C[c].astype("float32")
-            out.append(C)
-            log(f"frozen base: {lo.date()} .. {hi.date()}: {int(m.sum())} rows ({time.time() - t0:.0f}s)")
-        return pd.concat(out, ignore_index=True)
+        spans, masks = _date_chunks(d, chunk)
+        if n <= 1:
+            UP = self.universe_values(Uc)
+            hist = self.league_history(LR, Uc, UP, fb, classes)
+            log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
+            out = []
+            for (lo, hi), m in zip(spans, masks):
+                out.append(self._apply_chunk(F[m], hist, Uc, UP, fb, classes))
+                log(f"frozen base: {lo.date()} .. {hi.date()}: {int(m.sum())} rows ({time.time() - t0:.0f}s)")
+            return pd.concat(out, ignore_index=True)
+        import gc
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+        global _FZ_STATE
+        keys = [(b, k) for b in range(len(self.bags)) for k in range(5)]
+        _, qmasks = _date_chunks(d, "QS")                  # smaller pieces for the processes (less memory each, better balance)
+
+        def pool():
+            return ProcessPoolExecutor(n, mp_context=mp.get_context("fork"), initializer=_one_thread)
+        gc.collect(); gc.freeze()                # the children share the parent's objects: keep the collector off them
+        try:
+            _FZ_STATE = dict(FB=self, Uc=Uc, fb=fb, classes=classes, LR=LR)
+            with pool() as ex:
+                UP = {}
+                for kk, (v, new) in zip(keys, ex.map(_fork_universe, keys)): UP[kk] = v; _pc_add(new)
+                hist, new = ex.submit(_fork_history, UP).result(); _pc_add(new)
+            log(f"frozen base: universe {len(Uc)} rows, league rows {len(hist)} ({time.time() - t0:.0f}s)")
+            _FZ_STATE.update(UP=UP, hist=hist, F=F, masks=qmasks)
+            with pool() as ex:
+                out = []
+                for c, new in ex.map(_fork_chunk, range(len(qmasks))): out.append(c); _pc_add(new)
+        except BrokenProcessPool as e:          # a process died (out of memory): the same result, one process
+            log(f"frozen base: worker process lost ({e}); running in one process")
+            _FZ_STATE = None; gc.unfreeze()
+            return self.apply(F, LR, U, seasons, log=log, chunk=chunk, classes=classes, workers=1)
+        finally:
+            _FZ_STATE = None; gc.unfreeze()
+        log(f"frozen base: {len(qmasks)} quarter chunks, {int(sum(m.sum() for m in qmasks))} rows, over {n} processes ({time.time() - t0:.0f}s)")
+        # each piece keeps F's row order; put the rows back in the order one process returns them (by `chunk`, then F's order)
+        return pd.concat(out, ignore_index=True).iloc[_serial_order(qmasks, masks)].reset_index(drop=True)
+
+    def _apply_chunk(self, Fm, hist, Uc, UP, fb, classes):
+        C = self.context(Fm, hist, Uc, UP, fb, classes)
+        C["L"], C["S"] = self.apply_rows(C)
+        C["sqS"] = np.sqrt(C.S.clip(0)); C["fold"] = B.fold_of(C.sid, 0)
+        C["a_dS"] = C.sqS.values - np.sqrt(np.clip(C["aS0"].values, 0, None))
+        C = C.drop(columns=[c for c in C.columns if c.startswith("_S1_")])
+        for c in C.columns:
+            if C[c].dtype == "float64" and c not in ("L", "S"): C[c] = C[c].astype("float32")
+        return C
 
     # ---- store
     @staticmethod
@@ -520,6 +579,75 @@ class FrozenBase:
                 raise ValueError(f"{f} does not match the manifest's sha256: refreeze or restore it")
             bags.append(joblib.load(f))
         return cls(bags, meta)
+
+
+def _date_chunks(d, freq):
+    """(spans, row masks) of the dates `d` cut at `freq` edges counted from the first year's 1 January (empty pieces left out)"""
+    edges = list(pd.date_range(d.min().normalize() - pd.offsets.YearBegin(1), d.max() + pd.offsets.YearBegin(1), freq=freq))
+    sp, ms = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        m = ((d >= lo) & (d < hi)).values
+        if m.any(): sp.append((lo, hi)); ms.append(m)
+    return sp, ms
+
+
+def _serial_order(pieces, masks):
+    """the positions that put rows stacked piece by piece (each piece in F's order) into the order of rows stacked
+    chunk by chunk under `masks` (each chunk in F's order); every piece must sit inside one chunk or span several whole
+    ones in order"""
+    pos = np.concatenate([np.flatnonzero(m) for m in pieces])
+    cid = np.full(len(masks[0]), -1)
+    for i, m in enumerate(masks): cid[m] = i
+    return np.lexsort((pos, cid[pos]))
+
+
+_FZ_STATE = None
+
+
+def _one_thread():
+    try:
+        from threadpoolctl import threadpool_limits
+        global _LIMITS
+        _LIMITS = threadpool_limits(1)
+    except Exception:                  # noqa: BLE001 - only a speed setting
+        pass
+
+
+def _fork_universe(bk):
+    b, k = bk; S = _FZ_STATE; T = S["FB"].bags[b]["trans"][k]
+    return _pred(("t", b, k), T.predict, S["Uc"][T.F]), _pc_new()
+
+
+def _fork_history(UP):
+    S = _FZ_STATE
+    return S["FB"].league_history(S["LR"], S["Uc"], UP, S["fb"], S["classes"]), _pc_new()
+
+
+def _fork_chunk(i):
+    S = _FZ_STATE
+    return S["FB"]._apply_chunk(S["F"][S["masks"][i]], S["hist"], S["Uc"], S["UP"], S["fb"], S["classes"]), _pc_new()
+
+
+PC = None           # the prediction cache (faab_predict_cache.PredictCache) while apply() runs with one
+
+
+def _pred(key, fn, X):
+    """fn(X): a model's predictions for the rows of X (exactly the columns it reads), through the cache when one is set"""
+    return fn(X) if PC is None else PC.predict(key, fn, X)
+
+
+def _pc_new():
+    return PC.take_new() if PC is not None else None
+
+
+def _pc_add(new):
+    if PC is not None and new is not None: PC.add(new[0]); PC.hits += new[1]; PC.misses += new[2]
+
+
+def cache_tag(meta):
+    """the cache's identity: the base's manifest plus the code of the functions whose outputs it stores"""
+    from . import faab_predict_cache as PCM
+    return PCM.tag_for(meta, "|".join(PCM.code_id(f) for f in (kp.StatsModel.predict, B.ld_pred, _Z, PCM.row_hashes)))
 
 
 def exists(path=DIR):

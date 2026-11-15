@@ -503,6 +503,23 @@ one process. Most of the weekly run (~26 of 37 min) is the current quarter's 5 f
 
 (The speed numbers and the reproduction below describe the quarterly walk-forward base the frozen base replaced.)
 
+**Speed, frozen base (2026-11-15, PR #598; outputs byte-identical to main, checked old vs new on the same cache, with
+the prediction cache cold and warm):** the weekly rebuild takes ~9 min on CI with a warm prediction cache (533 s; 858 s
+cold; main 1269 s on the same runner; locally ~7 / ~12 / ~19 min), and the history-only rebuild 88 s on CI (main 198 s). What changed, none of it a value change:
+- `FrozenBase.apply` runs the universe's 25 translator predictions, the league history and then quarter-sized row
+  chunks over forked processes (one tree thread each; tree predictions do not depend on the thread count), and puts
+  the rows back in the one-process order. A worker that dies (out of memory) reruns the stage in one process.
+- `faab_predict_cache`: every tree model's prediction for a row is stored under a 128-bit hash of exactly the columns
+  it reads, in `.cache/faab/pipeline/predict/` (in the Actions cache, ~400 MB). Next week a row whose inputs are
+  byte-identical gets the stored float back; anything changed is predicted. The store is tagged with the frozen
+  base's manifest, the library versions and the compiled code of the cached functions, so a refreeze or a code change
+  starts it empty. `FAAB_PREDICT_CACHE=0` turns it off.
+- `backup_columns` computes its 12 independent features side by side; `game_form` / `since_injury` memoise each row
+  on the inputs that determine it; the frames' and backup columns' per-row loops read numpy arrays instead of arrow
+  columns; the aging curves' `np.polyval` runs per position on arrays (the same Horner steps, the same floats).
+- Checks: `tests/test_faab_speed.py` (memo vs row alone, jobs serial vs parallel, chunk order, polyval, the cache).
+  Peak memory ~13 GB of the runner's 16.
+
 The port reproduces the research run exactly: every feature table, the base at two snapshots, and `V_raw` on five
 dates, all with zero difference. Two research-era behaviours changed on purpose (`faab_base.REPRO` restored them for
 reproduction until the frozen base removed it):

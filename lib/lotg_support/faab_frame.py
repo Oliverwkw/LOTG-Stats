@@ -271,14 +271,16 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     # a row's figures depend only on how many of the season's weeks were known by its date (each group is sorted by
     # avail, so the known weeks are a prefix): each (player, season, weeks known) is computed once, as before
     memo = {}
-    for i, (g, cur, dt) in enumerate(zip(df.gsis, df.cur, df.date)):
+    # numpy arrays for the per-row loops below (iterating an arrow string / datetime column builds an object per row)
+    gs_a, dt_a = df.gsis.to_numpy(dtype=object), df.date.to_numpy(dtype="datetime64[ns]")
+    for i, (g, cur, dt) in enumerate(zip(gs_a, df.cur.to_numpy(), dt_a)):
         if cur < 0:
             continue
         v = Wg.get((g, cur))
         if v is None:
             out["c_gp"][i] = 0
             continue
-        mk = (g, cur, int(np.searchsorted(Wa[(g, cur)], np.datetime64(dt), side="right")))
+        mk = (g, cur, int(np.searchsorted(Wa[(g, cur)], dt, side="right")))
         r = memo.get(mk)
         if r is None:
             n = mk[2]
@@ -308,11 +310,13 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     cg = {key: v.sort_values(["year_signed", "value"]) for key, v in c.groupby("gsis_id")}  # tag vs extension tie
     kc = {n: np.full(len(df), np.nan) for n in ["k_apy", "k_gtd", "k_yrs_left", "k_years"]}
     memo = {}                          # a row reads only its player and two year cut-offs: each combination once
-    for i, (g, dt) in enumerate(zip(df.gsis, df.date)):
+    yr_a, mo_a = df.date.dt.year.to_numpy(), df.date.dt.month.to_numpy()
+    for i, (g, dy, dm) in enumerate(zip(gs_a, yr_a, mo_a)):
         v = cg.get(g)
         if v is None:
             continue
-        ys, yl = (dt.year if dt.month >= 4 else dt.year - 1), (dt.year if dt.month >= 3 else dt.year - 1)
+        dy, dm = int(dy), int(dm)
+        ys, yl = (dy if dm >= 4 else dy - 1), (dy if dm >= 3 else dy - 1)
         mk = (g, ys, yl); r = memo.get(mk, memo)
         if r is memo:
             v = v[v.year_signed <= ys]
@@ -334,8 +338,7 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     snapdates, Dg, Da = T["snapdates"], T["Dg"], T["Da"]
     dr = np.full(len(df), np.nan); dage = np.full(len(df), np.nan)
     memo = {}                          # a row reads the charts known by its date: each (player, charts known) once
-    for i, (g, dt) in enumerate(zip(df.gsis, df.date)):
-        t = np.datetime64(dt)
+    for i, (g, t) in enumerate(zip(gs_a, dt_a)):
         a = Da.get(g)
         mk = (g, int(np.searchsorted(snapdates, t, side="right")), -1 if a is None else int(np.searchsorted(a, t, side="right")))
         r = memo.get(mk)
@@ -369,7 +372,7 @@ def build(k: pd.DataFrame) -> pd.DataFrame:
     cp = T["cp"]
     best, games, elite = [], [], []
     memo = {}
-    for g, lcs in zip(df.gsis, df.lcs):
+    for g, lcs in zip(gs_a, df.lcs.to_numpy()):
         r = memo.get((g, lcs))
         if r is None:
             v = cp.get(g)

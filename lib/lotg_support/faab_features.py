@@ -518,15 +518,17 @@ def rookie_backup_spend(rows, adds, info, roster, gl=None, w1_mult=ROOKIE_W1_MUL
     if not len(a): return out, nan
     gs_row = rows.gsis.astype(str).values
     team_row = team_on(gs_row, dt, roster)
+    r_pos = rows.pos.values; r_sid = rows.sid.astype(str).to_numpy(dtype=object)
     for (s, sid), g in a.groupby(["s", "sid"]):
         pos, gs = inf.pos.get(sid), inf.gsis.get(sid)
         if pos is None or pd.isna(gs): continue
-        m = np.where((s_row == s) & (rows.pos.values == pos) & (rows.sid.astype(str).values != sid))[0]
+        m = np.where((s_row == s) & (r_pos == pos) & (r_sid != sid))[0]
         if not len(m): continue
         g = g.sort_values("date"); got = np.maximum.accumulate(g.spend.values)
         k = np.searchsorted(g.date.values.astype("datetime64[ns]"), dt[m].astype("datetime64[ns]"), side="right")
         paid = np.where(k > 0, got[np.clip(k - 1, 0, None)], 0.0)
-        tr = team_on(np.full(len(m), str(gs)), dt[m], roster)
+        ud, inv = np.unique(dt[m], return_inverse=True)        # the rookie's team is a function of the date: once per date
+        tr = team_on(np.full(len(ud), str(gs)), ud, roster)[inv.ravel()]
         out[m] += paid * ((tr == team_row[m]) & pd.notna(tr))
     held = nan.copy()
     if gl is None: return out, held
@@ -606,7 +608,7 @@ def ypc_with_current(rows, gl):
     kn = {k: (v.season.values, v.known.values) for k, v in by.items()}
     dt = pd.to_datetime(rows.date).values; di = pd.DatetimeIndex(dt); s_row = np.where(di.month >= 3, di.year, di.year - 1)
     memo = {}            # the rows read depend only on (player, season, this season's games known): each once
-    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).values, s_row)):
+    for i, (gs, y) in enumerate(zip(rows.gsis.astype(str).to_numpy(dtype=object), s_row)):
         v = by.get(gs)
         if v is None: continue
         se, kw = kn[gs]
@@ -638,15 +640,16 @@ def overtaken_by_rookie(rows, gl, roster, dp, min_games=8, own_min=4, gap=4.0):
         if q is None or q["count"] < min_games or t is None: continue
         k = (t, x.position, y); best[k] = max(best.get(k, 0.0), float(q["mean"]))
     memo = {}            # a row reads only (player, season, position): each once
+    gsv, posv = rows.gsis.to_numpy(dtype=object), rows.pos.to_numpy(dtype=object)      # numpy: no per-row column lookups
     for i in range(len(rows)):
-        gs, y = str(rows.gsis.values[i]), int(s_row[i]) - 1
-        mk = (gs, y, rows.pos.values[i]); r = memo.get(mk, memo)
+        gs, y = str(gsv[i]), int(s_row[i]) - 1
+        mk = (gs, y, posv[i]); r = memo.get(mk, memo)
         if r is memo:
             r = None
             q = g.loc[(gs, y)] if (gs, y) in g.index else None
             t = last.get((gs, y))
             if not (q is None or q["count"] < own_min or t is None):
-                b = best.get((t, rows.pos.values[i], y), 0.0)
+                b = best.get((t, posv[i], y), 0.0)
                 if not (d.draft_year[d.gsis_id == gs] == y).any():                 # not a rookie himself
                     r = float(np.clip((b - q["mean"]) / gap, 0, 1))
             memo[mk] = r
@@ -777,18 +780,27 @@ def game_form(gl, gsis, date_v, l0_s, n=10):
         y2 = sum(rc.rush_yds.reindex(pd.MultiIndex.from_arrays([gsis, l0_s - k])).fillna(0).values for k in range(2))
         out["ypc_2y"] = np.where(c2 >= 100, y2 / np.maximum(c2, 1), np.nan)
     g = g.sort_values(["gsis", "known"]); groups = {k: (v.known.values.astype("datetime64[ns]"), v.ppr.values.astype(float), v.season.values.astype(int)) for k, v in g.groupby("gsis")}
+    memo = {}           # a row's values depend only on (player, games known by the date, last complete season)
     for i in range(N):
         t = groups.get(gsis[i])
         if t is None: continue
         k = int(np.searchsorted(t[0], date_v[i], side="right"))          # games known by the date
-        cs = np.r_[0.0, np.cumsum(t[1][:k])]
-        if k >= n: out["form_last"][i] = (cs[k] - cs[k - n]) / n
-        if k >= 2 * n: out["form_prev"][i] = (cs[k - n] - cs[k - 2 * n]) / n
-        cur = t[2][:k] == l0_s[i] + 1                                    # this season's games so far (none in the offseason)
-        out["gp_cur"][i] = cur.sum()
-        if cur.any(): out["ppg_cur"][i] = t[1][:k][cur].mean()
-        rec = t[2][:k] >= l0_s[i] - 1                                    # the last two complete seasons and this one
-        if rec.any(): out["max_2y"][i] = t[1][:k][rec].max()
+        key = (gsis[i], k, l0_s[i]); r = memo.get(key)
+        if r is None:
+            cs = np.r_[0.0, np.cumsum(t[1][:k])]
+            fl = (cs[k] - cs[k - n]) / n if k >= n else None
+            fp = (cs[k - n] - cs[k - 2 * n]) / n if k >= 2 * n else None
+            cur = t[2][:k] == l0_s[i] + 1                                # this season's games so far (none in the offseason)
+            gc = cur.sum(); pc = t[1][:k][cur].mean() if cur.any() else None
+            rec = t[2][:k] >= l0_s[i] - 1                                # the last two complete seasons and this one
+            mx = t[1][:k][rec].max() if rec.any() else None
+            r = memo[key] = (fl, fp, gc, pc, mx)
+        fl, fp, gc, pc, mx = r
+        if fl is not None: out["form_last"][i] = fl
+        if fp is not None: out["form_prev"][i] = fp
+        out["gp_cur"][i] = gc
+        if pc is not None: out["ppg_cur"][i] = pc
+        if mx is not None: out["max_2y"][i] = mx
     return out
 
 
@@ -804,17 +816,22 @@ def since_injury(gl, iw, gsis, date_v):
     w = iw.assign(gsis=lambda x: x.gsis.astype(str), k=lambda x: x.season.astype(int) * 100 + x.week.astype(int)).sort_values("known")
     G = {a: (v.known.values.astype("datetime64[ns]"), v.k.values, v.ppr.values.astype(float)) for a, v in g.groupby("gsis")}
     I_ = {a: (v.known.values.astype("datetime64[ns]"), np.maximum.accumulate(v.k.values)) for a, v in w.groupby("gsis")}
+    memo = {}
     for i in range(N):
         t = I_.get(gsis[i])
         if t is None: continue
         j = int(np.searchsorted(t[0], date_v[i], side="right"))
         if j == 0: continue
-        last = t[1][j - 1]; ppg_, gp_ = np.nan, 0
         u = G.get(gsis[i])
-        if u is not None:
-            k = int(np.searchsorted(u[0], date_v[i], side="right")); m = u[1][:k] > last
-            gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
-        ppg[i], gp[i] = ppg_, gp_
+        k = int(np.searchsorted(u[0], date_v[i], side="right")) if u is not None else -1
+        key = (gsis[i], j, k); r = memo.get(key)       # depends only on the weeks out and games known by the date
+        if r is None:
+            last = t[1][j - 1]; ppg_, gp_ = np.nan, 0
+            if u is not None:
+                m = u[1][:k] > last
+                gp_ = int(m.sum()); ppg_ = float(u[2][:k][m].mean()) if gp_ else np.nan
+            r = memo[key] = (ppg_, gp_)
+        ppg[i], gp[i] = r
     return ppg, gp
 
 
