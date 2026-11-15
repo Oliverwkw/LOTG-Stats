@@ -415,6 +415,11 @@ slot fade-in (`faab_pick_slots`) weights the schedule's slot prices exactly as b
   geometrically toward the next lower price (2.01 $615 -> $528, 3.01 $160 -> $134, 4.03 $41 -> $36, 4.05 $32 -> $28);
   the 2.09 is priced as the 2.08 ($184 -> $160). Committed params, evidence repriced: calls 125/129, trade error
   0.836 -> 0.845, far-off 56/24 -> 58/25 (the round-2 and round-3 averages fall with it).
+- **Mid-season picks were read as locked** (2026-11-14, Oliver: "its not locked at 2.01"): `faab_pick_slots` took the
+  season's last regular week from the weeks played so far, so after week 9 of 2026 every 2027 pick looked post-season
+  and took the bottom four's exact order (plehv79's 2nd = 2.01 at 100%). It now uses the league settings' scheduled
+  regular season (playoff_week_start - 1, as the build does): plehv79 44% 2.01 / 34% 2.02 / 16% 2.03 ..., its 2nd
+  $626 -> $478, its 1st $1,782 -> $1,488. No fitted trade moves (none is a next-year pick in an unfinished season).
 - Classes 2027+: the NFL draft date is the Thursday in Apr 23-29 (every draft 2020-26 fits); `NFL_DRAFT` overrides.
 
 ## The noise bar, and every rule needs a reason
