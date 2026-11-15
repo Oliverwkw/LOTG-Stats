@@ -131,6 +131,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from . import espn_injuries as ESPN
 from . import inquiry as Q
 from . import ir_status as IR
 from . import lineup as L
@@ -291,6 +292,18 @@ class AvailabilityModel:
                    tracker, Questionable played 84.5% (n=226); Doubtful 0 of 3,
                    and 0 of 120 rostered Doubtful player-weeks 2021-25 in
                    nflverse's injury reports. A one-week miss, not a spell.
+    espn_timelines with the spells on and a LIVE forecast, ESPN's injury list
+                   (data/espn_injuries.csv, captured daily by a workflow, no
+                   Claude) sets how long a listed IR / Out / PUP / suspended
+                   player stays out: "season-ending" (ESPN's after-season date
+                   AND the reporting or an ACL/Achilles/patellar tear says so)
+                   holds him out of every remaining week; an in-season
+                   estimated return week holds him out of the weeks before it,
+                   and from that week he returns on the curve's first-week
+                   hazard. A research-file row for the player wins. Skipped
+                   when the capture is older than `espn_max_age_days`. Not
+                   validated against past seasons (ESPN keeps no history):
+                   see espn_injuries.calibration for the check after 2026.
     """
     lookback: int = 2
     shrink_weeks: float = 10.0
@@ -304,6 +317,8 @@ class AvailabilityModel:
     ir_minimum: bool = True
     questionable_availability: float = 0.85
     doubtful_availability: float = 0.0
+    espn_timelines: bool = True
+    espn_max_age_days: float = 10.0
 
     def uses_designations(self, year: int) -> bool:
         if self.designations == "always":
@@ -324,7 +339,8 @@ class AvailabilityModel:
                 f"unsigned={self.unsigned_availability:.2f} "
                 f"spells={'on' if self.injury_spells else 'off'} "
                 f"ir_min={'on' if self.ir_minimum else 'off'} "
-                f"Q={self.questionable_availability:.2f} D={self.doubtful_availability:.2f}")
+                f"Q={self.questionable_availability:.2f} D={self.doubtful_availability:.2f} "
+                f"espn={'on' if self.espn_timelines else 'off'}")
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +987,26 @@ def research_overrides(year: int) -> Dict[str, ResearchNote]:
     return out
 
 
+ESPN_HOLD = frozenset({"Injured Reserve", "Out", "Physically Unable to Perform", "Suspension"})
+
+
+def _espn_timelines(year: int, first_sim_week: int, max_age_days: float
+                    ) -> Tuple[Dict[str, "ESPN.EspnStatus"], str]:
+    """({Sleeper id: ESPN status}, warning). Empty when there is no capture for
+    the season or it is too old to describe the weeks being simulated. Here so
+    a scenario (trade.py --healthy) can patch it."""
+    rows = ESPN.current(year)
+    if not rows:
+        return {}, ""
+    from datetime import datetime, timezone
+    at = ESPN.captured_at(year)
+    age = (datetime.now(timezone.utc) - at).total_seconds() / 86400 if at else float("inf")
+    if age > max_age_days:
+        return {}, (f"ESPN injury capture is {age:.0f} days old (limit {max_age_days:g}): "
+                    f"its return dates were NOT used")
+    return rows, ""
+
+
 def _on_ir(year: int, through_week: int) -> Dict[str, Tuple[int, int]]:
     """`ir_status.on_ir`, here so a scenario (trade.py --healthy) can patch it."""
     return IR.on_ir(year, through_week)
@@ -1064,6 +1100,8 @@ class FieldedDistribution:
     # {player id: P(available) per simulated week, from first_week on}; one
     # number (independent weekly draws) in the preseason
     availability: Dict[str, np.ndarray] = field(default_factory=dict)
+    # {player id: what ESPN's timeline did to him}, live forecasts only
+    espn: Dict[str, str] = field(default_factory=dict)
     first_week: int = 1
 
     def depth_cost(self, rid: int) -> float:
@@ -1076,7 +1114,8 @@ def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarra
                   ir_games: Optional[np.ndarray] = None,
                   ir_model: Optional["IR.IRReturnModel"] = None, year: int = 0,
                   lock: Optional[np.ndarray] = None,
-                  first_week_p: Optional[np.ndarray] = None) -> np.ndarray:
+                  first_week_p: Optional[np.ndarray] = None,
+                  reset: Optional[np.ndarray] = None) -> np.ndarray:
     """(draws, weeks, players) availability, one consecutive path per draw.
 
     `start` is -1 for a player healthy at the cutoff, else the weeks he has
@@ -1092,7 +1131,11 @@ def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarra
       lock          the first `lock` weeks he cannot play at all (a dated,
                     sourced "out through week N");
       first_week_p  P(he plays) in the first week only, on top of the rest (a
-                    Questionable / Doubtful tag), as a one-week miss.
+                    Questionable / Doubtful tag), as a one-week miss;
+      reset         at week `lock` his absence restarts: he returns that week
+                    with the curve's first-week hazard (the IR curve's first
+                    eligible game if on IR) rather than the hazard for however
+                    long the lock made him miss (an estimated return date).
     """
     n = len(p)
     hazard = np.array([model.new_injury_hazard(x) for x in p]) if n else np.zeros(0)
@@ -1103,7 +1146,15 @@ def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarra
     irg = np.broadcast_to(np.maximum(irg0, 0), (draws, n)).copy()
     lock = np.zeros(n, dtype=int) if lock is None else np.asarray(lock, dtype=int)
     out = np.empty((draws, weeks, n), dtype=bool)
+    reset = np.zeros(n, dtype=bool) if reset is None else np.asarray(reset, dtype=bool)
     for t in range(weeks):
+        at = reset & (lock == t)
+        if at.any():
+            dur = np.where(at & hurt, 1, dur)
+            if ir_model is not None:
+                # back to the first eligible game, but never before the minimum
+                m = IR.ir_min_games(year)
+                irg = np.where(at & on_ir & (irg >= m), m, irg)
         u = rng.random((draws, n))
         if ir_model is not None and on_ir.any():
             r = np.where(on_ir, ir_model.hazard(irg, year), model.hazard(dur))
@@ -1171,6 +1222,9 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     designations = _designations(str(Q.repo_root())) if use_flags else {}
     unsigned = _unsigned(str(Q.repo_root()))
     notes = research_overrides(year) if availability.research else {}
+    espn, espn_note = (_espn_timelines(year, through_week + 1, availability.espn_max_age_days)
+                       if live and availability.espn_timelines else ({}, ""))
+    espn_applied: Dict[str, str] = {}
     state = _roster_state(year, str(Q.repo_root()))
     players = Q.players()
     teams = Q.teams(year)
@@ -1203,6 +1257,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
         ir_list: List[int] = []
         locks: List[int] = []
         firsts: List[float] = []
+        resets: List[bool] = []
         n_rookie = n_out = n_unplaced = n_unsigned = n_researched = 0
         reserve = state.get(rid, {}).get("reserve", frozenset())
         for pid in pids:
@@ -1282,12 +1337,25 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                 values[pid] *= note.rate_multiplier
                 n_researched += 1
                 applied.add(pid)
+            reset = False
+            es = espn.get(pid)
+            if (es is not None and spells and pid not in applied and not flat
+                    and es.status in ESPN_HOLD):
+                if es.season_ending:
+                    lock, out_now = max(lock, horizon), max(out_now, 0)
+                    espn_applied[pid] = es.label()
+                elif es.return_week and es.return_week > first_sim_week:
+                    weeks_out = es.return_week - first_sim_week
+                    if weeks_out > lock:
+                        lock, reset, out_now = weeks_out, True, max(out_now, 0)
+                        espn_applied[pid] = es.label()
             probs.append(p)
             flats.append(flat)
             starts.append(out_now)
             ir_list.append(ir_games)
             locks.append(lock)
             firsts.append(first)
+            resets.append(reset)
 
         pid_list = list(values)
         healthy[rid] = float(L.compute_optimal_lineup(values, pos_map, year))
@@ -1298,7 +1366,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                                injuries, ir_games=np.array(ir_list, dtype=int),
                                ir_model=ir_model, year=year,
                                lock=np.array(locks, dtype=int),
-                               first_week_p=np.array(firsts, dtype=float))
+                               first_week_p=np.array(firsts, dtype=float),
+                               reset=np.array(resets, dtype=bool))
             share = up.mean(axis=0)                     # (weeks, players)
             for j, pid in enumerate(pid_list):
                 player_avail[pid] = share[:, j]
@@ -1361,6 +1430,14 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
             f"{n_ir_total} player(s) on injured reserve: no return before the "
             f"{IR.ir_min_games(year)}-game minimum, then the IR return curve "
             f"({ir_model.runs} past IR runs)")
+    if espn_note:
+        warnings.append(espn_note)
+    if espn_applied:
+        ending = sum("out for season" in v for v in espn_applied.values())
+        warnings.append(
+            f"ESPN timelines ({ESPN.current_path().name}): {ending} player(s) out for the "
+            f"season, {len(espn_applied) - ending} held out until ESPN's estimated return "
+            f"week, then the curve (estimates not yet validated)")
     if n_tagged_total:
         warnings.append(
             f"{n_tagged_total} player(s) tagged Questionable/Doubtful: week {first_sim_week} "
@@ -1384,7 +1461,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                                rookies=rookies, sidelined=sidelined,
                                unsigned=unsigned_count, researched=researched,
                                unplaced=unplaced, warnings=sorted(set(warnings)),
-                               availability=player_avail, first_week=first_sim_week)
+                               availability=player_avail, first_week=first_sim_week,
+                               espn=espn_applied)
 
 
 def roster_projection(year: int, model: RateModel = RateModel(),
@@ -1489,6 +1567,8 @@ def _backtest_availability(model: AvailabilityModel) -> AvailabilityModel:
                              ir_minimum=model.ir_minimum,
                              questionable_availability=model.questionable_availability,
                              doubtful_availability=model.doubtful_availability,
+                             # today's ESPN list would leak the future into a rewind
+                             espn_timelines=False,
                              draws=max(model.draws // 4, 250))
 
 
@@ -1590,6 +1670,8 @@ class Forecast:
     # for every startable rostered player — what the injury model assumed
     player_availability: Dict[str, Tuple[float, ...]] = field(default_factory=dict)
     availability_from_week: int = 1
+    # {Sleeper id: "ESPN: out for season (acl tear)" / "ESPN: est. back wk 13"}
+    espn_timelines: Dict[str, str] = field(default_factory=dict)
 
     def by_champion(self) -> List[TeamOdds]:
         return sorted(self.odds, key=lambda o: -o.champion)
@@ -1835,7 +1917,8 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
                     warnings=sorted(set(warnings)),
                     player_availability={pid: tuple(round(float(x), 4) for x in v)
                                          for pid, v in proj.availability.items()},
-                    availability_from_week=proj.first_week)
+                    availability_from_week=proj.first_week,
+                    espn_timelines=dict(proj.espn))
 
 
 # ---------------------------------------------------------------------------

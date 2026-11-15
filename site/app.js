@@ -1263,6 +1263,21 @@ async function nfl(code, _q, live) {
 // ---------- predictions: set results and roster moves, see the season odds move
 // Each team's week is its best lineup from its roster's projections (forecast rate
 // blended with this season's PPG), with a spread from its starters. Who can play in
+// The injury timelines ESPN's daily capture set for rostered players (home.json
+// forecast.espn, lotg_support.espn_injuries), grouped by team.
+function espnCard(F, nfl, live) {
+  const E = (F && F.espn) || {};
+  const ids = Object.keys(E);
+  if (!ids.length) return "";
+  const teamOf = {};
+  for (const [t, r] of Object.entries(live.rosterOf || {})) for (const pid of (r.players || [])) teamOf[pid] = t;
+  const rows = ids.map((pid) => [teamOf[pid] || "", (nfl[pid] || [])[0] || pid, E[pid].replace(/^ESPN: /, "")])
+    .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+  return `<div class="card"><details><summary><b>Injury timelines from ESPN</b> <span class="muted small">(${ids.length} rostered player${ids.length === 1 ? "" : "s"}${F.espn_at ? ", captured " + esc(F.espn_at.slice(0, 16).replace("T", " ")) + " UTC" : ""})</span></summary>
+    <p class="muted small">ESPN's estimated return dates are earliest-return estimates and have not been checked against past seasons yet; a player is held out until that week, then returns on the league's curve.</p>
+    <table><thead><tr><th>Team</th><th>Player</th><th>Timeline</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table></details></div>`;
+}
+
 // each week comes from the forecast's injury model (home.json forecast.avail: P(he
 // plays) per player per remaining week: Out players back on the league's return
 // curve, IR players not before the NFL minimum, a dated "out for the season" note
@@ -1426,7 +1441,8 @@ async function predict(_a, _q, live) {
   $app.innerHTML = `<h1>Predictions</h1>
     <p class="muted">Pick winners and make roster moves; the rest of ${meta.season} is simulated ${N.toLocaleString()} times in your browser through the league's playoff rules. ${liveNote(live)}</p>
     <div class="card"><h2>Season odds</h2><p class="small muted" id="pstate"></p><div id="pres"><p class="muted">Simulating…</p></div>
-      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG), with who can play each week from the forecast's injury model: players listed Out come back on the league's return curve, players on IR not before the NFL's 4-game minimum, Questionable players play 85% of the time this week, and a sourced "out for the season" note keeps a player out. Pts/wk is the expected points a week over the remaining regular season, after injuries. The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
+      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG), with who can play each week from the forecast's injury model: players listed Out come back on the league's return curve, players on IR not before the NFL's 4-game minimum, Questionable players play 85% of the time this week, a sourced "out for the season" note keeps a player out, and ESPN's injury list (captured daily) holds a player out for the season when ESPN dates his return after the season and the reporting says it is season-ending, or until ESPN's estimated return week, after which he comes back on the return curve. Pts/wk is the expected points a week over the remaining regular season, after injuries. The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
+    ${espnCard(H.forecast, nfl, live)}
     <div class="card"><h2>Roster moves</h2>
       <div class="controls"><select id="mp"><option value="">Player…</option>${allPlayers.map(([pid, t]) => `<option value="${pid}">${esc((nfl[pid] || [])[0])} (${esc((nfl[pid] || [])[1])}, ${esc(t)})</option>`).join("")}</select>
         <select id="mt"><option value="out">Out for the season</option>${teams.map((t) => `<option value="${esc(t)}">Trade to ${esc(t)}</option>`).join("")}</select>

@@ -9,7 +9,8 @@ name: League site
 # the workbook comes from), not the checkout: the build commits exports/ only now and then.
 #
 # WHEN: after every main run of the weekly build (it commits fresh exports/ and the digest), after the
-# FAAB rebuild (it commits docs/rate/board.json), on pushes to main that touch the site or docs/, and
+# FAAB rebuild (it commits docs/rate/board.json), after the daily ESPN injury capture (it commits
+# data/espn_injuries.csv, which the odds and predictions read), on pushes to main that touch the site or docs/, and
 # by hand. It is a separate workflow so the main build's ~8 minutes are untouched; this one takes about
 # a minute and a half (the odds simulation is most of it).
 #
@@ -19,7 +20,7 @@ name: League site
 
 on:
   workflow_run:
-    workflows: ["Build LOTG Stats", "Rebuild FAAB values"]
+    workflows: ["Build LOTG Stats", "Rebuild FAAB values", "ESPN injury timelines"]
     types: [completed]
     branches: [main]
   push:

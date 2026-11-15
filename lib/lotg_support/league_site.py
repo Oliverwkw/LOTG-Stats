@@ -595,8 +595,14 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
     # P(he plays) in each remaining week, per Sleeper id, from the forecast's injury
     # model — what the predictions page draws its lineups from (site/app.js predict)
     avail = {pid: [round(float(x), 3) for x in v] for pid, v in fc.player_availability.items()}
+    # what ESPN's daily injury capture (lotg_support.espn_injuries) did to each
+    # rostered player: "ESPN: out for season (acl tear)" / "ESPN: est. back wk 13"
+    from . import espn_injuries as ESPN
+    at = ESPN.captured_at(year) if fc.espn_timelines else None
     return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows,
-            "avail": avail, "avail_from": fc.availability_from_week}
+            "avail": avail, "avail_from": fc.availability_from_week,
+            "espn": dict(sorted(fc.espn_timelines.items())),
+            "espn_at": at.isoformat(timespec="minutes") if at else None}
 
 
 def _kind_records(x: pd.DataFrame) -> Dict[str, int]:

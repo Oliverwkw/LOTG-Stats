@@ -1,0 +1,84 @@
+name: ESPN injury timelines
+
+# Daily capture of ESPN's NFL injury lists (status + estimated return date, for
+# every team) into data/espn_injuries.csv, plus a change log for scoring the
+# dates after the season (data/espn_injury_log.csv). The title odds, trade.py and
+# the site's predictions read the CSV: a season-ending injury holds the player
+# out for the rest of the season, an in-season estimated return week holds him
+# out until then. See lib/lotg_support/espn_injuries.py.
+#
+# NO CLAUDE, NO KEY: ESPN's public core API (sports.core.api.espn.com), ~2000
+# requests in ~5 seconds. If ESPN changes or drops the API the job fails loudly
+# (fewer than 32 teams or no entries) and the odds fall back on their own
+# once the last capture is more than 10 days old
+# (AvailabilityModel.espn_max_age_days).
+#
+# WHY 14:23 UTC: morning in the US, after the overnight transactions and the
+# previous day's practice reports; off the top of the hour because GitHub's
+# schedule queue runs late at :00 (see build.yml). The League site workflow runs
+# after this one (workflow_run), so the site picks up the new timelines.
+
+on:
+  schedule:
+    - cron: "23 14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Fetch and summarise only — do not write or commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: espn-injuries
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install -c requirements.lock --no-cache-dir requests
+
+      - name: Capture ESPN injuries
+        env:
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          CMD=(python scripts/capture_espn_injuries.py)
+          if [ "${IN_DRY_RUN:-}" = "true" ]; then CMD+=(--dry-run); fi
+          "${CMD[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit capture
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name "lotg-injury-bot"
+          git config user.email "noreply@anthropic.com"
+          git add data/espn_injuries.csv data/espn_injury_log.csv
+          if git diff --cached --quiet; then
+            echo "No change"
+            exit 0
+          fi
+          git commit -m "Daily ESPN injury timelines [skip ci]"
+          push_ok=0
+          for attempt in 1 2 3 4; do
+            if git push; then push_ok=1; break; fi
+            echo "Push failed (attempt $attempt) — reconciling with origin and retrying."
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            sleep $((2 ** attempt))
+          done
+          if [ "$push_ok" != "1" ]; then
+            echo "::error::Could not push the ESPN injury capture."
+            exit 1
+          fi
