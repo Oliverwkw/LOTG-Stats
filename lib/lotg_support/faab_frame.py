@@ -50,7 +50,8 @@ def nfl_cap(league_year):
     for y in set(int(v) for v in np.unique(ys)) - set(NFL_CAP) - _CAP_WARNED:
         _CAP_WARNED.add(y)
         print(f"faab_frame.NFL_CAP has no {y} cap: using {NFL_CAP[hi if y > hi else lo]} (add it)", file=sys.stderr)
-    return np.array([NFL_CAP[int(np.clip(y, lo, hi))] for y in ys], dtype=float)
+    u, inv = np.unique(ys, return_inverse=True)         # each year once
+    return np.array([NFL_CAP[int(np.clip(y, lo, hi))] for y in u], dtype=float)[inv.reshape(ys.shape)]
 
 
 # ----------------------------------------------------------------------------- data

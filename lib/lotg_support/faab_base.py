@@ -57,7 +57,9 @@ def fold_of(sids, bag=0):
     """out-of-fold group by player: a stable hash of the Sleeper id (and the bag)"""
     sids = pd.Series(sids).astype(str)
     salt = "" if bag == 0 else f"{bag}:"
-    return sids.map(lambda s: int(hashlib.md5((salt + s).encode()).hexdigest(), 16) % 5).astype(int).values
+    code, uniq = pd.factorize(sids.to_numpy(dtype=object))        # each distinct id hashed once
+    f = np.array([int(hashlib.md5((salt + s).encode()).hexdigest(), 16) % 5 for s in uniq], dtype=int)
+    return f[code] if len(code) else np.zeros(0, dtype=int)
 
 
 def season_done(R):
@@ -221,7 +223,19 @@ class Football:
         f = self._af.get(k)
         if f is None:
             n = max(0, int(round(a1 - a0)))
-            f = self._af[k] = float(np.exp(sum(np.polyval(self.cur[pos], a0 + j) for j in range(n)))) if pos in self.cur else 1.0
+            # the curve at a0, a0 + 1, ... (each element the scalar polyval's float; elementwise, so the same floats for
+            # any length), summed left to right: exp of the n-th running sum, kept per (pos, a0) for every n asked
+            if pos not in self.cur: f = 1.0
+            else:
+                e = self.__dict__.setdefault("_afp", {}).get((pos, a0))
+                if e is None or n >= len(e[0]):
+                    m = max(n + 1, 2 * len(e[0]) if e else 32)
+                    t = np.polyval(self.cur[pos], a0 + np.arange(m)).tolist(); ps = [0]; acc = 0
+                    for x in t: acc = acc + x; ps.append(acc)
+                    e = self._afp[(pos, a0)] = (ps, {})
+                f = e[1].get(n)
+                if f is None: f = e[1][n] = float(np.exp(e[0][n]))
+            self._af[k] = f
         return f
 
     def career_ceiling_aged(self, df, top=2):
@@ -406,7 +420,12 @@ def qpos_fit_col(k_, col):
 
 
 def qpos_col(x, pos, f):
-    return np.array([np.interp(v, *f[p]) if not np.isnan(v) else np.nan for v, p in zip(x, pos)])
+    """np.interp on each row's position's curve (NaN stays NaN): one call per position, the same floats as per row"""
+    x = np.asarray(x, dtype=float); pos = np.asarray(pos, dtype=object)
+    out = np.full(len(x), np.nan); ok = ~np.isnan(x)
+    for p in pd.unique(pos[ok]):
+        m = ok & (pos == p); out[m] = np.interp(x[m], *f[p])
+    return out
 
 
 def LG8(rows, cv, fS, fP, a, pvcol):

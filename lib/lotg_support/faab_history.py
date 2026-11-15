@@ -43,7 +43,7 @@ PICK = re.compile(r"^(\d{4}) (\d)(?:\.(\d\d))?")
 
 # --------------------------------------------------------------------------------------------- writing (rebuild)
 
-def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict) -> pd.DataFrame:
+def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict, backup=None) -> pd.DataFrame:
     """every (sid, date) row of the rebuild's grid frame R valued exactly as the board values it: the rule columns,
     each WR's top teammate (wr_mate), the league-spend / NFL-draft columns, then every rule incl. post_rules"""
     from . import faab_pipeline as P
@@ -53,10 +53,10 @@ def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict) -> pd.DataF
     mates = P.wr_mates(R, idx)
     need = [c for c in P.rule_columns() if c in R]
     E = R[need].copy()
-    E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
+    sv = R.sid.values; E["wr_mate"] = [str(sv[mates[i]]) if i in mates else "" for i in idx]
     E["e_x_qb_base"] = P.qb_base(R, idx)
     if pa is not None and "gsis" in R:
-        E = P.backup_columns(E, R.gsis.values, pa)
+        E = P.take_backup(E, R.gsis.values, pa, backup)       # faab_pipeline.backup_table's rows when given
     E["date"] = pd.to_datetime(E.date)
     E["injury"] = E.injury.fillna("").astype(str) if "injury" in E else ""
     for c in E.columns:          # the same rounding the committed inputs get, so a row values the same either way

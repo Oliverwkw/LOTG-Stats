@@ -31,6 +31,20 @@ def row_hashes(X):
             pd.util.hash_pandas_object(X, index=False, hash_key=K2).to_numpy(np.uint64))
 
 
+def _mix(x):
+    """splitmix64's finaliser (a bijection of 64-bit words that spreads every input bit over the output)"""
+    x = (x ^ (x >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    x = (x ^ (x >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return x ^ (x >> np.uint64(31))
+
+
+def combine(ha, hb):
+    """the key of rows whose columns are A's then B's, from each part's row_hashes (two 64-bit words per row each)"""
+    with np.errstate(over="ignore"):
+        return (_mix(ha[0] ^ _mix(hb[0] + np.uint64(0x9E3779B97F4A7C15))),
+                _mix(ha[1] ^ _mix(hb[1] + np.uint64(0xD1B54A32D192ED03))))
+
+
 class PredictCache:
     def __init__(self, path=None, tag=""):
         self.path = Path(path) if path else None
@@ -50,11 +64,13 @@ class PredictCache:
             except Exception:    # a broken store is just a cold cache
                 self.old = {}
 
-    def predict(self, key, fn, X):
-        """fn(X) row by row, from the store where the row's hashes are there"""
-        n = len(X)
-        if n == 0: return np.asarray(fn(X), dtype=float)
-        h1, h2 = row_hashes(X)
+    def predict(self, key, fn, X, h=None):
+        """fn(X) row by row, from the store where the row's hashes are there (`h`: X's row_hashes, when already taken)"""
+        if h is None:
+            if callable(X): X = X()
+            h = row_hashes(X)
+        h1, h2 = h; n = len(h1)
+        if n == 0: return np.asarray(fn(X() if callable(X) else X), dtype=float)
         out = np.empty(n); hit = np.zeros(n, bool)
         st = self.old.get(key)
         if st is not None and len(st[0]):
@@ -66,6 +82,7 @@ class PredictCache:
             if hit.any(): self.used.setdefault(key, []).append(jc[hit])
         miss = ~hit
         if miss.any():
+            if callable(X): X = X()
             out[miss] = np.asarray(fn(X.iloc[np.flatnonzero(miss)] if not miss.all() else X), dtype=float)
             self.new.setdefault(key, []).append((h1[miss], h2[miss], out[miss]))
         self.hits += int(hit.sum()); self.misses += int(miss.sum())
@@ -104,13 +121,18 @@ class PredictCache:
         d = self.path / "parts"
         parts = [np.load(f) for f in sorted(d.glob("*.npz"))] if d.exists() else []
         keys = sorted({f.rsplit(".", 1)[0] for z in parts for f in z.files})
-        arrs = {}
+        arrs = {}; same = set(keys) == {_name(k) for k in self.old}
         for name in keys:
             k = _key(name); pieces = []
             us = [z[name + ".u"] for z in parts if name + ".u" in z.files]
+            fresh = [(z[name + ".h1"], z[name + ".h2"], z[name + ".v"]) for z in parts if name + ".h1" in z.files]
             if us and k in self.old:
-                u = np.unique(np.concatenate(us)); pieces.append(tuple(a[u] for a in self.old[k]))
-            pieces += [(z[name + ".h1"], z[name + ".h2"], z[name + ".v"]) for z in parts if name + ".h1" in z.files]
+                u = np.unique(np.concatenate(us))
+                if not fresh and len(u) == len(self.old[k][0]):     # every stored entry read back, none new: kept as is
+                    arrs[name + ".h1"], arrs[name + ".h2"], arrs[name + ".v"] = self.old[k]; continue
+                pieces.append(tuple(a[u] for a in self.old[k]))
+            same = False
+            pieces += fresh
             h1, h2, v = (np.concatenate([p_[i] for p_ in pieces]) for i in range(3))
             o = np.lexsort((h2, h1)); h1, h2, v = h1[o], h2[o], v[o]
             keep = np.r_[True, (h1[1:] != h1[:-1]) | (h2[1:] != h2[:-1])]
@@ -119,6 +141,9 @@ class PredictCache:
             arrs[name + ".h1"], arrs[name + ".h2"], arrs[name + ".v"] = h1[~dup], h2[~dup], v[~dup]
         for z in parts: z.close()
         self.old = {}
+        if same and (self.path / "store.npz").exists():    # the store as it was (sorted, one entry per hash): no rewrite
+            for f in d.glob("*.npz"): f.unlink()
+            return
         tmp = self.path / "store.tmp.npz"
         np.savez(tmp, **arrs)
         tmp.replace(self.path / "store.npz")
