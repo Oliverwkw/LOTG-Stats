@@ -592,7 +592,11 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
              "pf": round(o.expected_pf, 2),
              "next": None if o.next_week is None else round(o.next_week, 2)}
             for o in fc.by_champion()]
-    return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows}
+    # P(he plays) in each remaining week, per Sleeper id, from the forecast's injury
+    # model — what the predictions page draws its lineups from (site/app.js predict)
+    avail = {pid: [round(float(x), 3) for x in v] for pid, v in fc.player_availability.items()}
+    return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows,
+            "avail": avail, "avail_from": fc.availability_from_week}
 
 
 def _kind_records(x: pd.DataFrame) -> Dict[str, int]:

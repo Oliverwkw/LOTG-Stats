@@ -1262,8 +1262,13 @@ async function nfl(code, _q, live) {
 
 // ---------- predictions: set results and roster moves, see the season odds move
 // Each team's week is its best lineup from its roster's projections (forecast rate
-// blended with this season's PPG; out / IR / reserve players excluded), with a spread
-// from its starters. The week in progress counts live points plus what is left. The
+// blended with this season's PPG), with a spread from its starters. Who can play in
+// each week comes from the forecast's injury model (home.json forecast.avail: P(he
+// plays) per player per remaining week: Out players back on the league's return
+// curve, IR players not before the NFL minimum, a dated "out for the season" note
+// honoured), drawn a few dozen times per team-week so depth counts. Without it
+// (an older home.json, or a player the forecast did not price) a player who is out,
+// on IR or in the reserve slot is left out for the rest of the season, as before. The week in progress counts live points plus what is left. The
 // season then runs through the league's rules: standings by wins (ties half) then PF,
 // top 4 to the playoffs, 1v4 / 2v3 with +5 to the higher seed, the final over its
 // weeks (two from 2026, summed). Everything runs in the browser.
@@ -1286,6 +1291,13 @@ async function predict(_a, _q, live) {
   });
   const base0 = Object.fromEntries(H.standings.map((r) => [r.team, { w: r.w, l: r.l, pf: r.pf }]));
   const out = (pid, team) => { const lr = live.rosterOf[team] || {}; const inj = (nfl[pid] || [])[4]; return (lr.ir && lr.ir.has(pid)) || ["IR", "Out", "PUP", "Sus", "NA", "DNR", "COV"].includes(inj); };
+  // P(pid plays in week w), from the forecast; the old all-or-nothing rule as a fallback
+  const AV = (H.forecast && H.forecast.avail) || null, AV0 = (H.forecast && H.forecast.avail_from) || 0;
+  const pAvail = (pid, team, w) => {
+    const a = AV && AV[pid];
+    if (!a || !a.length) return out(pid, team) ? 0 : 1;
+    return a[Math.min(Math.max(w - AV0, 0), a.length - 1)];
+  };
   const fits = { QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], FLEX: ["RB", "WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"] };
   const lineup = (pids) => {        // best lineup by projection: {mean, sd}
     const pool = pids.map((pid) => ({ pid, pos: (nfl[pid] || [])[1], r: LW.rates[pid] ?? 3 })).sort((x, y) => y.r - x.r), used = new Set();
@@ -1299,7 +1311,7 @@ async function predict(_a, _q, live) {
   // state the user changes
   let picks = {};           // game index -> "a" | "b"
   let moves = [];           // {pid, to: team | "out"}
-  const baseRosters = () => Object.fromEntries(teams.map((t) => [t, (live.rosterOf[t]?.players || []).filter((pid) => !out(pid, t))]));
+  const baseRosters = () => Object.fromEntries(teams.map((t) => [t, (live.rosterOf[t]?.players || []).filter((pid) => AV || !out(pid, t))]));
   const rosterNow = () => {
     const r = baseRosters();
     for (const m of moves) { for (const t of teams) r[t] = r[t].filter((x) => x !== m.pid); if (m.to !== "out") r[m.to].push(m.pid); }
@@ -1311,10 +1323,35 @@ async function predict(_a, _q, live) {
   let seed = 0;
   const rand = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const gauss = () => { let u = 0, v = 0; while (!u) u = rand(); while (!v) v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  // a team-week's points when some players may sit: K availability draws, each
+  // refilled by the best remaining lineup; its own seeded stream per team and week,
+  // so a roster move elsewhere does not shift these draws (or the season draws)
+  const K = 32;
+  const simWeeks = [...new Set([...weeks, P.semifinal_week, ...P.final_weeks])];
+  const lineupAt = (pids, t, w) => {
+    const ps = pids.map((pid) => pAvail(pid, t, w));
+    if (ps.every((x) => x >= 0.999)) return lineup(pids);
+    let h = 2166136261; for (const ch of `${t}|${w}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    let s2 = h | 0;
+    const r2 = () => { s2 = (s2 + 0x6D2B79F5) | 0; let x = Math.imul(s2 ^ (s2 >>> 15), 1 | s2); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+    let m = 0, m2 = 0, v = 0;
+    for (let k = 0; k < K; k++) {
+      const x = lineup(pids.filter((_, j) => r2() < ps[j]));
+      m += x.mean; m2 += x.mean * x.mean; v += x.sd * x.sd;
+    }
+    m /= K;
+    return { mean: m, sd: Math.sqrt(v / K + Math.max(0, m2 / K - m * m)) };
+  };
+  const teamWeeks = (pids, t) => {
+    const wk = Object.fromEntries(simWeeks.map((w) => [w, lineupAt(pids, t, w)]));
+    const reg = weeks.filter((w) => w !== curWk);
+    const mean = (reg.length ? reg : simWeeks).reduce((a, w) => a + wk[w].mean, 0) / (reg.length || simWeeks.length);
+    return { wk, mean };
+  };
   function simulate(withChanges) {
     seed = 20261114;
     const R = withChanges ? rosterNow() : baseRosters();
-    const L = Object.fromEntries(teams.map((t) => [t, lineup(R[t])]));
+    const L = Object.fromEntries(teams.map((t) => [t, teamWeeks(R[t], t)]));
     const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     // the week in progress: live points plus what each starter has left
     const liveWeek = {};
@@ -1329,7 +1366,7 @@ async function predict(_a, _q, live) {
       if ((m.points || 0) > 0) liveWeek[t] = { mean: (m.points || 0) + rem, sd: Math.sqrt(v) };
     }
     const tally = Object.fromEntries(teams.map((t) => [t, { playoffs: 0, final: 0, title: 0, wins: 0, seed1: 0 }]));
-    const score = (t, w) => { const x = (w === curWk && liveWeek[t]) || L[t]; return x.mean + gauss() * x.sd; };
+    const score = (t, w) => { const x = (w === curWk && liveWeek[t]) || L[t].wk[w] || lineup(R[t]); return x.mean + gauss() * x.sd; };
     for (let n = 0; n < N; n++) {
       const st = Object.fromEntries(teams.map((t) => [t, { w: (base0[t] || {}).w || 0, pf: (base0[t] || {}).pf || 0 }]));
       games.forEach((g, i) => {
@@ -1389,7 +1426,7 @@ async function predict(_a, _q, live) {
   $app.innerHTML = `<h1>Predictions</h1>
     <p class="muted">Pick winners and make roster moves; the rest of ${meta.season} is simulated ${N.toLocaleString()} times in your browser through the league's playoff rules. ${liveNote(live)}</p>
     <div class="card"><h2>Season odds</h2><p class="small muted" id="pstate"></p><div id="pres"><p class="muted">Simulating…</p></div>
-      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG; players out, on IR or in the reserve slot left out). The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
+      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG), with who can play each week from the forecast's injury model: players listed Out come back on the league's return curve, players on IR not before the NFL's 4-game minimum, Questionable players play 85% of the time this week, and a sourced "out for the season" note keeps a player out. Pts/wk is the expected points a week over the remaining regular season, after injuries. The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
     <div class="card"><h2>Roster moves</h2>
       <div class="controls"><select id="mp"><option value="">Player…</option>${allPlayers.map(([pid, t]) => `<option value="${pid}">${esc((nfl[pid] || [])[0])} (${esc((nfl[pid] || [])[1])}, ${esc(t)})</option>`).join("")}</select>
         <select id="mt"><option value="out">Out for the season</option>${teams.map((t) => `<option value="${esc(t)}">Trade to ${esc(t)}</option>`).join("")}</select>

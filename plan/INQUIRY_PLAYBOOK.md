@@ -126,6 +126,7 @@ the answer, not a silent choice.
 | `lotg_support.analysis` (via `inquire.py group/stacks/compare/compare-all/correlate/stretch/streaks/timeline/ownership/scarcity/spend/age`) | the joins and comparisons a judgement question needs: position attached to any sheet, roster-group depth, lineup composition, cohort tests with FDR control, arbitrary time windows, runs beating / missing a projection, entity timelines, who owned whom and in what order, positional scarcity, spend vs return, roster age (including the in-progress season) |
 | `scripts/draft_capital.py` (`lotg_support.draft_capital`) | what a draft slot returns across *all* rounds, who gets which slot under each era's ordering rule, and what moving up the order costs in roster ceiling |
 | `scripts/contract_study.py` (`lotg_support.contracts`) | the *real world* side: what an NFL contract predicts about fantasy production — signings ranked inside their position's market, matched against comparable players who did not get paid |
+| `lotg_support.ir_status` (`scripts/ir_history.py`) | injured reserve: who is on it at a cutoff and since when (tracker from 2026, nflverse weekly rosters before), the NFL minimum by season, and the IR return curve the forecast uses |
 | `scripts/forecast.py` (`lotg_support.forecast`) | the season that has not happened yet: project rosters (rates, ageing, market-priced rookies, availability and depth), calibrate against completed seasons, simulate championship / playoff / seeding odds |
 | `scripts/touchdowns.py` (`lotg_support.scoring_events`) | what a player actually DID rather than what he was worth: nflverse's stat lines joined onto this league's starters — touchdowns scored (and thrown) per starter-week, the scan for lineups that reached the end zone with nobody, and career totals in any nflverse stat, both as of a start and lifetime |
 | `inquire.py gametime` (`lotg_support.gametime`) | when in the week the points came: the margin entering ANY stage (`--entering SNF / Monday / 'last game'` or any game slot — `'Sunday late'`, `Thursday`, …), comebacks: margin overcome (behind at the time) and points overcome (vs the opponent's final, with %s and per player left; `--comebacks --by margin|points|size`), Comeback size (standard deviations behind the expected finish × how close the team got; `--whole-week` for every kickoff of the matchup), and starter points per team-week by game slot (`--slots`); Thanksgiving / Christmas / doubleheader weeks fall out of the schedule |
@@ -622,11 +623,20 @@ needing any baseline (a uniform forecast scores exactly 1.00).
 **Two rules this tool exists to enforce.**
 
 *Outside reporting goes in a dated, sourced file, never in code.*
-`plan/notes/forecast_status_<year>.csv` is one row per player: availability, a
-rate multiplier, a note saying why, a URL and an `as_of` date. It is the only
-place a judgement about the real world enters, and `check_research_file` refuses
-a row that names nobody on a roster or omits its source. Research rots — the
-date is there so the next reader can see how badly.
+`plan/notes/forecast_status_<year>.csv` is one row per player, keyed by Sleeper
+`player_id`: availability, a rate multiplier, `out_through_week` (a
+season-ending injury is the last week), `valid_through_week`, a note saying why,
+a URL and an `as_of` date. It is the only place a judgement about the real world
+enters, and `check_research_file` refuses a row without an id, an id that is not
+the named player, or a row that omits its source. Research rots, so a row
+expires: a forecast that already knows results after `valid_through_week`
+(blank = the preseason only, or `out_through_week`) ignores it and says so.
+
+*Injured reserve has a floor.* A player on IR cannot return before the NFL
+minimum (3 games in 2021, 4 from 2022; `lotg_support.ir_status`), then comes
+back on an IR-specific curve fitted from nflverse's weekly rosters
+(`plan/notes/ir_spells.csv`, rebuilt by `scripts/ir_history.py`), not on the
+general one. Who is on IR comes from `data/injury_tracker.csv` from 2026.
 
 *The backtest may not see the present.* Today's injury designations, today's
 free agents and a research file written today are all future information to a

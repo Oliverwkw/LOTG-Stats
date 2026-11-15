@@ -89,9 +89,13 @@ What is still *not* modelled, and no answer from here may pretend otherwise:
   Byes are not simulated at all, and players are injured independently of
   their teammates;
 - **injury news the data cannot see** — a designated-to-return or "expected
-  back this week" report. An injured player returns on the league-wide curve
-  for how long he has been out; the research file is the place to override
-  it with a dated, sourced availability.
+  back this week" report, or the diagnosis behind an absence. An injured player
+  returns on the league-wide curve for how long he has been out (a player on
+  injured reserve: not before the NFL minimum, then on the IR curve — see
+  `AvailabilityModel.ir_minimum`); the research file is the place to override
+  it with a dated, sourced availability or `out_through_week`. Body part,
+  a first-game-back dip (2021-25: 84-91% of the rate) and teammates' role
+  changes are not modelled.
 
 **In season** (since 2026-10-15): once weeks are played, each player's rate
 is updated with this season's games (`RateModel.in_season_weight`), and
@@ -104,6 +108,16 @@ champion log-loss moved 1.60/1.30/1.28 -> 1.57/1.22/1.23 and champion Brier
 1.41/1.09/0.83 -> 1.45/1.18/0.86 and playoff Brier stayed within 0.003. Five
 seasons is a small sample; read it as "helps the title odds a little, costs
 the win totals a little", not as proof.
+
+**Injured reserve** (since 2026-11-15, `AvailabilityModel.ir_minimum`): a
+player on IR at the cutoff cannot return before the NFL minimum and then comes
+back on an IR-specific curve (`ir_status`). Rewound 2021-2025 to weeks 2/4/8/11,
+the IR players' predicted availability over their remaining weeks moved from
+0.478 to 0.328 against 0.332 actual, and their Brier from 0.230 to 0.192 (every
+season and cutoff improved; n=2,045 player-weeks). At team level it is noise:
+champion log-loss at weeks 4/8/11 1.603/1.204/1.244 -> 1.600/1.205/1.243,
+playoff Brier within 0.0006, wins MAE within 0.005. It matters for a player's
+own outlook (trade.py, the site's predictions), not for the title odds.
 """
 
 from __future__ import annotations
@@ -118,6 +132,7 @@ import numpy as np
 import pandas as pd
 
 from . import inquiry as Q
+from . import ir_status as IR
 from . import lineup as L
 from . import replay as R
 
@@ -258,6 +273,24 @@ class AvailabilityModel:
                    week 9 is without him in the playoffs too. Replaces
                    `reserve_availability` for flagged players while it is on;
                    the preseason keeps the independent draws.
+    ir_minimum     with the spells on, a player on injured reserve cannot come
+                   back before the NFL's minimum (3 games in 2021, 4 from 2022),
+                   and once eligible he returns on an IR-specific curve
+                   (`ir_status.ir_return_model`: 21% at the first eligible
+                   game, then falling to ~4% a week — many IR stints end the
+                   season) instead of the general one, which would have him
+                   back 36% of the time after a single missed week. Who is on
+                   IR and since when: the injury tracker from 2026, nflverse's
+                   weekly rosters before that (`ir_status.on_ir`), so it is
+                   rewind-safe and stays on in the backtest. 2026's tracker:
+                   0 of 35 in-season placements back before missing 4 games.
+    questionable_availability, doubtful_availability
+                   P(he plays) in the first simulated week for a player Sleeper
+                   lists Questionable / Doubtful, applied only to a live
+                   forecast (the designation is today's). Measured: 2026's
+                   tracker, Questionable played 84.5% (n=226); Doubtful 0 of 3,
+                   and 0 of 120 rostered Doubtful player-weeks 2021-25 in
+                   nflverse's injury reports. A one-week miss, not a spell.
     """
     lookback: int = 2
     shrink_weeks: float = 10.0
@@ -268,6 +301,9 @@ class AvailabilityModel:
     unsigned_availability: float = 0.35
     draws: int = 3000
     injury_spells: bool = True
+    ir_minimum: bool = True
+    questionable_availability: float = 0.85
+    doubtful_availability: float = 0.0
 
     def uses_designations(self, year: int) -> bool:
         if self.designations == "always":
@@ -286,7 +322,9 @@ class AvailabilityModel:
                 f"reserve={self.reserve_availability:.2f} designations={self.designations} "
                 f"research={'on' if self.research else 'off'} "
                 f"unsigned={self.unsigned_availability:.2f} "
-                f"spells={'on' if self.injury_spells else 'off'}")
+                f"spells={'on' if self.injury_spells else 'off'} "
+                f"ir_min={'on' if self.ir_minimum else 'off'} "
+                f"Q={self.questionable_availability:.2f} D={self.doubtful_availability:.2f}")
 
 
 # ---------------------------------------------------------------------------
@@ -830,13 +868,39 @@ def _unsigned(root: str) -> frozenset:
 
 @dataclass(frozen=True)
 class ResearchNote:
-    """One researched, sourced, dated statement about a player's season."""
+    """One researched, sourced, dated statement about a player's season.
+
+    player_id          the Sleeper id the row is about (the key; `player` is
+                       for people). A row without one is resolved from its name
+                       and `check_research_file` asks for the id to be written in.
+    availability       P(available) each week the row applies, as flat draws; blank
+                       = leave availability to the model.
+    out_through_week   he cannot play through this week (a season-ending injury
+                       is the last week); after it he returns on the model's curve.
+    valid_through_week the last week the row describes: a forecast that already
+                       knows results after it ignores the row and lets this
+                       season's evidence speak. Blank = the preseason only (0),
+                       or `out_through_week` if that is given. Until 2026-11-15
+                       a row applied forever, so an August note held George
+                       Kittle to 70% availability in November with 8 of 9 games
+                       played.
+    """
     player: str
     availability: Optional[float]
     rate_multiplier: float
     note: str
     source: str
     as_of: str
+    player_id: str = ""
+    out_through_week: Optional[int] = None
+    valid_through_week: Optional[int] = None
+
+    def applies(self, through_week: int) -> bool:
+        """Whether a forecast that knows results through `through_week` uses it."""
+        last = self.valid_through_week
+        if last is None:
+            last = self.out_through_week if self.out_through_week is not None else 0
+        return int(through_week) <= int(last)
 
 
 def research_path(year: int) -> "Path":
@@ -849,23 +913,48 @@ def _research_cached(year: int, root: str) -> Tuple[ResearchNote, ...]:
     path = research_path(year)
     if not path.exists():
         return ()
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(path, dtype={"player_id": str})
     out = []
+
+    def num(row, col):
+        v = pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0]
+        return None if pd.isna(v) else float(v)
+
     for _, row in frame.iterrows():
-        avail = pd.to_numeric(pd.Series([row.get("availability")]), errors="coerce").iloc[0]
-        mult = pd.to_numeric(pd.Series([row.get("rate_multiplier", 1.0)]), errors="coerce").iloc[0]
+        avail, mult = num(row, "availability"), num(row, "rate_multiplier")
+        out_through, valid = num(row, "out_through_week"), num(row, "valid_through_week")
+        pid = row.get("player_id")
         out.append(ResearchNote(
             player=str(row["player"]).strip(),
-            availability=float(avail) if pd.notna(avail) else None,
-            rate_multiplier=float(mult) if pd.notna(mult) else 1.0,
+            availability=avail,
+            rate_multiplier=mult if mult is not None else 1.0,
             note=str(row.get("note", "")).strip(),
             source=str(row.get("source", "")).strip(),
-            as_of=str(row.get("as_of", "")).strip()))
+            as_of=str(row.get("as_of", "")).strip(),
+            player_id="" if pid is None or pd.isna(pid) else str(pid).strip().split(".")[0],
+            out_through_week=None if out_through is None else int(out_through),
+            valid_through_week=None if valid is None else int(valid)))
     return tuple(out)
 
 
+def _note_id(note: ResearchNote) -> str:
+    """The row's Sleeper id, or its name resolved (unambiguous only), or ''."""
+    if note.player_id:
+        return note.player_id
+    try:
+        return Q.players().resolve(note.player)
+    except Exception:
+        return ""
+
+
 def research_overrides(year: int) -> Dict[str, ResearchNote]:
-    """Curated outside reporting for a season, keyed by player name.
+    """Curated outside reporting for a season, keyed by Sleeper player id.
+
+    Keyed by id, never by name (until 2026-11-15 it was by name, and five 2026
+    rows — "Michael Penix" for "Michael Penix Jr." among them — silently moved
+    nobody while the warning said they were not rostered). A row with no id is
+    resolved from its name; one that resolves to nobody is left out here and
+    reported by `check_research_file`.
 
     The file this reads is the *only* place in this module where a human
     judgement about the real world enters, and it is deliberately the most
@@ -874,7 +963,17 @@ def research_overrides(year: int) -> Dict[str, ResearchNote]:
     forecast reports how many players it moved and `check_research_file` refuses
     a row that names nobody on a roster or omits its source.
     """
-    return {n.player: n for n in _research_cached(int(year), str(Q.repo_root()))}
+    out: Dict[str, ResearchNote] = {}
+    for n in _research_cached(int(year), str(Q.repo_root())):
+        pid = _note_id(n)
+        if pid:
+            out[pid] = n
+    return out
+
+
+def _on_ir(year: int, through_week: int) -> Dict[str, Tuple[int, int]]:
+    """`ir_status.on_ir`, here so a scenario (trade.py --healthy) can patch it."""
+    return IR.on_ir(year, through_week)
 
 
 def availability_rates(year: int, model: AvailabilityModel = AvailabilityModel()
@@ -962,6 +1061,10 @@ class FieldedDistribution:
     researched: Dict[int, int] = field(default_factory=dict)
     unplaced: Dict[int, int] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
+    # {player id: P(available) per simulated week, from first_week on}; one
+    # number (independent weekly draws) in the preseason
+    availability: Dict[str, np.ndarray] = field(default_factory=dict)
+    first_week: int = 1
 
     def depth_cost(self, rid: int) -> float:
         """Points a week the roster loses to unavailability — the depth tax."""
@@ -969,7 +1072,11 @@ class FieldedDistribution:
 
 
 def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarray,
-                  flat: np.ndarray, start: np.ndarray, model: InjuryModel) -> np.ndarray:
+                  flat: np.ndarray, start: np.ndarray, model: InjuryModel,
+                  ir_games: Optional[np.ndarray] = None,
+                  ir_model: Optional["IR.IRReturnModel"] = None, year: int = 0,
+                  lock: Optional[np.ndarray] = None,
+                  first_week_p: Optional[np.ndarray] = None) -> np.ndarray:
     """(draws, weeks, players) availability, one consecutive path per draw.
 
     `start` is -1 for a player healthy at the cutoff, else the weeks he has
@@ -977,20 +1084,42 @@ def _injury_paths(rng: np.random.Generator, draws: int, weeks: int, p: np.ndarra
     hurt at the rate that keeps their long-run availability at `p`; hurt ones
     return on the fitted curve. `flat` players (researched, unsigned) keep
     independent weekly draws at `p`.
+
+    Optional, per player:
+      ir_games      -1, or the games he has already missed on injured reserve:
+                    he returns on `ir_model` (0 before the minimum) instead of
+                    the general curve, and is an ordinary player once back;
+      lock          the first `lock` weeks he cannot play at all (a dated,
+                    sourced "out through week N");
+      first_week_p  P(he plays) in the first week only, on top of the rest (a
+                    Questionable / Doubtful tag), as a one-week miss.
     """
     n = len(p)
     hazard = np.array([model.new_injury_hazard(x) for x in p]) if n else np.zeros(0)
     hurt = np.broadcast_to(start >= 0, (draws, n)).copy()
     dur = np.broadcast_to(np.maximum(start, 0), (draws, n)).copy()
+    irg0 = np.full(n, -1) if ir_games is None else np.asarray(ir_games, dtype=int)
+    on_ir = np.broadcast_to(irg0 >= 0, (draws, n)).copy() & hurt
+    irg = np.broadcast_to(np.maximum(irg0, 0), (draws, n)).copy()
+    lock = np.zeros(n, dtype=int) if lock is None else np.asarray(lock, dtype=int)
     out = np.empty((draws, weeks, n), dtype=bool)
     for t in range(weeks):
         u = rng.random((draws, n))
-        back = hurt & (u < model.hazard(dur))
-        new = ~hurt & (u < hazard)
+        if ir_model is not None and on_ir.any():
+            r = np.where(on_ir, ir_model.hazard(irg, year), model.hazard(dur))
+        else:
+            r = model.hazard(dur)
+        back = hurt & (u < r) & (t >= lock)
+        new = ~hurt & (u < hazard) & (t >= lock)
         still = hurt & ~back
         dur = np.where(still, dur + 1, np.where(new, 1, 0))
+        irg = np.where(on_ir & still, irg + 1, irg)
+        on_ir = on_ir & still
         hurt = still | new
-        out[:, t, :] = np.where(flat, u < p, ~hurt)
+        up = np.where(flat, u < p, ~hurt) & (t >= lock)
+        if t == 0 and first_week_p is not None:
+            up &= rng.random((draws, n)) < np.asarray(first_week_p, dtype=float)
+        out[:, t, :] = up
     return out
 
 
@@ -1027,6 +1156,13 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     injuries = injury_model(exclude_from_fits=year) if spells else None
     missed = weeks_missed(year, through_week) if spells else {}
     horizon = max(int(horizon), 1) if spells else 1
+    use_ir = spells and availability.ir_minimum
+    on_ir = _on_ir(year, through_week) if use_ir else {}
+    ir_model = (IR.ir_return_model(exclude_from_fits=year if Q.season_meta(year).is_complete else None)
+                if on_ir else None)
+    # today's Questionable / Doubtful tags describe the first simulated week only
+    # when the forecast is live (knows every played week)
+    live = spells and through_week >= max(Q.played_weeks(year) or [0])
     price = rookie_price(exclude_from_fits, model)
     board = _draft_board(str(Q.repo_root()))
     class_board = board[board.year == year].set_index("player")
@@ -1053,6 +1189,10 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     unplaced: Dict[int, int] = {}
     warnings: List[str] = []
     applied: set = set()
+    expired: set = set()
+    first_sim_week = through_week + 1
+    player_avail: Dict[str, np.ndarray] = {}
+    n_ir_total = n_tagged_total = 0
 
     for rid, pids in pool.items():
         values: Dict[str, float] = {}
@@ -1060,6 +1200,9 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
         probs: List[float] = []
         flats: List[bool] = []
         starts: List[int] = []
+        ir_list: List[int] = []
+        locks: List[int] = []
+        firsts: List[float] = []
         n_rookie = n_out = n_unplaced = n_unsigned = n_researched = 0
         reserve = state.get(rid, {}).get("reserve", frozenset())
         for pid in pids:
@@ -1096,23 +1239,55 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
             elif flagged:
                 p = min(p, availability.reserve_availability)
                 n_out += 1
+            ir_games, lock, first = -1, 0, 1.0
+            if use_ir and pid in on_ir:
+                # on injured reserve: the NFL minimum, then the IR curve — unless
+                # Sleeper has already activated him (no designation, not in the slot)
+                if not (use_flags and not flagged and not designations.get(pid, "")):
+                    ir_games = on_ir[pid][1]
+                    out_now = max(out_now, 0)
+                    n_ir_total += 1
+            if live and out_now < 0:
+                tag = designations.get(pid, "")
+                if tag == "Questionable":
+                    first = availability.questionable_availability
+                elif tag == "Doubtful":
+                    first = availability.doubtful_availability
+                if first < 1.0:
+                    n_tagged_total += 1
             flat = not spells
             if pid in unsigned and availability.unsigned_availability < 1.0:
                 # no NFL team: he cannot score for anyone until he signs
                 p = min(p, availability.unsigned_availability)
                 n_unsigned += 1
-                flat, out_now = True, -1
-            note = notes.get(name)
+                flat, out_now, ir_games = True, -1, -1
+            note = notes.get(pid)
+            if note is not None and not note.applies(through_week):
+                expired.add(pid)
+                note = None
             if note is not None:
+                if note.out_through_week is not None:
+                    weeks_out = note.out_through_week - first_sim_week + 1
+                    if spells:
+                        lock = max(weeks_out, 0)
+                        out_now = max(out_now, 0)
+                    elif weeks_out > 0:
+                        # preseason draws are per week, not per path: scale by the
+                        # share of the season he can still play
+                        last = Q.season_meta(year).last_week
+                        p *= max(0.0, (last - note.out_through_week) / max(last - first_sim_week + 1, 1))
                 if note.availability is not None:
-                    p = note.availability
-                    flat, out_now = True, -1  # dated outside reporting wins
+                    p = note.availability if note.out_through_week is None or spells else p
+                    flat, out_now, ir_games = True, -1, -1  # dated outside reporting wins
                 values[pid] *= note.rate_multiplier
                 n_researched += 1
-                applied.add(name)
+                applied.add(pid)
             probs.append(p)
             flats.append(flat)
             starts.append(out_now)
+            ir_list.append(ir_games)
+            locks.append(lock)
+            firsts.append(first)
 
         pid_list = list(values)
         healthy[rid] = float(L.compute_optimal_lineup(values, pos_map, year))
@@ -1120,9 +1295,17 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
         if spells:
             up = _injury_paths(rng, availability.draws, horizon, p_arr,
                                np.array(flats, dtype=bool), np.array(starts, dtype=int),
-                               injuries)
+                               injuries, ir_games=np.array(ir_list, dtype=int),
+                               ir_model=ir_model, year=year,
+                               lock=np.array(locks, dtype=int),
+                               first_week_p=np.array(firsts, dtype=float))
+            share = up.mean(axis=0)                     # (weeks, players)
+            for j, pid in enumerate(pid_list):
+                player_avail[pid] = share[:, j]
         else:
             up = (rng.random((availability.draws, len(pid_list))) < p_arr)[:, None, :]
+            for j, pid in enumerate(pid_list):
+                player_avail[pid] = np.array([p_arr[j]])
         cache: Dict[bytes, float] = {}
         vals = np.empty(up.shape[:2], dtype=float)
         for i in range(up.shape[0]):
@@ -1164,9 +1347,25 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                 f"capped at {availability.unsigned_availability:.0%} availability")
     all_rostered = set()
     for row in Q.week(year, week).values():
-        all_rostered.update(players.name(pid) for pid in row.players)
-    missing = sorted(n for n in set(notes) - applied if n not in all_rostered)
-    benched = sorted(n for n in set(notes) - applied if n in all_rostered)
+        all_rostered.update(row.players)
+    unused = set(notes) - applied - expired
+    missing = sorted(notes[i].player for i in unused if i not in all_rostered)
+    benched = sorted(notes[i].player for i in unused if i in all_rostered)
+    if expired:
+        warnings.append(
+            f"{len(expired)} research note(s) describe weeks this forecast already knows "
+            f"(valid through an earlier week) and were not applied: "
+            f"{', '.join(sorted(notes[i].player for i in expired)[:8])}")
+    if n_ir_total:
+        warnings.append(
+            f"{n_ir_total} player(s) on injured reserve: no return before the "
+            f"{IR.ir_min_games(year)}-game minimum, then the IR return curve "
+            f"({ir_model.runs} past IR runs)")
+    if n_tagged_total:
+        warnings.append(
+            f"{n_tagged_total} player(s) tagged Questionable/Doubtful: week {first_sim_week} "
+            f"availability {availability.questionable_availability:.0%} / "
+            f"{availability.doubtful_availability:.0%}")
     if benched:
         warnings.append(
             f"{len(benched)} researched player(s) are rostered but not startable (taxi "
@@ -1184,7 +1383,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                                healthy=healthy, week_mean=week_mean,
                                rookies=rookies, sidelined=sidelined,
                                unsigned=unsigned_count, researched=researched,
-                               unplaced=unplaced, warnings=sorted(set(warnings)))
+                               unplaced=unplaced, warnings=sorted(set(warnings)),
+                               availability=player_avail, first_week=first_sim_week)
 
 
 def roster_projection(year: int, model: RateModel = RateModel(),
@@ -1284,6 +1484,11 @@ def _backtest_availability(model: AvailabilityModel) -> AvailabilityModel:
                              # who was out at the cutoff comes from the league's own
                              # player_week, which is history, so the spells stay on
                              injury_spells=model.injury_spells,
+                             # IR placements come from nflverse's weekly rosters, read
+                             # only up to the cutoff (ir_status.on_ir), so it stays on
+                             ir_minimum=model.ir_minimum,
+                             questionable_availability=model.questionable_availability,
+                             doubtful_availability=model.doubtful_availability,
                              draws=max(model.draws // 4, 250))
 
 
@@ -1381,6 +1586,10 @@ class Forecast:
     schedule: Optional[Schedule] = None
     warnings: List[str] = field(default_factory=list)
     roster_week: int = 1                          # whose rosters the projection used
+    # {Sleeper id: P(available) in each simulated week from availability_from_week}
+    # for every startable rostered player — what the injury model assumed
+    player_availability: Dict[str, Tuple[float, ...]] = field(default_factory=dict)
+    availability_from_week: int = 1
 
     def by_champion(self) -> List[TeamOdds]:
         return sorted(self.odds, key=lambda o: -o.champion)
@@ -1623,7 +1832,10 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
                     rookie_price=rookie_price(None, model),
                     age_curve=age_curve(None, model) if model.age_adjust else None,
                     rookie_class=rookie_class_strength(year), schedule=sched,
-                    warnings=sorted(set(warnings)))
+                    warnings=sorted(set(warnings)),
+                    player_availability={pid: tuple(round(float(x), 4) for x in v)
+                                         for pid, v in proj.availability.items()},
+                    availability_from_week=proj.first_week)
 
 
 # ---------------------------------------------------------------------------
@@ -1931,19 +2143,23 @@ def check_schedule_is_balanced(year: int) -> List[str]:
 
 
 def check_research_file(year: int) -> List[str]:
-    """Every researched row must name a real rostered player and cite a source.
+    """Every researched row must name a real player, by id, and cite a source.
 
     The research file is the one hand-written input to this module, so it gets
-    the strictest check: a typo'd name, a missing URL, an undated claim or an
-    availability outside [0, 1] is a defect, not a judgement call.
+    the strictest check: a typo'd name, a missing or mismatched id, a missing
+    URL, an undated claim, an availability outside [0, 1] or a week outside the
+    season is a defect, not a judgement call.
     """
-    notes = research_overrides(year)
-    if not notes:
+    rows = _research_cached(int(year), str(Q.repo_root()))
+    if not rows:
         return []
     problems: List[str] = []
     players = Q.players()
-    for name, note in sorted(notes.items()):
-        # What this catches is a TYPO — a name that is nobody. It used to
+    seen: Dict[str, str] = {}
+    last_week = 18
+    for note in sorted(rows, key=lambda n: n.player):
+        name = note.player
+        # What this catches is a TYPO — a row that is nobody. It used to
         # demand the player also be on a roster, which is a different and
         # wrong test: an unsigned free agent is exactly the kind of player
         # worth a research note, and a rostered one can be cut mid-season
@@ -1951,12 +2167,28 @@ def check_research_file(year: int) -> List[str]:
         # "unsigned free agent at 30", failed the roster form the week he
         # went unrostered.) A note about a player nobody rosters simply
         # moves nobody's projection.
-        try:
-            players.resolve(name)
-        except KeyError:
-            problems.append(f"{year} research: {name!r} matches no NFL player — typo?")
-        except Exception as exc:  # AmbiguousPlayer — a partial name, so which one?
-            problems.append(f"{year} research: {name!r} is ambiguous — {exc}")
+        if not note.player_id:
+            problems.append(f"{year} research: {name} has no player_id — write the Sleeper id in "
+                            f"(names collide and get re-spelled)")
+            try:
+                players.resolve(name)
+            except KeyError:
+                problems.append(f"{year} research: {name!r} matches no NFL player — typo?")
+            except Exception as exc:  # AmbiguousPlayer — a partial name, so which one?
+                problems.append(f"{year} research: {name!r} is ambiguous — {exc}")
+        else:
+            try:
+                real = players.name(note.player_id)
+            except Exception:
+                real = None
+            if not real:
+                problems.append(f"{year} research: {name} player_id {note.player_id} is no NFL player")
+            elif Q._normalize(name) not in Q._normalize(real):
+                problems.append(f"{year} research: {name} player_id {note.player_id} is {real}")
+            if note.player_id in seen:
+                problems.append(f"{year} research: {name} repeats player_id {note.player_id} "
+                                f"({seen[note.player_id]})")
+            seen[note.player_id] = name
         if not note.source.startswith("http"):
             problems.append(f"{year} research: {name} has no source URL")
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", note.as_of):
@@ -1969,6 +2201,10 @@ def check_research_file(year: int) -> List[str]:
         if not 0.0 < note.rate_multiplier <= 2.0:
             problems.append(f"{year} research: {name} rate_multiplier "
                             f"{note.rate_multiplier} is implausible")
+        for col in ("out_through_week", "valid_through_week"):
+            v = getattr(note, col)
+            if v is not None and not 0 <= v <= last_week:
+                problems.append(f"{year} research: {name} {col} {v} is not a week")
     return problems
 
 
