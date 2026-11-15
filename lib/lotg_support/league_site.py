@@ -598,10 +598,12 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
     # what ESPN's daily injury capture (lotg_support.espn_injuries) did to each
     # rostered player: "ESPN: out for season (acl tear)" / "ESPN: est. back wk 13"
     from . import espn_injuries as ESPN
-    at = ESPN.captured_at(year) if fc.espn_timelines else None
+    at = ESPN.captured_at(year) if fc.injury_basis else None
     return {"year": year, "sims": fc.sims, "played": list(fc.played_weeks), "odds": rows,
             "avail": avail, "avail_from": fc.availability_from_week,
             "espn": dict(sorted(fc.espn_timelines.items())),
+            # every hurt / tagged / ESPN-listed player: [ESPN timeline, what the odds assume]
+            "injuries": {k: list(v) for k, v in sorted(fc.injury_basis.items())},
             "espn_at": at.isoformat(timespec="minutes") if at else None}
 
 

@@ -1102,6 +1102,9 @@ class FieldedDistribution:
     availability: Dict[str, np.ndarray] = field(default_factory=dict)
     # {player id: what ESPN's timeline did to him}, live forecasts only
     espn: Dict[str, str] = field(default_factory=dict)
+    # {player id: (ESPN's timeline or "", what the forecast assumed)} for every
+    # hurt, tagged or ESPN-listed startable player
+    basis: Dict[str, Tuple[str, str]] = field(default_factory=dict)
     first_week: int = 1
 
     def depth_cost(self, rid: int) -> float:
@@ -1225,6 +1228,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     espn, espn_note = (_espn_timelines(year, through_week + 1, availability.espn_max_age_days)
                        if live and availability.espn_timelines else ({}, ""))
     espn_applied: Dict[str, str] = {}
+    basis: Dict[str, Tuple[str, str]] = {}
     state = _roster_state(year, str(Q.repo_root()))
     players = Q.players()
     teams = Q.teams(year)
@@ -1339,7 +1343,11 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                 applied.add(pid)
             reset = False
             es = espn.get(pid)
-            if (es is not None and spells and pid not in applied and not flat
+            # a dated research row (out-through-week / availability) wins; a row
+            # that only scales his rate does not block ESPN's timeline
+            dated_note = note is not None and (note.out_through_week is not None
+                                               or note.availability is not None)
+            if (es is not None and spells and not dated_note and not flat
                     and es.status in ESPN_HOLD):
                 if es.season_ending:
                     lock, out_now = max(lock, horizon), max(out_now, 0)
@@ -1349,6 +1357,30 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                     if weeks_out > lock:
                         lock, reset, out_now = weeks_out, True, max(out_now, 0)
                         espn_applied[pid] = es.label()
+            # what the forecast assumed for every hurt or listed player, and why
+            # (the site's injury card lists all of them, not just ESPN's)
+            used = ""
+            if dated_note:
+                used = (f"research file: out through wk {note.out_through_week}"
+                        if note.out_through_week is not None and spells
+                        else f"research file: {p:.0%} a week")
+            elif pid in espn_applied:
+                used = ("out for the season (ESPN)" if es.season_ending
+                        else "out for the season (ESPN: back after the regular season)"
+                        if es.return_week > Q.season_meta(year).last_week
+                        else f"out until wk {es.return_week} (ESPN), then return curve")
+            elif ir_games >= 0:
+                back = first_sim_week + max(IR.ir_min_games(year) - ir_games, 0)
+                used = f"IR: not before wk {back}, then IR return curve"
+            elif out_now >= 0 and spells:
+                used = "missed his last game: league return curve"
+            elif first < 1.0:
+                used = f"{designations.get(pid, '')} this week: plays {first:.0%}"
+            elif flat and pid in unsigned:
+                used = "no NFL team"
+            if used or es is not None:
+                basis[pid] = (es.label().replace("ESPN: ", "") if es is not None else "",
+                              used or "treated as healthy")
             probs.append(p)
             flats.append(flat)
             starts.append(out_now)
@@ -1462,7 +1494,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                                unsigned=unsigned_count, researched=researched,
                                unplaced=unplaced, warnings=sorted(set(warnings)),
                                availability=player_avail, first_week=first_sim_week,
-                               espn=espn_applied)
+                               espn=espn_applied, basis=basis)
 
 
 def roster_projection(year: int, model: RateModel = RateModel(),
@@ -1672,6 +1704,8 @@ class Forecast:
     availability_from_week: int = 1
     # {Sleeper id: "ESPN: out for season (acl tear)" / "ESPN: est. back wk 13"}
     espn_timelines: Dict[str, str] = field(default_factory=dict)
+    # {Sleeper id: (ESPN's timeline or "", what the forecast assumed)}
+    injury_basis: Dict[str, Tuple[str, str]] = field(default_factory=dict)
 
     def by_champion(self) -> List[TeamOdds]:
         return sorted(self.odds, key=lambda o: -o.champion)
@@ -1918,7 +1952,8 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
                     player_availability={pid: tuple(round(float(x), 4) for x in v)
                                          for pid, v in proj.availability.items()},
                     availability_from_week=proj.first_week,
-                    espn_timelines=dict(proj.espn))
+                    espn_timelines=dict(proj.espn),
+                    injury_basis=dict(proj.basis))
 
 
 # ---------------------------------------------------------------------------

@@ -164,6 +164,12 @@ def test_a_live_forecast_holds_espn_players_out():
             assert not any(v), (label, v)
         else:
             assert not any(v[:es.return_week - start]), (label, v)
+    # the site's card lists everyone the odds hold out, research-held included
+    # (2026-11-15: Achane, held by the research file, was missing from it)
+    assert set(fc.espn_timelines) <= set(fc.injury_basis)
+    for pid, n in F.research_overrides(year).items():
+        if pid in fc.player_availability and n.out_through_week is not None and n.applies(start - 1):
+            assert fc.injury_basis[pid][1].startswith("research file"), (n.player, fc.injury_basis.get(pid))
     # a research row wins over ESPN
     for pid in F.research_overrides(year):
         assert pid not in fc.espn_timelines or F.research_overrides(year)[pid].out_through_week is None
