@@ -929,7 +929,7 @@ async function faab(_, query, live) {
       && (!ql || r.name.toLowerCase().includes(ql)));
     // a team's board includes its future picks, valued on the same scale
     if (owner && owner !== "FA" && (!pos || pos === "PICK") && !ql) {
-      rs = rs.concat((held[owner] || []).map((p) => ({ pick: true, name: `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === owner ? "" : " (" + p.o + ")"}`, pos: "PICK", value: p.v, rank: null })))
+      rs = rs.concat((held[owner] || []).map((p) => ({ pick: true, name: `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === owner ? "" : " (" + p.o + ")"}`, pos: "PICK", own: owner, value: p.v, rank: null })))
         .sort((a, b) => b.value - a.value);
     }
     const np = rs.filter((r) => r.pick).length;

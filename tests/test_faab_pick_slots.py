@@ -100,3 +100,20 @@ if __name__ == "__main__":
         if _n.startswith("test_") and callable(_f):
             _f()
             print("ok", _n)
+
+
+def test_mid_season_is_not_post_season():
+    """the season's end is the scheduled regular season, not the weeks played so far (2026-11-14: a 2027 pick read
+    as locked at 2.01 after week 9 of 14)"""
+    import pandas as pd
+    from lotg_support import faab_pick_slots as PS
+    if not (PS.EXPORTS / "team_week.csv").exists():
+        return
+    tw = pd.DataFrame([(t, 2026, w, f"Week {w}", w % 2 == 0, 100.0 + i, 120.0 + i)
+                       for i, t in enumerate("ABCDEFGH") for w in range(1, 10)],
+                      columns=["Team", "Year", "Week", "Week Name", "Win?", "PF", "Max PF"])
+    o = PS.SlotOdds(tw=tw, rp=pd.DataFrame(columns=["Year", "Number", "Original Team", "Player Picked ID"]))
+    if PS._scheduled_last_reg(PS.EXPORTS, 2026) is None:
+        return
+    st, k = o.state(2027, pd.Timestamp("2026-11-14"))
+    assert (st, k) == ("season", 9), (st, k)

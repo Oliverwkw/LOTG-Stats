@@ -52,6 +52,17 @@ def _week_end(season: int, week: int) -> Optional[pd.Timestamp]:
     return pd.Timestamp(ko) + pd.Timedelta(days=7 * (int(week) - 1) + WEEK_END_DAYS)
 
 
+def _scheduled_last_reg(exports: Path, season: int) -> Optional[int]:
+    """the last regular-season week in the league's settings (playoff_week_start - 1), or None"""
+    import json
+    f = Path(exports) / "raw" / f"league_{int(season)}.json"
+    try:
+        w = int(json.load(open(f))["settings"]["playoff_week_start"])
+    except Exception:          # noqa: BLE001 - no settings: the weeks played
+        return None
+    return w - 1 if w > 1 else None
+
+
 class SlotOdds:
     """{original team: [P(slot 1..n)]} for a draft on a date, from what was knowable that day.
 
@@ -76,8 +87,13 @@ class SlotOdds:
             nm = g["Week Name"].astype(str)
             reg = g[nm.str.fullmatch(r"Week \d+")]
             semi = g[nm == "Semifinal"]
+            played = int(reg.Week.max()) if len(reg) else None
+            sched = _scheduled_last_reg(exports, int(y))
             self.seasons[int(y)] = dict(
-                last_reg=int(reg.Week.max()) if len(reg) else None,
+                # the scheduled regular season (league settings), not the weeks played so far: mid-season the max
+                # played week read as the season's end, so every pick looked post-season and locked (2026-11-14,
+                # Oliver: "its not locked at 2.01")
+                last_reg=max(played, sched) if (played is not None and sched is not None) else played,
                 semi=int(semi.Week.iloc[0]) if len(semi) else None,
                 final=int(g.loc[nm == "Final", "Week"].max()) if (nm == "Final").any() else None,
                 reg=reg)

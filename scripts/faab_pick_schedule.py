@@ -36,6 +36,8 @@ def cmd_fit(a):
         sv = I.Picks(I.player_additions_sid()).slot_values(pd.Timestamp.today())
         b = pd.DataFrame(dict(slot=sv.index.astype(str), price=sv.values.round(3)))
         b = b[b.slot.str.fullmatch(r"[1-4]\.\d\d")]
+        sb = PS.strict_board(dict(zip(b.slot, b.price)))
+        b = b.assign(price=b.slot.map(sb))
         b.to_csv(out / PS.BASE_CSV, index=False)
     print(f"{len(K)} KTC pick quotes, classes {K.cls.min()}-{K.cls.max()}; wrote {out / PS.WEEKS_CSV}"
           + ("" if a.keep_base else f" and {out / PS.BASE_CSV}"))
