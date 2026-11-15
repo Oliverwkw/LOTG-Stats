@@ -53,7 +53,7 @@ def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict, backup=None
     mates = P.wr_mates(R, idx)
     need = [c for c in P.rule_columns() if c in R]
     E = R[need].copy()
-    E["wr_mate"] = [str(R.sid.values[mates[i]]) if i in mates else "" for i in idx]
+    sv = R.sid.values; E["wr_mate"] = [str(sv[mates[i]]) if i in mates else "" for i in idx]
     E["e_x_qb_base"] = P.qb_base(R, idx)
     if pa is not None and "gsis" in R:
         E = P.take_backup(E, R.gsis.values, pa, backup)       # faab_pipeline.backup_table's rows when given

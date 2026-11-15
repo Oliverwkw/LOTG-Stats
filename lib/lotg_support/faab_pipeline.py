@@ -243,7 +243,11 @@ def qb_base(R, idx):
     qt = X.team_on(R.gsis.values[Q], R.date.values[Q], X.RW)
     best = pd.DataFrame(dict(date=R.date.values[Q], team=qt, v=R.V_raw.values[Q])).dropna(subset=["team"]).groupby(["date", "team"]).v.max()
     st = X.team_on(R.gsis.values[sel], R.date.values[sel], X.RW)
-    look = dict(zip(sel, [best.get((d, t), np.nan) if t is not None and not (isinstance(t, float) and np.isnan(t)) else np.nan for d, t in zip(R.date.values[sel], st)]))
+    known = np.array([t is not None and not (isinstance(t, float) and np.isnan(t)) for t in st], dtype=bool)
+    got = np.full(len(sel), np.nan)
+    if known.any() and len(best):          # each (date, team)'s best QB, read in one lookup
+        got[known] = best.reindex(pd.MultiIndex.from_arrays([R.date.values[sel][known], st[known]])).values.astype(float)
+    look = dict(zip(sel, got))
     return np.array([look.get(i, np.nan) for i in idx], dtype=float)
 
 
