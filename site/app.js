@@ -370,6 +370,84 @@ function boardPlace(vals, v, hi) {
   for (const x of vals) { if (hi ? x > v : x < v) gt++; if (hi ? x >= v : x <= v) ge++; }
   return ge >= 5 ? 0 : ge > gt && gt === 0 ? 0.5 : gt + 1;   // 0 = not on the top 5; 0.5 = ties the record
 }
+// the normal curve (Abramowitz-Stegun 7.1.26) and its inverse (Acklam)
+const Phi = (z) => { const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2); return 0.5 * (1 + (z < 0 ? -y : y)); };
+function invPhi(p) {
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const q0 = Math.min(p, 1 - p);
+  let x;
+  if (q0 < 0.02425) { const q = Math.sqrt(-2 * Math.log(q0)); x = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); x = p < 0.5 ? x : -x; return p < 0.5 ? x : x; }
+  const q = p - 0.5, r = q * q;
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+// The Sleeper app-style win % (lotg_support.gametime.app_win_pct): A^k/(A^k+B^k),
+// k = 3.757/(1-f)^0.6, f = share of the two projected finals scored; 1-99% held.
+const appPct = (a, b, f, hold) => {
+  a = Math.max(a, 0.01); b = Math.max(b, 0.01);
+  const k = 3.757 / Math.pow(1 - Math.min(Math.max(f, 0), 0.999), 0.6), x = Math.min(Math.max(k * Math.log(b / a), -700), 700), p = 1 / (1 + Math.exp(x));
+  return hold ? Math.min(Math.max(p, 0.01), 0.99) : p;
+};
+const r2 = (v) => v == null ? null : Math.round(v * 100) / 100, r4 = (v) => v == null ? null : Math.round(v * 1e4) / 1e4;
+// The matchup's comeback columns for one side (lotg_support.gametime, Sleeper set):
+// own / opp = its starters as [kickoff ms or null, points, Sleeper projection, out?].
+function comebackSide(own, opp, pf, pa, stageT, lateT) {
+  const GH = 3 * 36e5, S = {}, choke = {};
+  const mu = (s) => s[3] ? 0 : s[2];
+  const fromT = (pl, t) => pl.reduce((a, s) => a + (s[0] != null && s[0] >= t ? s[1] : 0), 0);
+  const leftOf = (pl, t) => pl.filter((s) => s[0] != null && s[0] >= t);
+  const ks = [...new Set(own.concat(opp).map((s) => s[0]).filter((k) => k != null))].sort((x, y) => x - y);
+  const ws = []; let prev = null;
+  for (const k of ks) { if (prev === null || k - prev >= GH) ws.push(k); prev = k; }
+  const share = (oi, pi, a, b) => a + b > 0 ? (oi + pi) / (a + b) : 0;
+  const appZ = (a, b, f) => Math.max(-10, Math.min(10, invPhi(Math.min(Math.max(appPct(a, b, f, false), 1e-12), 1 - 1e-12))));
+  const sumMu = (pl) => pl.reduce((x, s) => x + mu(s), 0);
+  const check = (t) => {
+    const ol = leftOf(own, t), pl = leftOf(opp, t), oi = pf - fromT(own, t), pi = pa - fromT(opp, t);
+    const a = oi + sumMu(ol), b = pi + sumMu(pl), z = appZ(a, b, share(oi, pi, a, b));
+    return [z, ol.reduce((x, s) => x + s[1] - mu(s), 0), pl.reduce((x, s) => x + mu(s) - s[1], 0), z, oi - pi];
+  };
+  const ownPart = (h, l) => { const o = h[1] - l[1], turn = o + (h[2] - l[2]); return 0.25 + 0.75 * (turn > 0 ? Math.min(1, Math.max(0, o / turn)) : 0); };
+  const size = (pts, final, first, side) => {
+    const later = pts.map((p) => [Phi(p[0]), p]).concat([[final, [null, 0, 0]]]);
+    let best = 0;
+    (first ? pts.slice(0, 1) : pts).forEach((h, i) => {
+      if (!(h[4] !== undefined && (side === "down" ? h[4] < 0 : h[4] > 0))) return;
+      const depth = Math.max(0, -h[3]);
+      if (depth) for (const [c, p] of later.slice(i + 1)) best = Math.max(best, depth * c * ownPart(h, p));
+    });
+    return r2(Math.min(100, best * 100 / 3.5));
+  };
+  const finalOf = (pl, fin, t) => t == null ? sumMu(pl) + (fin - pl.reduce((x, s) => x + s[1], 0)) : fin - fromT(pl, t) + sumMu(leftOf(pl, t));
+  const livePct = (t) => { const a = finalOf(own, pf, t), b = finalOf(opp, pa, t); return appPct(a, b, share(pf - fromT(own, t), pa - fromT(opp, t), a, b), true); };
+  const won = pf > pa, final = won ? 1 : pf === pa ? 0.5 : 0, over = (p) => won && p < 0.5 ? 1 - p : null;
+  const pre = appPct(finalOf(own, pf, null), finalOf(opp, pa, null), 0, true);
+  S.sl_pre = r2(pre); S.sl_prediff = r2(2 * pre - 1); S.sl_preover = r2(over(pre));
+  const lows = [pre].concat(ws.slice(1).map(livePct)).filter((p) => p < 0.5).map((p) => 1 - p);
+  S.sl_largest = won && lows.length ? r2(Math.max(...lows)) : null;
+  const zw = ws.slice(1).map(check);
+  S.sl_cb = ws.length ? size(zw, final, false, "down") : null;
+  choke.all = ws.length ? (won ? size(zw, final, false, "up") : 0) : null;
+  [0, 1, 2].forEach((i) => {
+    const t = i === 2 ? (ws.length && lateT != null && ws[ws.length - 1] >= lateT ? ws[ws.length - 1] : null) : stageT[i];
+    const keys = ["cb_m_", "cb_mo_", "cb_po_", "cb_own_", "cb_pof_", "cb_ppl_", "cb_mpl_", "cb_pos_", "sl_cb_", "sl_wo_"];
+    if (t == null) { keys.forEach((k) => (S[k + i] = null)); choke[i] = null; return; }
+    const oi = r2(pf - fromT(own, t)), pi = r2(pa - fromT(opp, t)), m = r2(oi - pi), left = leftOf(own, t).length;
+    const deficit = r2(pa - oi), cb = won && deficit > 0, mo = won && m < 0 ? -m : null;
+    S["cb_m_" + i] = m; S["cb_mo_" + i] = mo; S["cb_po_" + i] = cb ? deficit : null;
+    S["cb_own_" + i] = pf > 0 ? r4((pf - oi) / pf) : null;
+    S["cb_pof_" + i] = cb && pa > 0 ? r4(deficit / pa) : null;
+    S["cb_ppl_" + i] = cb && left > 0 ? r2(deficit / left) : null;
+    S["cb_mpl_" + i] = mo != null && left ? r2(mo / left) : null;
+    S["cb_pos_" + i] = mo != null && pi > 0 ? r4(mo / pi) : null;
+    const k0 = ws.find((k) => k >= t), zs = [check(t)].concat(ws.filter((k) => k0 != null && k > k0).map(check));
+    S["sl_cb_" + i] = size(zs, final, true, "down"); choke[i] = won ? size(zs, final, true, "up") : 0;
+    S["sl_wo_" + i] = r2(over(livePct(t)));
+  });
+  return { S, choke };
+}
 const WATCH_SCOPES = { all: "League", win: "Filtered", loss: "Filtered", rookie: "Filtered" };
 // Every weekly stat a live week can set (data/live_watch.json: team-week, game and
 // player stats, each on the league board and its filtered versions — in a win / a
@@ -385,6 +463,24 @@ async function recordWatch(meta) {
   const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json());
   const wk = state.week;
   const mus = await fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${wk}`, { cache: "no-store" }).then((r) => r.json());
+  // Sleeper's projections for the week, in this league's scoring (lotg_support.projections):
+  // they move until kickoff, so every projection stat counts until then
+  const KEEP = new Set(["pass_yd", "pass_td", "pass_int", "pass_2pt", "rush_yd", "rush_td", "rush_2pt", "rec", "rec_yd",
+    "rec_td", "rec_2pt", "fum", "fum_lost", "fum_rec_td", "st_td"]);
+  let proj = null;
+  try {
+    const [lg, ...pp] = await Promise.all([fetch(`https://api.sleeper.app/v1/league/${meta.league_id}`).then((r) => r.json()),
+      ...["QB", "RB", "WR", "TE"].map((pos) => fetch(`https://api.sleeper.app/projections/nfl/${LW.season}/${wk}?season_type=regular&position[]=${pos}`).then((r) => r.json()))]);
+    const sc = lg.scoring_settings || {};
+    proj = {};
+    for (const arr of pp) for (const r of arr || []) {
+      const st = r.stats || {};
+      if (!("pts_ppr" in st)) continue;               // adp only: no projection
+      let v = 0;
+      for (const [k, x] of Object.entries(st)) if (typeof x === "number" && (KEEP.has(k) || k.startsWith("bonus_")) && sc[k] != null) v += x * sc[k];
+      proj[r.player_id] = v;
+    }
+  } catch (e) { proj = null; }
   const nowRaw = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const nowET = new Date(Math.floor(nowRaw / 6e5) * 6e5);       // 10-minute clock: same odds for everyone
   const ko = LW.kickoffs[String(wk)] || {};
@@ -420,13 +516,28 @@ async function recordWatch(meta) {
       // his NFL game has kicked off (a bye, or out before kickoff, is not a start)
       const kicked = !!kt && nowET >= new Date(kt);
       // a bench player on a bye or out is absent: not in the roster donut / under-10 counts
-      return { pid, pos: (nfl[pid] || [])[1], nfl: (nfl[pid] || [])[2], st, rk: rookies.has(pid),
+      // his Sleeper projection (0 when out; a hole under 0.5 falls back to his rate, standing in
+      // for the build's model fallback)
+      const pj = proj && proj[pid] != null && proj[pid] >= 0.5 ? proj[pid] : LW.rates[pid] ?? 3;
+      return { pid, pos: (nfl[pid] || [])[1], nfl: (nfl[pid] || [])[2], st, rk: rookies.has(pid), out,
+        slot: st ? slots[(m.starters || []).indexOf(pid)] : null, kt: kt ? +new Date(kt) : null, sp: out || !kt ? 0 : pj,
         absent: !st && (out || !ko[(nfl[pid] || [])[2]]), cur: (m.players_points || {})[pid] || 0, f, kicked, rate: LW.rates[pid] ?? 3 }; }) };
   });
   teams.forEach((t) => (t.opp = teams.findIndex((o) => o !== t && o.m.matchup_id === t.m.matchup_id)));
   const anyLeft = teams.some((t) => t.players.some((p) => p.f > 0));
   const anyPlayed = teams.some((t) => t.m.points > 0);
   const POS = ["QB", "RB", "WR", "TE"];
+  // the week's stages (lotg_support.gametime): SNF = first Sunday kickoff at 7 pm+,
+  // Monday = first kickoff after Sunday; the last game is per matchup (comebackSide)
+  const wkKs = [...new Set(Object.values(ko).map((k) => +new Date(k)))].sort((x, y) => x - y);
+  const sun = wkKs.map((k) => new Date(k)).find((d) => d.getDay() === 0);
+  const sunKey = sun ? sun.toDateString() : null;
+  const snfT = wkKs.find((k) => new Date(k).toDateString() === sunKey && new Date(k).getHours() >= 19) ?? null;
+  const monT = sun ? wkKs.find((k) => k > new Date(sun.getFullYear(), sun.getMonth(), sun.getDate() + 1).getTime() - 1) ?? null : null;
+  const lateT = sun ? new Date(sun.getFullYear(), sun.getMonth(), sun.getDate(), 19).getTime() : null;
+  // streaks carry from last week's exports: only when they run through last week
+  const fresh = Object.values(LW.prev || {}).some((v) => v[0] === wk - 1);
+  const stkPrev = (kind, who, sid) => { const v = ((LW.streaks || {})[kind] || {})[who]; return v && v[sid] ? v[sid][2] : 0; };
   // a team's week from its players' points (each matches its team_week column)
   const teamStats = (t, pts) => {
     const S = {}, st = [], ro = [];
@@ -475,27 +586,98 @@ async function recordWatch(meta) {
   };
   const resultScopes = (extra) => [["all", 0], ["win", 1], ["loss", -1], ...extra];
   teams.forEach((t, i) => {
-    for (const s of LW.stats.filter((s) => s.kind === "team")) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]), { i, both: s.id === "pa" || s.id === "margin" });
+    for (const s of LW.stats.filter((s) => s.kind === "team" && !s.streak)) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]), { i, dep: s.dep || (s.id === "pa" || s.id === "margin" ? "both" : "own") });
+    if (fresh) for (const s of LW.stats.filter((s) => s.kind === "team" && s.streak)) reach(s.id, t.team, (R) => R.stk.team[i][s.id], [["all", 0]], { i, dep: s.dep, streak: true });
     if (t.team < teams[t.opp].team) for (const s of LW.stats.filter((s) => s.kind === "game"))
-      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0]], { i, both: true });
+      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0]], { i, dep: s.dep || "both" });
     t.players.forEach((p, k) => {
       const role = p.st ? "st" : "bn";
       const sc = () => resultScopes(p.rk ? [["rookie", 0]] : [])
         .map(([s, c]) => [s, c === 0 ? 0 : { team: i, w: c }]);
       const get = (R) => R.pts[i][k], who = "pid:" + p.pid;
-      const cx = { i, p };
+      const cx = { i, p, dep: "self" };
       reach(`p_${role}_ALL`, who, get, sc(), cx); reach(`p_ro_ALL`, who, get, sc(), cx);
       if (POS.includes(p.pos)) { reach(`p_${role}_${p.pos}`, who, get, sc(), cx); reach(`p_ro_${p.pos}`, who, get, sc(), cx); }
-      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0]], { i, p, own: true });
+      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0]], { i, p, dep: "self", own: true });
+      if (fresh) for (const s of LW.stats.filter((s) => s.kind === "player" && s.streak)) reach(s.id, who, (R) => R.stk.pl[i][k][s.id], [["all", 0]], { i, p, dep: s.dep, streak: true });
     });
   });
+  // Sleeper Lineup Boldness (lotg_support.boldness.team_boldness on Sleeper projections):
+  // the best lineup the projections allowed over the slots filled (a dead start, out or on
+  // a bye, counts as empty) from his starters and available bench, minus the lineup set
+  const bold = (t) => {
+    const live = t.players.filter((p) => p.st && !p.out && p.kt != null), used = new Set();
+    const pool = t.players.filter((p) => (p.st && !p.out && p.kt != null) || (!p.st && !p.out && p.kt != null)).map((p) => ({ pos: p.pos, p: p.sp }))
+      .sort((a, b) => b.p - a.p);
+    let best = 0;
+    for (const sl of live.map((p) => p.slot).sort((a, b) => (fits[a] || []).length - (fits[b] || []).length)) {
+      const i = pool.findIndex((x, j) => !used.has(j) && (fits[sl] || []).includes(x.pos));
+      if (i >= 0) { used.add(i); best += pool[i].p; }
+    }
+    return r2(Math.max(0, best - live.reduce((a, p) => a + p.sp, 0)));
+  };
+  const BOLD = teams.map(bold);
+  const plays = (t, pts) => t.players.map((p, k) => [p, pts[k]]).filter(([p]) => p.st).map(([p, v]) => [p.kt, v, p.sp, (p.out || p.kt == null) && v === 0]);
+  const TSTK = LW.stats.filter((x) => x.streak && x.kind === "team"), PSTK = LW.stats.filter((x) => x.streak && x.kind === "player");
   const run = (pts) => {
     const team = teams.map((t, i) => teamStats(t, pts[i]));
     team.forEach((S, i) => withOpp(S, team[teams[i].opp]));
+    teams.forEach((t, i) => {
+      const S = team[i], j = t.opp;
+      S.sl_proj = r2(t.players.reduce((a, p) => a + (p.st ? p.sp : 0), 0));
+      S.sl_above = r2(S.pf - S.sl_proj); S.sl_bold = BOLD[i];
+      const { S: C, choke } = comebackSide(plays(t, pts[i]), plays(teams[j], pts[j]), r2(S.pf), r2(team[j].pf), [snfT, monT], lateT);
+      Object.assign(S, C);
+      const O = team[j];                       // the choke goes on the loser's row
+      O.sl_ch = choke.all; [0, 1, 2].forEach((k) => (O["sl_ch_" + k] = choke[k]));
+    });
+    teams.forEach((t, i) => { team[i].sl_diff = r2(team[i].sl_proj - team[t.opp].sl_proj); });
     const game = teams.map((t, i) => gameStats(team[i], team[t.opp]));
-    return { pts, team, game };
+    game.forEach((G, i) => { const A = team[i], O = team[teams[i].opp]; G.c_slproj = r2(A.sl_proj + O.sl_proj); G.c_slabove = r2(A.sl_above + O.sl_above); });
+    // streaks: last week's count + 1 if it keeps going this week, else it ends
+    const stk = { team: teams.map(() => ({})), pl: teams.map((t) => t.players.map(() => ({}))) };
+    if (fresh) {
+      const pf = team.map((S) => S.pf), sorted = pf.slice().sort((a, b) => b - a), n = pf.length;
+      const med = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+      const wins = team.map((S) => S.margin > 0), wm = team.filter((S, i) => wins[i]).map((S) => S.margin);
+      const eff = team.map((S) => S.eff), topShare = team.map((S) => S.pf ? S.hist / S.pf : 0);
+      const cond = {
+        "Win streak": (i) => wins[i], "Loss streak": (i) => team[i].margin < 0,
+        "Win streak counting previous season": (i) => wins[i], "Loss streak counting previous season": (i) => team[i].margin < 0,
+        "Highest score streak": (i) => pf[i] === sorted[0], "Lowest score streak": (i) => pf[i] === sorted[n - 1],
+        "Narrowest victory streak": (i) => wins[i] && team[i].margin === Math.min(...wm),
+        "Largest blowout streak": (i) => wins[i] && team[i].margin === Math.max(...wm),
+        "Most efficient streak": (i) => eff[i] === Math.max(...eff), "Least efficient streak": (i) => eff[i] === Math.min(...eff),
+        "Top half streak": (i) => pf[i] >= med, "Bottom half streak": (i) => pf[i] < med, "Podium streak": (i) => pf[i] >= sorted[2],
+        "One-man army streak": (i) => topShare[i] === Math.max(...topShare),
+        "Most bench points streak": (i) => team[i].bench === Math.max(...team.map((S) => S.bench)), "150+ PF streak": (i) => pf[i] >= 150 };
+      teams.forEach((t, i) => TSTK.forEach((x) => { const c = cond[x.streak]; if (c) stk.team[i][x.id] = c(i) ? stkPrev("team", t.team, x.id) + 1 : 0; }));
+      // player awards over every lineup this week
+      const all = []; teams.forEach((t, i) => t.players.forEach((p, k) => all.push({ i, k, p, v: pts[i][k] })));
+      const stv = all.filter((x) => x.p.st), mx = (a) => a.length ? Math.max(...a.map((x) => x.v)) : null;
+      const topSt = mx(stv), posSt = {}, posBn = {};
+      for (const P of POS) { posSt[P] = mx(stv.filter((y) => y.p.pos === P)); posBn[P] = mx(all.filter((y) => !y.p.st && y.p.pos === P)); }
+      const minSt = stv.length ? Math.min(...stv.map((x) => x.v)) : null, zeroTies = stv.filter((x) => x.v === 0).length;
+      const shareMax = Math.max(...stv.map((x) => team[x.i].pf ? x.v / team[x.i].pf : 0));
+      const pcond = {
+        "Player of the week streak": (x) => x.p.st && x.v === topSt,
+        "Benchwarmer of the week streak": (x) => x.p.st && x.v === minSt && !(minSt === 0 && zeroTies > 1),
+        "Highest starter on team streak": (x) => x.p.st && x.v === team[x.i].hist, "Lowest starter on team streak": (x) => x.p.st && x.v === team[x.i].lost,
+        "Captain streak": (x) => x.p.st && team[x.i].pf > 0 && x.v / team[x.i].pf === shareMax };
+      for (const P of POS) {
+        pcond[`${P} of the week streak`] = (x) => x.p.st && x.p.pos === P && x.v === posSt[P];
+        pcond[`Bench ${P} of the week streak`] = (x) => !x.p.st && x.p.pos === P && x.v === posBn[P];
+      }
+      for (const n of [10, 20, 30, 40, 50]) pcond[`${n}+ point streak`] = (x) => x.v >= n;
+      for (const x of all) {
+        if (x.p.out || x.p.kt == null) continue;          // a bye / injury week neither adds nor breaks
+        PSTK.forEach((sx) => { const c = pcond[sx.streak]; if (c) stk.pl[x.i][x.k][sx.id] = c(x) ? stkPrev("player", x.p.pid, sx.id) + 1 : 0; });
+      }
+    }
+    return { pts, team, game, stk };
   };
   const now = run(teams.map((t) => t.players.map((p) => p.cur)));
+  window.LOTG_WATCH = { wk, teams, now };          // for checking against the sheets
   // the seed: this week's live points (and the 10-minute clock)
   const rand = mulberry(hashStr(`${wk}|${+nowET}|` + teams.map((t) => t.team + ":" + t.players.map((p) => p.pid + "=" + p.cur).join(",")).join(";")));
   const gauss = () => { let u = 0, v = 0; while (!u) u = rand(); while (!v) v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
@@ -522,7 +704,7 @@ async function recordWatch(meta) {
     .replace(/^Combined (QBs|RBs|WRs|TEs|rookies)/, "Combined $1");
   const boardLabel = (x) => {
     const s0 = statById[x.stat], s = { ...s0, label: tidy(s0.label) }, count = s.fmt && s.fmt.d === 0 && !s.fmt.p;
-    const head = s.kind === "player" ? `${x.d === "h" ? "Most" : "Fewest"} ${s.label.charAt(0).toLowerCase() + s.label.slice(1)}`
+    const head = s.streak ? `Longest ${s.label.charAt(0).toLowerCase() + s.label.slice(1)}` : s.kind === "player" ? `${x.d === "h" ? "Most" : "Fewest"} ${s.label.charAt(0).toLowerCase() + s.label.slice(1)}`
       : `${x.d === "h" ? (count ? "Most" : "Highest") : (count ? "Fewest" : "Lowest")} ${s.label}`;
     const k = x.sc;
     const tail = { all: "", win: "in a win", loss: "in a loss", rookie: "by a rookie" }[k];
@@ -543,15 +725,22 @@ async function recordWatch(meta) {
   const begun = (p) => p.kicked || p.cur !== 0;
   const tBegun = (i) => teams[i].players.some(begun), tDone = (i) => teams[i].players.every((p) => p.f === 0);
   const mBegun = (i) => tBegun(i) || tBegun(teams[i].opp), mDone = (i) => tDone(i) && tDone(teams[i].opp);
+  // a projection stat counts until every starter it depends on has kicked off (or has no game)
+  const locked = (i) => teams[i].players.every((p) => !p.st || p.kt == null || p.kicked);
+  const allDone = () => teams.every((t, i) => tDone(i)), anyBegun = () => teams.some((t, i) => tBegun(i));
   const status = (x) => {
     if (!anyLeft) return "done";
+    const dep = x.dep || "own";
+    if (dep === "proj_own" || dep === "proj_both") return locked(x.i) && (dep === "proj_own" || locked(teams[x.i].opp)) ? "done" : "live";
+    if (dep === "league") return allDone() ? "done" : x.streak || anyBegun() ? "live" : "pre";
     if (x.p) {                                   // a player mark (his team's result too if filtered by it)
-      if (!begun(x.p)) return "pre";
-      return x.p.f === 0 && (!x.cond || mDone(x.i)) && (!x.own || tDone(x.i)) ? "done" : "live";
+      const done = x.p.f === 0 && (!x.cond || mDone(x.i)) && (!(x.own || dep === "own") || tDone(x.i)) && (dep !== "both" || mDone(x.i));
+      if (done && (begun(x.p) || x.streak)) return "done";
+      return begun(x.p) || x.streak ? "live" : "pre";   // a running streak counts already
     }
-    const both = x.both || x.cond;
-    if (!(both ? mBegun(x.i) : tBegun(x.i))) return "pre";
-    return (both ? mDone(x.i) : tDone(x.i)) ? "done" : "live";
+    const both = dep === "both" || x.cond;
+    if ((both ? mDone(x.i) : tDone(x.i)) && (both ? mBegun(x.i) : tBegun(x.i))) return "done";
+    return (both ? mBegun(x.i) : tBegun(x.i)) || x.streak ? "live" : "pre";
   };
   rows.forEach((x) => (x.st = status(x)));
   const VIEWS = { "Not started": (x) => x.st === "pre", Counting: (x) => x.st === "live", Finished: (x) => x.st === "done" };
