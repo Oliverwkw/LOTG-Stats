@@ -370,11 +370,10 @@ function boardPlace(vals, v, hi) {
   for (const x of vals) { if (hi ? x > v : x < v) gt++; if (hi ? x >= v : x <= v) ge++; }
   return ge >= 5 ? 0 : ge > gt && gt === 0 ? 0.5 : gt + 1;   // 0 = not on the top 5; 0.5 = ties the record
 }
-const WATCH_SCOPES = { all: "League", win: "Filtered", loss: "Filtered", reg: "Filtered", rookie: "Filtered", season: "This season", team: "Franchise", pid: "Career" };
+const WATCH_SCOPES = { all: "League", win: "Filtered", loss: "Filtered", rookie: "Filtered" };
 // Every weekly stat a live week can set (data/live_watch.json: team-week, game and
 // player stats, each on the league board and its filtered versions — in a win / a
-// loss, regular season, this season, each franchise's own record, rookies, each
-// player's league career high). The rest of the week is simulated from each
+// loss, rookies). The rest of the week is simulated from each
 // player's projection (forecast rate blended with this season's PPG) scaled by how
 // much of his game is left (kickoff + ~3.3 h; ET); each simulated week is placed on
 // every board. The random stream is seeded from the live scores and a 10-minute
@@ -425,7 +424,6 @@ async function recordWatch(meta) {
   teams.forEach((t) => (t.opp = teams.findIndex((o) => o !== t && o.m.matchup_id === t.m.matchup_id)));
   const anyLeft = teams.some((t) => t.players.some((p) => p.f > 0));
   const anyPlayed = teams.some((t) => t.m.points > 0);
-  const reg = wk <= ((LW.playoff || {}).regular_weeks || 14), season = LW.season;
   const POS = ["QB", "RB", "WR", "TE"];
   // a team's week from its players' points (each matches its team_week column)
   const teamStats = (t, pts) => {
@@ -473,20 +471,20 @@ async function recordWatch(meta) {
       if (b) targets.push({ stat, d, sc, who, get, b, cond, ...ctx, top5: 0, rec: 0, tie: 0 });
     }
   };
-  const resultScopes = (extra) => [["all", 0], ["win", 1], ["loss", -1], ...(reg ? [["reg", 0]] : []), ["season", 0], ...extra];
+  const resultScopes = (extra) => [["all", 0], ["win", 1], ["loss", -1], ...extra];
   teams.forEach((t, i) => {
-    for (const s of LW.stats.filter((s) => s.kind === "team")) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([["team:" + t.team, 0]]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]), { i, both: s.id === "pa" || s.id === "margin" });
+    for (const s of LW.stats.filter((s) => s.kind === "team")) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]), { i, both: s.id === "pa" || s.id === "margin" });
     if (t.team < teams[t.opp].team) for (const s of LW.stats.filter((s) => s.kind === "game"))
-      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]], { i, both: true });
+      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0]], { i, both: true });
     t.players.forEach((p, k) => {
       const role = p.st ? "st" : "bn";
-      const sc = (career) => resultScopes([["team:" + t.team, 0], ...(p.rk ? [["rookie", 0]] : []), ...(career ? [["pid:" + p.pid, 0]] : [])])
+      const sc = () => resultScopes(p.rk ? [["rookie", 0]] : [])
         .map(([s, c]) => [s, c === 0 ? 0 : { team: i, w: c }]);
       const get = (R) => R.pts[i][k], who = "pid:" + p.pid;
       const cx = { i, p };
-      reach(`p_${role}_ALL`, who, get, sc(p.st), cx); reach(`p_ro_ALL`, who, get, sc(true), cx);
-      if (POS.includes(p.pos)) { reach(`p_${role}_${p.pos}`, who, get, sc(false), cx); reach(`p_ro_${p.pos}`, who, get, sc(false), cx); }
-      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]], { i, p, own: true });
+      reach(`p_${role}_ALL`, who, get, sc(), cx); reach(`p_ro_ALL`, who, get, sc(), cx);
+      if (POS.includes(p.pos)) { reach(`p_${role}_${p.pos}`, who, get, sc(), cx); reach(`p_ro_${p.pos}`, who, get, sc(), cx); }
+      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0]], { i, p, own: true });
     });
   });
   const run = (pts) => {
@@ -524,9 +522,8 @@ async function recordWatch(meta) {
     const s0 = statById[x.stat], s = { ...s0, label: tidy(s0.label) }, count = s.fmt && s.fmt.d === 0 && !s.fmt.p;
     const head = s.kind === "player" ? `${x.d === "h" ? "Most" : "Fewest"} ${s.label.charAt(0).toLowerCase() + s.label.slice(1)}`
       : `${x.d === "h" ? (count ? "Most" : "Highest") : (count ? "Fewest" : "Lowest")} ${s.label}`;
-    const [k, arg] = x.sc.split(":");
-    const tail = { all: "", win: "in a win", loss: "in a loss", reg: "regular season", season: `in ${season}`, rookie: "by a rookie",
-      team: `${arg}'s own record`, pid: `${nameOf(arg)}'s career high` }[k];
+    const k = x.sc;
+    const tail = { all: "", win: "in a win", loss: "in a loss", rookie: "by a rookie" }[k];
     return tail ? `${head} · ${tail}` : head;
   };
   const rowLabel = (s, ri) => {
@@ -556,7 +553,7 @@ async function recordWatch(meta) {
   };
   rows.forEach((x) => (x.st = status(x)));
   const VIEWS = { "Not started": (x) => x.st === "pre", Counting: (x) => x.st === "live", Finished: (x) => x.st === "done" };
-  const tabs = ["All", "League", "Filtered", "This season", "Franchise", "Career"];
+  const tabs = ["All", "League", "Filtered"];
   let view = ["Counting", "Not started", "Finished"].find((v) => rows.some(VIEWS[v])) || "Not started", tab = "All";
   const item = (x) => `<li>
       <div class="wtop"><span><b>${esc(boardLabel(x))}</b> · ${whoHtml(x.who)}</span><span class="wp">${x.st === "done"
@@ -573,7 +570,7 @@ async function recordWatch(meta) {
     const shown = (fin ? eligible.slice().sort((a, b) => b.p1 + b.pt - a.p1 - a.pt || b.b[0] - a.b[0]) : eligible).slice(0, 15);
     const rest = list.filter((x) => !shown.includes(x));
     el().innerHTML = `<h2>Record watch · week ${esc(wk)} ${liveNote(live)}</h2>
-    <p class="muted small">${anyLeft ? (anyPlayed ? "Games under way: chances come from simulating the rest of the week." : "Before kickoff: chances come from simulating the whole week from projections.") : "Every game is over: these are where this week's numbers landed."} ${LW.stats.length} weekly stats on ${nBoards.toLocaleString()} boards (league, filtered, this season, each franchise, each player's career).</p>
+    <p class="muted small">${anyLeft ? (anyPlayed ? "Games under way: chances come from simulating the rest of the week." : "Before kickoff: chances come from simulating the whole week from projections.") : "Every game is over: these are where this week's numbers landed."} ${LW.stats.length} weekly stats on ${nBoards.toLocaleString()} boards (league; in a win, in a loss, by a rookie).</p>
     <div class="seg">${Object.keys(VIEWS).map((v) => { const n = rows.filter(VIEWS[v]).length; return `<button aria-pressed="${v === view}" data-wview="${v}"${n ? "" : " disabled"}>${v} ${n}</button>`; }).join("")}</div>
     <div class="seg">${tabs.map((t) => `<button aria-pressed="${t === tab}" data-wtab="${t}"${counts[t] ? "" : " disabled"}>${t} ${counts[t]}</button>`).join("")}</div>
     ${shown.length ? `<h3>${view} · top ${shown.length}</h3><ul class="wlist">${shown.map(item).join("")}</ul>`
