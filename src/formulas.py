@@ -406,7 +406,7 @@ _ROWS = [
      "Notes": "Calibrated so winning to your talent nets ≈ 0; each loss-from-hardship week subtracts 0.25. All-time averages seasons (not weeks) to stay fair across tenures. Full weighting in plan/LUCK_REWORK.md."},
     {"Stat": "Hardship", "Sheet": "team_week / team_year / team_all_time / league_week",
      "Formula": "Fantasy points a team lost to injury/suspension that week. Sum, over every rostered player who missed to injury or suspension (starter or bench, not a bye), of his expected-if-healthy points (recent scoring baseline, floored at 0). Year/all-time/league sum the weekly values.",
-     "Notes": "Higher = more production knocked out (not schedule strength). Byes never count. 'Starter-adjusted Hardship' weights each by likelihood of starting; both feed Luck."},
+     "Notes": "Higher = more production knocked out (not schedule strength). Byes never count. A game-day healthy scratch never counts either: a week the injury tracker lists as Out with body part \"Coach's Decision\" (2026 on; a rookie QB3, a benched vet) reads Injury? = TRUE but lost nothing to injury, so it is left out of every Hardship column, Claude-projection twins and win / loss flips included [per user, 2026-11-17]. 2025 and earlier have no body part and are unchanged. 'Starter-adjusted Hardship' weights each by likelihood of starting; both feed Luck."},
     {"Stat": "Win Variance", "Sheet": "team_year / team_all_time",
      "Formula": "-1 × (standings_place − (pf_place + maxpf_place) / 2).",
      "Notes": "Negative when a team finishes better than their PF / Max PF percentile would predict (over-performance via luck or close-game wins)."},

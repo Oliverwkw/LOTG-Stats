@@ -1032,7 +1032,24 @@ def load_status_index(repo_root: Path) -> Dict[Tuple[str, int, int], Dict[str, A
                     # Only ever True or None — see played_index.
                     "played": True if _p in ("true", "1", "yes") else None,
                     "nfl_team": (r.get("nfl_team") or "").strip(),
+                    "body_part": (r.get("injury_body_part") or "").strip(),
                 }
     except Exception:
         return idx
     return idx
+
+
+HEALTHY_SCRATCH_BODY_PARTS = ("coach's decision",)
+
+
+def is_healthy_scratch(entry: Optional[Dict[str, Any]]) -> bool:
+    """True when the tracker's designation for the week is a game-day inactive
+    for a non-medical reason ("Out" with injury_body_part "Coach's Decision":
+    a healthy scratch, a rookie QB3). Such a week still reads Injury? = TRUE
+    (Injury? is the residual did-not-play bucket), but nothing was lost to an
+    injury, so Hardship leaves it out [per user, 2026-11-17]. False for a
+    missing entry: 2025 and earlier have no body part and keep their values."""
+    if not entry:
+        return False
+    bp = str(entry.get("body_part") or "").strip().lower().replace("\u2019", "'")
+    return bp in HEALTHY_SCRATCH_BODY_PARTS

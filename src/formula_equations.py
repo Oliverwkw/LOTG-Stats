@@ -616,7 +616,7 @@ EQUATIONS = {
     ("Luck (team_all_time: 'Avg yearly luck')", 'team_week / team_year (Luck); team_all_time (Avg yearly luck)'):
         "Luck(t,w) = (0.27·OUT + 0.14·SIS − 0.14·BROS)·(1.8 if stage(t,w) ∈ PO else 1) + (0.36·OPP + 0.10·OWN)·GATE − 0.36·ADV + 0.12·EFF + 0.16·CLOSE − 0.25·LFH; OUT = win(t,w) − 1/(1 + e^(−1.5·δ)), δ = ⅓[z_all(μMax_t − μMax_o) + z_all(μPF_t − μPF_o) + z_all(μwin_t − μwin_o)] (z_all over every team-week row), OPP = z_wk(−(PA(t,w) − μPF_o)), OWN = z_wk(PF(t,w) − μPF_t), ADV = z_wk(Hard + SAHard + 3·Σ_{p ∈ R(t,w)} BYE(p,w)), EFF = z_wk(PF/MaxPF), CLOSE = sgn(m)·max(0, 1 − |m|/8), GATE = 1/(1 + |m|/15), m = PF − PA; 0 with no opponent; team_year = Σ_w Luck(t,w), team_all_time 'Avg yearly luck' = mean over seasons of Σ_w Luck",
     ('Hardship', 'team_week / team_year / team_all_time / league_week'):
-        'Σ_{p ∈ R(t,w)} [pts(p,w) = 0 ∧ (INJ ∨ SUS) ∧ ¬BYE] · max(0, E_h(p,w)); year/all-time/league = Σ',
+        'Σ_{p ∈ R(t,w)} [pts(p,w) = 0 ∧ (INJ ∨ SUS) ∧ ¬BYE ∧ ¬SCR] · max(0, E_h(p,w)), SCR = the injury tracker lists p Out with body part "Coach\'s Decision" that week (2026 on); year/all-time/league = Σ',
     ('Win Variance', 'team_year / team_all_time'):
         '−(rank_stand(t,y) − (rank_ΣPF(t,y) + rank_ΣMaxPF(t,y)) / 2)',
     ('Drafting skill', 'team_year / team_all_time'):

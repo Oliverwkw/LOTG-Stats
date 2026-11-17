@@ -117,6 +117,7 @@ from lotg_support import usage as _usage
 from lotg_support.sleeper import SleeperClient
 from lotg_support.injury_tracker import (
     apply_overlay as _apply_injury_overlay,
+    is_healthy_scratch as _is_healthy_scratch,
     load_status_index as _load_injury_tracker,
     looks_like_gsis as _looks_like_gsis,
 )
@@ -14629,6 +14630,10 @@ def build_all(repo_root: Path) -> None:
         # suspensions".
         was_recent_starter: List[int] = [0] * len(pw)
         eff_starter_share: List[float] = [0.0] * len(pw)
+        # A game-day healthy scratch ("Out", body part "Coach's Decision" in the
+        # injury tracker, 2026 on) is Injury? = TRUE but lost nothing to injury,
+        # so no Hardship column counts it [per user, 2026-11-17].
+        healthy_scratch: List[bool] = [False] * len(pw)
 
         # Early-season forward-looking starter capture (user spec). In the very
         # first weeks of the first season a player has no backward LOTG active
@@ -14737,7 +14742,10 @@ def build_all(repo_root: Path) -> None:
             # injuries/suspensions" too, keeping the two in lockstep.
             was_recent_starter[i] = 1 if eff_starter_pct > 0.0 else 0
             eff_starter_share[i] = float(eff_starter_pct)
-            missed = (pts == 0.0) and (inj or susp) and (not bye)
+            if inj and not susp and yr is not None and wk is not None:
+                healthy_scratch[i] = _is_healthy_scratch(
+                    injury_tracker_idx.get((str(row.get("Player ID") or ""), yr, wk)))
+            missed = (pts == 0.0) and (inj or susp) and (not bye) and not healthy_scratch[i]
             if missed and expected is not None:
                 # Clamp expected ≥ 0 (negative-baseline edge case).
                 exp_clamped = max(0.0, float(expected))
@@ -14775,7 +14783,8 @@ def build_all(repo_root: Path) -> None:
                 else pd.Series(np.nan, index=pw.index)
             _ptc = pd.to_numeric(pw["Points"], errors="coerce").fillna(0.0)
             _fl = lambda c: pw[c].map(lambda v: safe_bool(v, default=False)) if c in pw.columns else pd.Series(False, index=pw.index)
-            _missc = (_ptc == 0.0) & (_fl("Injury?") | _fl("Suspension?")) & ~_fl("Bye?") & _cr.notna()
+            _missc = (_ptc == 0.0) & (_fl("Injury?") | _fl("Suspension?")) & ~_fl("Bye?") & _cr.notna() \
+                & ~pd.Series(healthy_scratch, index=pw.index)
             pw["_points_lost_claude"] = np.where(_missc, _cr.clip(lower=0.0), 0.0)
             pw["_starter_adj_points_lost_claude"] = pw["_points_lost_claude"] * pd.Series(eff_starter_share, index=pw.index)
         except Exception as e:
