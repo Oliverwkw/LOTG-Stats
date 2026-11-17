@@ -401,15 +401,34 @@ def _record_watch_inputs_are_right():
     lw = _load("live_watch.json")
     tw = pd.read_csv(_ROOT / "exports" / "team_week.csv", low_memory=False)
     pw = pd.read_csv(_ROOT / "exports" / "player_week.csv", low_memory=False)
-    b = {x["id"]: x for x in lw["boards"]}
-    assert abs(b["pf"]["values"][0] - pd.to_numeric(tw.PF, errors="coerce").max()) < 1e-6
-    assert abs(b["pf_lo"]["values"][0] - pd.to_numeric(tw.PF, errors="coerce").min()) < 1e-6
+    B, stats = lw["boards"], {s["id"]: s for s in lw["stats"]}
+    num = lambda c: pd.to_numeric(tw[c], errors="coerce")
+    # every team / game stat's league board is its team_week column's top 5
+    for sid, s in stats.items():
+        if s["kind"] in ("team", "game") and f"{sid}|h|all" in B and s["col"] in tw.columns:
+            v = num(s["col"]) if s["kind"] == "team" else num(s["col"])[tw["Win?"].astype(str) == "True"]
+            assert B[f"{sid}|h|all"][1] == [round(float(x), 4) for x in v.dropna().sort_values(ascending=False).head(5)], sid
+            assert B[f"{sid}|h|all"][0] == int(v.notna().sum()), sid
     st = pw[pw["Starter/Bench"] == "Starter"]
-    assert abs(b["p_st"]["values"][0] - pd.to_numeric(st.Points, errors="coerce").max()) < 1e-6
+    assert abs(B["p_st_ALL|h|all"][1][0] - pd.to_numeric(st.Points, errors="coerce").max()) < 1e-6
     wr = st[st.Position == "WR"]
-    assert abs(b["p_st_WR"]["values"][0] - pd.to_numeric(wr.Points, errors="coerce").max()) < 1e-6
-    for x in lw["boards"]:
-        assert x["values"] == sorted(x["values"], reverse=x["hi"]), x["id"]
+    assert abs(B["p_st_WR|h|all"][1][0] - pd.to_numeric(wr.Points, errors="coerce").max()) < 1e-6
+    t0 = sorted(tw.Team.astype(str).unique())[0]           # a franchise's own record
+    assert B[f"pf|h|team:{t0}"][1][0] == round(float(num("PF")[tw.Team == t0].max()), 4)
+    for k, (n, vals, rows) in B.items():
+        assert n >= 10 and len(vals) == len(rows) == 5, k
+        assert vals == sorted(vals, reverse=k.split("|")[1] == "h"), k
+        rt = lw["rows_p"] if stats[k.split("|")[0]]["kind"] == "player" else lw["rows_t"]
+        assert all(0 <= r < len(rt) for r in rows), k
+    # the stats the page recomputes live match their columns on every finished week
+    key = ["Team", "Year", "Week"]
+    s_ = st.assign(Points=pd.to_numeric(st.Points, errors="coerce"))
+    live = pd.DataFrame({"Bench points": pw[pw["Starter/Bench"] != "Starter"].assign(P=pd.to_numeric(pw.Points, errors="coerce")).groupby(key).P.sum(),
+                         "Players over 20 pts (starters)": s_.groupby(key).Points.apply(lambda x: (x > 20).sum()),
+                         "Number of WR started": s_.groupby(key).Position.apply(lambda x: (x == "WR").sum())}).reset_index()
+    m = tw.merge(live, on=key, suffixes=("", "_live"))
+    for c in ("Bench points", "Players over 20 pts (starters)", "Number of WR started"):
+        assert (abs(pd.to_numeric(m[c], errors="coerce").fillna(0) - m[c + "_live"].fillna(0)) < 0.02).all(), c
     codes = {v[2] for v in _load("nfl_players.json").values() if v[2]}
     for wk, teams in lw["kickoffs"].items():
         assert set(teams) <= codes, (wk, set(teams) - codes)           # e.g. LA must read LAR
