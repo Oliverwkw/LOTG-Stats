@@ -19,7 +19,7 @@ and reports movement on all of them. Two kinds of item:
      in-progress season to a full-season pace (cumulative stats scale by weeks
      played; rate/level stats carry as-is) and report where the projection lands
      in the top/bottom `WINDOW` versus every completed season
-     (e.g. "Oliverwkw is on pace for 4th-highest Hardship this season").
+     (e.g. "Oliverwkw is on pace for the 4th-highest Hardship of any season").
      **On-pace items are withheld until week 5** (too little signal earlier).
 
   3. **All-time boards** for every row-level sheet. A row still being written —
@@ -236,12 +236,19 @@ def _to_float(value) -> Optional[float]:
         return None
 
 
-def _place(rank: int, end: str) -> str:
+def _place(rank: int, end: str, column: str = "", sheet: str = "") -> str:
     """"highest" / "lowest" for 1st, "2nd-highest" and so on below it.
 
     "1st-highest" says the same thing twice — "highest" already means first — and
     the doubling is loudest on exactly the lines that matter most. Ranks below
-    first still need the ordinal to mean anything."""
+    first still need the ordinal to mean anything.
+
+    The low end of a MIRRORED column (`mirrored_columns`: ranked on its positive
+    side only) is "smallest", not "lowest": its bottom is the most even trade or
+    closest game, and "lowest FAAB Value difference (0.00)" read as if the most
+    lopsided loss should be negative (user, 2026-11-17)."""
+    if end != "high" and column and column in _MIRRORED_SEEN.get(sheet, ()):
+        return "smallest" if rank == 1 else f"{_ordinal(rank)}-smallest"
     end_word = "highest" if end == "high" else "lowest"
     return end_word if rank == 1 else f"{_ordinal(rank)}-{end_word}"
 
@@ -618,12 +625,19 @@ _MIRROR_PAIRS = {
 }
 
 
+# sheet -> every column `mirrored_columns` has found mirrored this run; read by
+# `_place` so a mirrored board's low end says "smallest" wherever it is phrased.
+_MIRRORED_SEEN: Dict[str, set] = {}
+
+
 def mirrored_columns(df: pd.DataFrame, sheet: str) -> set:
     """The columns of `sheet` that hold one fact from both sides."""
     pair = _MIRROR_PAIRS.get(sheet)
     if not pair or df is None or df.empty or pair[1] not in df.columns:
         return set()
-    return set(two_sided_columns(df, pair[0], pair[1], list(pair[2])))
+    out = set(two_sided_columns(df, pair[0], pair[1], list(pair[2])))
+    _MIRRORED_SEEN.setdefault(sheet, set()).update(out)
+    return out
 
 
 def numeric_series(df: pd.DataFrame, column: str) -> "pd.Series":
@@ -785,10 +799,31 @@ def _passed_by_detail(passers: Sequence[str], place: str, column: str,
     email said "falling to 5.3"."""
     by = f" ({_fmt_stat(column, by_value)})" if by_value is not None else ""
     verb = "rising" if end == "low" else "falling"
-    now = f" ({_place(now_rank, end)})" if now_rank else ""
+    now = f" ({_place(now_rank, end, column, sheet)})" if now_rank else ""
     fell = f", {verb} to {_fmt_stat(column, value)}{now}" if value is not None else ""
     return (f"was passed by {_name_list(passers)} for {place} "
             f"{display_column(column, sheet)}{by}{fell}")
+
+
+def _left_tie_detail(newcomers: Sequence[str], place: str, column: str,
+                     was: Optional[float], value: Optional[float], sheet: str = "",
+                     end: str = "high", now_rank: Optional[int] = None) -> str:
+    """The faller's side when it only dropped out of a tie it shared: "drops out
+    of the tie for highest Floor percentile (100.00), falling to 99.30
+    (6th-highest), as Emmett Johnson arrives there". Its tie partners stood still,
+    so naming them as the rows that "passed" it was wrong (user, 2026-11-17:
+    D'Ernest Johnson "was passed by" three players who never moved). Rows new to
+    the board that took the place are named; without one, the line says only that
+    it fell."""
+    held = f" ({_fmt_stat(column, was)})" if was is not None else ""
+    verb = "rising" if end == "low" else "falling"
+    now = f" ({_place(now_rank, end, column, sheet)})" if now_rank else ""
+    fell = f", {verb} to {_fmt_stat(column, value)}{now}" if value is not None else ""
+    why = ""
+    if newcomers:
+        why = f", as {_name_list(newcomers)} {'arrives' if len(newcomers) == 1 else 'arrive'} there"
+    return (f"drops out of the tie for {place} {display_column(column, sheet)}"
+            f"{held}{fell}{why}")
 
 
 def _place_holders(by: Sequence[tuple]) -> Tuple[int, List[str], Optional[float]]:
@@ -941,11 +976,22 @@ class Crossing:
     rule_release: bool = False
     # The faller's place now (`_passed_by_detail`), when it is still ranked.
     now_rank: Optional[int] = None
+    # The faller only dropped out of a tie it shared: nobody who stood still
+    # climbed past it (`_left_tie_detail`). `newcomers` = rows new to the board
+    # this week that hold the place it lost — the usual cause on a relative
+    # column (Emmett Johnson's one 34.1 start re-set the top RB Floor percentile).
+    left_tie: bool = False
+    newcomers: tuple = ()
 
     def group(self) -> str:
         return _name_list((self.mover,) + tuple(self.co_movers))
 
     def detail(self) -> str:
+        if self.passed_by and self.left_tie:
+            return _left_tie_detail(self.newcomers, _place(self.rank, self.end), self.column,
+                                    self.prev_value, self.value,
+                                    _SECTION_SHEET.get(("crossing", self.section), ""),
+                                    self.end, self.now_rank)
         if self.passed_by:
             return _passed_by_detail(self.passed, _place(self.rank, self.end), self.column,
                                      self.by_value, self.value,
@@ -1001,6 +1047,9 @@ def _column_crossings(section: str, column: str,
     out: List[Crossing] = []
     # (end, faller) -> the stand-still rows that passed it (`_passed_by_detail`).
     fell: Dict[tuple, List[tuple]] = {}
+    # (end, faller) whose passers include one that did NOT come from a tie split
+    # — someone really climbed past it.
+    overtaken: set = set()
     prev_val = {e["entity"]: e["value"] for e in prev}
     curr_val = {e["entity"]: e["value"] for e in curr}
     n = len(curr)
@@ -1087,6 +1136,7 @@ def _column_crossings(section: str, column: str,
                     if (_improved(prev_val[x], curr_val[x], end)
                             and not _indistinguishable(v, [curr_val[x]], column)):
                         fell.setdefault((end, x), []).append((new_rank, mover, v))
+                        overtaken.add((end, x))
 
             if stood_still and others:
                 faller_side()      # reaching a tie that way passes a faller all the same
@@ -1147,11 +1197,16 @@ def _column_crossings(section: str, column: str,
         if (end, faller) in told:
             continue
         place, holders, by_v = _place_holders(by)
+        left_tie = (end, faller) not in overtaken
+        newcomers = tuple(sorted(
+            x for x, xv in curr_val.items()
+            if x not in prev_val and now_ranks[end].get(xv, n + 1) <= place)) if left_tie else ()
         out.append(Crossing(section, column, end, place, faller, curr_val[faller],
                             passed=tuple(holders),
                             prev_value=prev_val[faller], passed_by=True,
                             by_value=by_v,
-                            now_rank=now_ranks[end].get(curr_val[faller])))
+                            now_rank=now_ranks[end].get(curr_val[faller]),
+                            left_tie=left_tie, newcomers=newcomers))
     return out
 
 
@@ -1265,10 +1320,16 @@ class Projection:
         if self.final:
             return (f"{self.group()} finished with the {_place(self.rank, self.end)} "
                     f"{self.name()} of any season ({val}.")
-        # A player-team's season-to-date column already says "this season".
-        when = "" if self.name().endswith(" this season") else " this season"
-        return (f"{self.group()} is on pace for {_place(self.rank, self.end)} "
-                f"{self.name()}{when} ({val}.")
+        # The board is every season ever, so the sentence says so: "on pace for
+        # highest X this season" read as "the best this season" (user, 2026-11-17,
+        # Chuba Hubbard's Points above Claude Projection). Same shape as the
+        # season-complete line. A player-team's season-to-date column drops its
+        # own " this season" for the same reason.
+        name = self.name()
+        if name.endswith(" this season"):
+            name = name[: -len(" this season")]
+        return (f"{self.group()} is on pace for the {_place(self.rank, self.end)} "
+                f"{name} of any season ({val}.")
 
 
 def _is_boolean(values: Sequence[float]) -> bool:
@@ -1879,6 +1940,10 @@ class WeeklyHighlight:
     def _name(self) -> str:
         return display_column(self.column, _SECTION_SHEET.get(("week", self.section), ""))
 
+    def _place(self) -> str:
+        return _place(self.rank, self.end, self.column,
+                      _SECTION_SHEET.get(("week", self.section), ""))
+
     def _against(self) -> str:
         """", tied with X" / ", passing X and Y" — or "(tie)" when a tie is not
         named (three or more holders)."""
@@ -1888,16 +1953,16 @@ class WeeklyHighlight:
     def detail(self) -> str:
         wk = f" [week {self.week}]" if self.show_week and self.week else ""
         return (f"{self._name()} ({self._value()}) — "
-                f"{_place(self.rank, self.end)} ever{self._against()}{wk}")
+                f"{self._place()} ever{self._against()}{wk}")
 
     def sentence(self) -> str:
         if self.co_entities:
-            return (f"{self.group()} share the {_place(self.rank, self.end)} "
+            return (f"{self.group()} share the {self._place()} "
                     f"{self._name()} of any single week ({self._value()})"
                     f"{self._against()}.")
         return (f"{self.group()}'s {self._name()} this week "
                 f"({self._value()}) is the "
-                f"{_place(self.rank, self.end)} single week ever{self._against()}.")
+                f"{self._place()} single week ever{self._against()}.")
 
     def line(self) -> str:
         # "…'s Points this week (55) is the highest single week ever" under a
@@ -2054,12 +2119,12 @@ class EventHighlight:
     def detail(self) -> str:
         return (f"{display_column(self.column, self.sheet)} of "
                 f"{_fmt_stat(self.column, self.value)} —"
-                f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever")
+                f"{_place(self.rank, self.end, self.column, self.sheet)} of any {self.sheet[:-1]} ever")
 
     def sentence(self) -> str:
         return (f"{self.label}: {display_column(self.column, self.sheet)} of "
                 f"{_fmt_stat(self.column, self.value)} —"
-                f"{_place(self.rank, self.end)} of any {self.sheet[:-1]} ever.")
+                f"{_place(self.rank, self.end, self.column, self.sheet)} of any {self.sheet[:-1]} ever.")
 
 
 def _event_cell(row, col) -> str:
@@ -3153,6 +3218,10 @@ class EventCrossing:
     fell_off: bool = False
     # The faller's place now (`_passed_by_detail`).
     now_rank: Optional[int] = None
+    # Only dropped out of a tie (`Crossing.left_tie`); `newcomers` = brand-new
+    # rows holding the place it lost.
+    left_tie: bool = False
+    newcomers: tuple = ()
 
     def _show(self, label: str) -> str:
         return self.shown.get(label, label)
@@ -3162,16 +3231,21 @@ class EventCrossing:
 
     def detail(self) -> str:
         if self.fell_off:
-            return _fell_off_detail(_place(self.rank, self.end), self.column,
+            return _fell_off_detail(_place(self.rank, self.end, self.column, self.sheet), self.column,
                                     self.prev_value, self.value, self.sheet)
+        if self.passed_by and self.left_tie:
+            return _left_tie_detail(tuple(map(self._show, self.newcomers)),
+                                    _place(self.rank, self.end, self.column, self.sheet),
+                                    self.column, self.prev_value, self.value, self.sheet,
+                                    self.end, self.now_rank)
         if self.passed_by:
             return _passed_by_detail(tuple(map(self._show, self.passed)),
-                                     _place(self.rank, self.end), self.column,
+                                     _place(self.rank, self.end, self.column, self.sheet), self.column,
                                      self.by_value, self.value, self.sheet, self.end,
                                      self.now_rank)
         return _crossing_detail(self.joined, tuple(map(self._show, self.others)),
                                 tuple(map(self._show, self.passed)),
-                                _place(self.rank, self.end), self.column, self.value,
+                                _place(self.rank, self.end, self.column, self.sheet), self.column, self.value,
                                 self.sheet, self.co_movers)
 
     def sentence(self) -> str:
@@ -3445,10 +3519,14 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
     out: List[EventCrossing] = []
     # (sheet, column, end, faller label) -> stand-still rows that passed it.
     fell: Dict[tuple, List[tuple]] = {}
+    # Fallers some row really climbed past (not only a tie partner standing still).
+    overtaken: set = set()
 
-    def faller_side(e, passed):
+    def faller_side(e, passed, split=False):
         """`e` stood still and `passed` fell below it: each whose own value fell
-        (and is still on the board to say by how much) "was passed by" `e`."""
+        (and is still on the board to say by how much) "was passed by" `e`.
+        `split`: `e` only shared the place with them (`_tie_split`), so a faller
+        reached no other way "drops out of the tie" (`_left_tie_detail`)."""
         was_by_label = prior[(e.sheet, e.column, e.end)].get("val_by_label", {})
         for lbl in passed:
             was_v = was_by_label.get(lbl)
@@ -3457,6 +3535,8 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
                     and not _indistinguishable(e.value, [now_v], e.column)):
                 fell.setdefault((e.sheet, e.column, e.end, lbl), []).append(
                     (e.rank, e.label, e.value))
+                if not split:
+                    overtaken.add((e.sheet, e.column, e.end, lbl))
 
     def _tie_split(e, was, slot, own):
         """`e` holds the place it shared last week, alone now, without its own
@@ -3470,7 +3550,7 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
             return
         faller_side(e, [lbl for lbl in slot["by_rank"].get(was, [])
                         if lbl != e.label and not (own is not None and own(lbl))
-                        and rank_now(e, lbl, slot) > e.rank])
+                        and rank_now(e, lbl, slot) > e.rank], split=True)
 
     for e in events:
         slot = prior.get((e.sheet, e.column, e.end))
@@ -3621,13 +3701,19 @@ def diff_events(prior_board, events: Sequence[EventHighlight],
         if (sheet, column, end, lbl) in told:
             continue       # an active line already names it (`_column_crossings`)
         place, holders, by_v = _place_holders(by)
+        left_tie = (sheet, column, end, lbl) not in overtaken
+        newcomers = tuple(sorted(
+            e.label for e in events
+            if (e.sheet, e.column, e.end) == (sheet, column, end)
+            and e.rank <= place and _is_new(e))) if left_tie else ()
         out.append(EventCrossing(
             sheet, lbl, column, end, place, value_of_label[(sheet, column, end, lbl)],
             passed=tuple(holders),
             prev_value=prior[(sheet, column, end)].get("val_by_label", {}).get(lbl),
             key=key_of_label.get((sheet, column, end, lbl), ""),
             passed_by=True, by_value=by_v,
-            now_rank=rank_now.get((sheet, column, end, lbl))))
+            now_rank=rank_now.get((sheet, column, end, lbl)),
+            left_tie=left_tie, newcomers=newcomers))
     if current_value is not None:
         on_now = {(e.sheet, e.column, e.end, e.key) for e in events}
         running_boards = {(e.sheet, e.column, e.end) for e in events if e.running}
@@ -4253,8 +4339,8 @@ def phrasing_catalog(
                 continue
             scale = "as-is (rate/level)" if is_rate_stat(col) else "scaled by weeks played"
             _add(sheet, col, f"yearly on-pace (from week {MIN_YEARLY_WEEK}; {window_note})", scale,
-                 f"{who} is on pace for <N>th-highest {col} this season (<value>).",
-                 f"{who} is on pace for <N>th-lowest {col} this season (<value>).")
+                 f"{who} is on pace for the <N>th-highest {col} of any season (<value>).",
+                 f"{who} is on pace for the <N>th-lowest {col} of any season (<value>).")
 
     # player_all_time: top/bottom 5. team_all_time: any movement among the 8.
     _crossing_rows("player_all_time", player_all_time, "Player", "<player>",

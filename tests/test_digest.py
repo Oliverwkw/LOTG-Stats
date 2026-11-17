@@ -2700,7 +2700,9 @@ def test_a_row_that_falls_out_of_a_tie_is_reported():
     got = [c.sentence() for c in D.diff_events(
         prior, ev([("LWebs53 2021", 1, 26.0), ("AceMatthew 2023", 2, 30.6),
                    ("Oliverwkw 2023", 3, 30.7), ("LWebs53 2023", 4, 30.9)]))]
-    assert got == ["Oliverwkw 2023 was passed by AceMatthew 2023 for 2nd-lowest "
+    # Its tie partner stood still, so nothing passed it: it dropped out of the
+    # tie (user, 2026-11-17 — "was passed by" named rows that never moved).
+    assert got == ["Oliverwkw 2023 drops out of the tie for 2nd-lowest "
                    "Add/Drop skill (30.60), rising to 30.70 (3rd-lowest)."], got
     # Breaking the tie by its OWN improvement is the mover's line, told once.
     got = [c.sentence() for c in D.diff_events(
@@ -2717,7 +2719,7 @@ def test_a_row_that_falls_out_of_a_tie_is_reported():
     got = [c.sentence() for c in D._column_crossings(
         "players", "Points", rows([("A", 10.), ("B", 10.)] + rest),
         rows([("A", 10.), ("B", 9.)] + rest), ["high"], 5, False)]
-    assert got == ["B was passed by A for highest Points (10.00), falling to 9.00 (2nd-highest)."], got
+    assert got == ["B drops out of the tie for highest Points (10.00), falling to 9.00 (2nd-highest)."], got
 
 
 def test_breaking_a_tie_on_the_all_time_boards():
@@ -2895,3 +2897,37 @@ def test_a_player_sleeper_respelled_is_the_same_row():
     assert D.migrate_renamed_players(out, current, frames) == out
     assert D._strip_suffixes("2021 1.06(T. Etienne Jr.)") == "2021 1.06(T. Etienne)"
     assert D._strip_suffixes("Deebo Samuel Sr. 2024 week 3") == "Deebo Samuel 2024 week 3"
+
+
+def test_digest_wording_2026_11_17():
+    """User notes on the 2026 week-10 digest (2026-11-17):
+    * D'Ernest Johnson "was passed by" three players at 100 who never moved —
+      Emmett Johnson's one 34.1 start re-set the top RB Floor percentile. A row
+      that only drops out of a tie says so, naming the row new to the board.
+    * "lowest FAAB Value difference (0.00)": a mirrored column ranks its positive
+      side only, so its low end is the most even trade — "smallest".
+    * "on pace for highest X this season" read as "best this season": the board
+      is every season ever."""
+    from lotg_support import digest as D
+
+    def rows(pairs):
+        return [{"entity": e, "value": v} for e, v in pairs]
+    rest = [("C", 99.4), ("D", 98.), ("E", 97.), ("F", 96.)]
+    got = [c.sentence() for c in D._column_crossings(
+        "players", "Floor percentile",
+        rows([("A", 100.), ("B", 100.)] + rest),
+        rows([("A", 100.), ("New", 100.), ("B", 99.3)] + rest), ["high"], 5, False)]
+    assert got == ["B drops out of the tie for highest Floor percentile (100.00), "
+                   "falling to 99.30 (4th-highest), as New arrives there."], got
+
+    # mirrored_columns records what it detects (its detection has its own tests).
+    D._MIRRORED_SEEN.setdefault("trades", set()).add("FAAB Value difference 1 year later")
+    assert D._place(1, "low", "FAAB Value difference 1 year later", "trades") == "smallest"
+    assert D._place(3, "low", "FAAB Value difference 1 year later", "trades") == "3rd-smallest"
+    assert D._place(1, "high", "FAAB Value difference 1 year later", "trades") == "highest"
+    assert D._place(2, "low", "Wins added", "trades") == "2nd-lowest"
+
+    p = D.Projection("players", "Chuba Hubbard", "Points above Claude Projection",
+                     "high", 1, 500, 132.53)
+    assert p.sentence() == ("Chuba Hubbard is on pace for the highest Points above "
+                            "Claude Projection of any season (132.53)."), p.sentence()
