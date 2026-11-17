@@ -1146,6 +1146,57 @@ class Site:
          ("c_rk", "Combined rookies started", "h")]
         + [(f"c_from_{p}", f"Combined points from {p}s", "h") for p in ("QB", "RB", "WR", "TE")]
         + [(f"c_o{n}", f"Combined players over {n} pts (starters)", "h") for n in (20, 30, 40, 50)])
+    # More team-week stats, each with what it waits on (`dep`): own = the team's
+    # own games; both = both teams' (a result, the opponent); league = every
+    # team's (a week award); proj = a Sleeper-projection stat, which moves until
+    # kickoff and locks once every game it depends on has kicked off [per user,
+    # 2026-11-17]. Sleeper-projection versions only: the Claude / Enhanced
+    # projections exist only inside the weekly build, for finished weeks.
+    WATCH_EXTRA_TEAM_STATS = (
+        [("sl_proj", "Sleeper Projection", "hl", "proj_own"),
+         ("sl_above", "Points above Sleeper Projection", "hl", "own"),
+         ("sl_diff", "Difference in Sleeper Projection from opponent", "hl", "proj_both"),
+         ("sl_bold", "Sleeper Lineup Boldness", "hl", "proj_own"),
+         ("sl_pre", f"Pre-week Win % (Sleeper Projection)", "hl", "proj_both"),
+         ("sl_prediff", f"Difference in pre-week Win % (Sleeper Projection)", "hl", "proj_both"),
+         ("sl_preover", f"Pre-week Win % overcome (Sleeper Projection)", "h", "both"),
+         ("sl_largest", f"Largest Win % overcome (Sleeper Projection)", "h", "both"),
+         ("sl_cb", f"Comeback size (Sleeper Projection)", "h", "both"), ("sl_ch", f"Choke size (Sleeper Projection)", "h", "both")]
+        + [(f"sl_wo_{i}", f"Win % overcome entering {s} (Sleeper Projection)", "h", "both") for i, s in enumerate(("SNF", "Monday", "last game"))]
+        + [(f"sl_cb_{i}", f"Comeback size entering {s} (Sleeper Projection)", "h", "both") for i, s in enumerate(("SNF", "Monday", "last game"))]
+        + [(f"sl_ch_{i}", f"Choke size entering {s} (Sleeper Projection)", "h", "both") for i, s in enumerate(("SNF", "Monday", "last game"))]
+        # comebacks per stage (lotg_support.gametime)
+        + [c for i, s in enumerate(("SNF", "Monday", "last game")) for c in (
+            (f"cb_m_{i}", f"Margin entering {s}", "hl", "both"),
+            (f"cb_mo_{i}", f"Margin overcome (entering {s})", "h", "both"),
+            (f"cb_po_{i}", f"Points overcome (entering {s})", "h", "both"),
+            (f"cb_own_{i}", "% of own points scored in last game" if s == "last game" else f"% of own points scored {s} or later", "hl", "both"),
+            (f"cb_pof_{i}", f"% of opponent's final points overcome (entering {s})", "h", "both"),
+            (f"cb_ppl_{i}", f"Points overcome per player left (entering {s})", "h", "both"),
+            (f"cb_mpl_{i}", f"Margin overcome per player left (entering {s})", "h", "both"),
+            (f"cb_pos_{i}", f"% of opponent's score overcome ({'last game' if s == 'last game' else s + ' or later'})", "h", "both"))])
+    # Streaks carried from last week (`streaks` in live_watch.json): this week adds
+    # one if it keeps going, else it ends. TERMINAL-ENCODED on the sheet, so a
+    # board holds the finished runs and each team's current one.
+    WATCH_TEAM_STREAKS = (
+        ("Win streak", "both"), ("Loss streak", "both"), ("Win streak counting previous season", "both"),
+        ("Loss streak counting previous season", "both"), ("Highest score streak", "league"),
+        ("Lowest score streak", "league"), ("Narrowest victory streak", "league"),
+        ("Largest blowout streak", "league"), ("Most efficient streak", "league"),
+        ("Least efficient streak", "league"), ("Top half streak", "league"), ("Bottom half streak", "league"),
+        ("Podium streak", "league"), ("One-man army streak", "league"), ("Most bench points streak", "league"),
+        ("150+ PF streak", "own"))
+    WATCH_PLAYER_STREAKS = (
+        ("Player of the week streak", "league"), ("QB of the week streak", "league"),
+        ("RB of the week streak", "league"), ("WR of the week streak", "league"), ("TE of the week streak", "league"),
+        ("Benchwarmer of the week streak", "league"), ("Bench QB of the week streak", "league"),
+        ("Bench RB of the week streak", "league"), ("Bench WR of the week streak", "league"),
+        ("Bench TE of the week streak", "league"), ("Highest starter on team streak", "own"),
+        ("Lowest starter on team streak", "own"), ("Captain streak", "league"),
+        ("10+ point streak", "self"), ("20+ point streak", "self"), ("30+ point streak", "self"),
+        ("40+ point streak", "self"), ("50+ point streak", "self"))
+    WATCH_GAME_EXTRA = (("c_slproj", "Combined Sleeper Projection", "hl", "proj_both"),
+                        ("c_slabove", "Combined Points above Sleeper Projection", "hl", "both"))
     WATCH_MIN_ROWS = 10        # a board with fewer rows makes any top 5 trivial
 
     def live_watch(self) -> Dict[str, object]:
@@ -1160,6 +1211,8 @@ class Site:
                     career versions); boards with under 10 rows are left out;
           rows_t / rows_p  the board rows' labels;
           prev      each team's points last week (the increase stat);
+          streaks   each team's / player's streak counts through his latest week
+                    (team: [year, week, count]; non-zero only);
           rates     each rostered player's projected points for a week: the
                     forecast's preseason rate blended with this season's PPG
                     (4 games of prior weight);
@@ -1209,6 +1262,27 @@ class Site:
             v = pd.to_numeric(tw[col], errors="coerce")
             for sc, m in team_scopes:
                 add((sid, dirs, sc), v[m], row_t)
+        for sid, col, dirs, dep in self.WATCH_EXTRA_TEAM_STATS:
+            if col not in tw.columns:
+                continue
+            stats.append({"id": sid, "kind": "team", "label": _display(col, "team_week"), "col": col,
+                          "dirs": dirs, "dep": dep, "fmt": column_format(col)})
+            v = pd.to_numeric(tw[col], errors="coerce")
+            for sc, m in team_scopes:
+                add((sid, dirs, sc), v[m], row_t)
+        streaks: Dict[str, Dict[str, object]] = {"team": {}, "player": {}}
+        last_t = tw[tw.Year == tw.Year.max()].sort_values("Week").groupby("Team").tail(1)
+        for j, (col, dep) in enumerate(self.WATCH_TEAM_STREAKS):
+            if col not in tw.columns:
+                continue
+            sid = f"stk_{j}"
+            stats.append({"id": sid, "kind": "team", "label": _display(col, "team_week"), "col": col,
+                          "dirs": "h", "dep": dep, "streak": col, "fmt": {"d": 0}})
+            add((sid, "h", "all"), pd.to_numeric(tw[col], errors="coerce"), row_t)
+            for _, r in last_t.iterrows():
+                v = pd.to_numeric(r[col], errors="coerce")
+                if pd.notna(v) and v:
+                    streaks["team"].setdefault(str(r.Team), {})[sid] = [int(r.Year), int(r.Week), int(v)]
         game = win                                       # the winner's row carries the game
         for sid, col, dirs in self.WATCH_GAME_STATS:
             if col not in tw.columns:
@@ -1217,6 +1291,12 @@ class Site:
                           "dirs": dirs, "fmt": column_format(col)})
             v = pd.to_numeric(tw[col], errors="coerce")
             add((sid, dirs, "all"), v[game], row_t)
+        for sid, col, dirs, dep in self.WATCH_GAME_EXTRA:
+            if col not in tw.columns:
+                continue
+            stats.append({"id": sid, "kind": "game", "label": _display(col, "team_week"), "col": col,
+                          "dirs": dirs, "dep": dep, "fmt": column_format(col)})
+            add((sid, dirs, "all"), pd.to_numeric(tw[col], errors="coerce")[game], row_t)
         # player points: role (st starter / bn bench / ro anyone rostered) x position
         pwin = pw["Win?"].astype(str).str.lower()
         rookie = pw["Rookie?"].astype(str).str.lower().eq("true")
@@ -1239,11 +1319,24 @@ class Site:
                           "label": _display(share, "player_week"), "fmt": column_format(share)})
             v = pd.to_numeric(pw[share], errors="coerce")
             add(("p_share", "h", "all"), v[st_mask], row_p)
+        # player streaks: each player's count on his latest row this season
+        cur_p = pw[pw.Year == self.season].sort_values("Week")
+        last_p = cur_p.drop_duplicates("Player ID", keep="last") if "Player ID" in cur_p.columns else cur_p.iloc[0:0]
+        for j, (col, dep) in enumerate(self.WATCH_PLAYER_STREAKS):
+            if col not in pw.columns:
+                continue
+            sid = f"pstk_{j}"
+            stats.append({"id": sid, "kind": "player", "role": "ro", "pos": "ALL", "label": _display(col, "player_week"),
+                          "col": col, "dirs": "h", "dep": dep, "streak": col, "fmt": {"d": 0}})
+            add((sid, "h", "all"), pd.to_numeric(pw[col], errors="coerce"), row_p)
+            for pid, y, w, v in zip(last_p["Player ID"], last_p.Year, last_p.Week, pd.to_numeric(last_p[col], errors="coerce")):
+                if pd.notna(pid) and pd.notna(v) and v:
+                    streaks["player"].setdefault(str(pid).split(".")[0], {})[sid] = [int(y), int(w), int(v)]
         cur = tw[tw.Year == self.season].sort_values(["Week"])
         prev = {str(t): [int(r.Week), _clean(pd.to_numeric(r.PF, errors="coerce"))] for t, r in
                 cur.groupby("Team").tail(1).set_index("Team").iterrows()}
         return {"stats": stats, "boards": boards, "rows_t": rows_t, "rows_p": rows_p, "prev": prev,
-                "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
+                "streaks": streaks, "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
                 "kickoffs": self._kickoffs(), "season": self.season,
                 "roster_positions": self._roster_positions(), "playoff": self._playoff_shape()}
 

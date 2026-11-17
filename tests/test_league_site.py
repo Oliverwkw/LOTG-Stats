@@ -415,6 +415,20 @@ def _record_watch_inputs_are_right():
     assert abs(B["p_st_WR|h|all"][1][0] - pd.to_numeric(wr.Points, errors="coerce").max()) < 1e-6
     assert B["pf|h|loss"][1][0] == round(float(num("PF")[tw["Win?"].astype(str) == "False"].max()), 4)
     assert {k.split("|")[2] for k in B} <= {"all", "win", "loss", "rookie"}   # user: no season / franchise / career versions
+    # projection, comeback and streak stats are on the watch [per user, 2026-11-17]
+    for sid in ("sl_proj", "sl_bold", "sl_cb", "cb_m_0", "cb_po_2"):
+        assert sid in stats and f"{sid}|h|all" in B, sid
+    assert stats["sl_proj"]["dep"] == "proj_own"                 # counts until kickoff, then locks
+    streak_ids = {sid for sid, x in stats.items() if x.get("streak")}
+    assert len(streak_ids) >= 30
+    for kind in ("team", "player"):
+        for who, d in lw["streaks"][kind].items():
+            assert set(d) <= streak_ids and all(v[2] > 0 for v in d.values()), (kind, who)
+    last = tw[tw.Year == tw.Year.max()].sort_values("Week").groupby("Team").tail(1).set_index("Team")
+    sid = next(k for k, x in stats.items() if x.get("streak") == "Win streak")
+    for t, d in lw["streaks"]["team"].items():
+        if sid in d:
+            assert d[sid][2] == int(last.loc[t, "Win streak"]), t
     for k, (n, vals, rows) in B.items():
         assert n >= 10 and len(vals) == len(rows) == 5, k
         assert vals == sorted(vals, reverse=k.split("|")[1] == "h"), k
