@@ -1,10 +1,9 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
 [digest] 96 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: 6457daaa25f1c6ec
+[digest] build-inputs fingerprint: 71ffe6761883674d
 [digest] season=2026 weeks_completed=10
-[digest] on pace: 470 standing(s)
-[digest] baselining 3 on-pace standing(s) on column(s) new since the last snapshot (no diff yet).
-[digest] new data: 1 new week(s), 250 player(s) / 8 team(s) in them, 19 player(s) / 6 team(s) in new transactions; edit landed: True -> 476 item(s) with the news, 179 under edits
-[digest] lede: plehv79 is on pace for lowest Differential this season (-519.64). It was an active week — 473 of the 652 other moves are new results (182 on teams and 110 on players); 179 re-valued history besides. The league's Number of QB rostered this week (47) is the highest single week ever, tied with 2026 week 7, passing 2026 week 6 and 2026 week 8; LWebs53 joins AceMatthew, plehv79 and stevenb123 in a tie for highest Times Sisenzweig (4). The biggest single thread is 99 FAAB moves; 66 of the 655 were ties rather than overtakes.
-[digest] 34 single-week highlight(s), 122 crossing(s), 0 record(s), 271 board move(s), 2 milestone(s), 177 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] on pace: 469 standing(s)
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 2 player(s) / 1 team(s) in new transactions; edit landed: True -> 7 item(s) with the news, 3 under edits
+[digest] lede: AceMatthew joins stevenb123 in a tie for 2nd-highest Amount of FAAB spent (489.00). The week was spread out — 7 moves across 3 on teams and 2 on the on-pace list, and 1 elsewhere (3 re-valued history and 4 from new results). 2026 week 1 passes 2024 week 1 for 3rd-lowest Hardship (140.51); The league is on pace for the 2nd-highest Number of waiver adds of any season (126). The biggest single thread is 4 Hardship (Claude Projections) moves.
+[digest] 0 single-week highlight(s), 4 crossing(s), 0 record(s), 3 board move(s), 0 milestone(s), 1 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
