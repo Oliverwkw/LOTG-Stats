@@ -466,25 +466,27 @@ async function recordWatch(meta) {
   // every (board, who) this week can reach, built once: [stat, value getter, board, cond]
   const statById = Object.fromEntries(LW.stats.map((s) => [s.id, s]));
   const BD = LW.boards, targets = [];
-  const reach = (stat, who, get, scopes) => {
+  // ctx: whose numbers the mark waits on — i (team index), p (player, if a player mark)
+  const reach = (stat, who, get, scopes, ctx) => {
     for (const d of statById[stat] ? statById[stat].dirs : "") for (const [sc, cond] of scopes) {
       const b = BD[`${stat}|${d}|${sc}`];
-      if (b) targets.push({ stat, d, sc, who, get, b, cond, top5: 0, rec: 0, tie: 0 });
+      if (b) targets.push({ stat, d, sc, who, get, b, cond, ...ctx, top5: 0, rec: 0, tie: 0 });
     }
   };
   const resultScopes = (extra) => [["all", 0], ["win", 1], ["loss", -1], ...(reg ? [["reg", 0]] : []), ["season", 0], ...extra];
   teams.forEach((t, i) => {
-    for (const s of LW.stats.filter((s) => s.kind === "team")) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([["team:" + t.team, 0]]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]));
+    for (const s of LW.stats.filter((s) => s.kind === "team")) reach(s.id, t.team, (R) => R.team[i][s.id], resultScopes([["team:" + t.team, 0]]).map(([sc, c]) => [sc, c === 0 ? 0 : { team: i, w: c }]), { i, both: s.id === "pa" || s.id === "margin" });
     if (t.team < teams[t.opp].team) for (const s of LW.stats.filter((s) => s.kind === "game"))
-      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]]);
+      reach(s.id, `${t.team} v ${teams[t.opp].team}`, (R) => R.game[i][s.id], [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]], { i, both: true });
     t.players.forEach((p, k) => {
       const role = p.st ? "st" : "bn";
       const sc = (career) => resultScopes([["team:" + t.team, 0], ...(p.rk ? [["rookie", 0]] : []), ...(career ? [["pid:" + p.pid, 0]] : [])])
         .map(([s, c]) => [s, c === 0 ? 0 : { team: i, w: c }]);
       const get = (R) => R.pts[i][k], who = "pid:" + p.pid;
-      reach(`p_${role}_ALL`, who, get, sc(p.st)); reach(`p_ro_ALL`, who, get, sc(true));
-      if (POS.includes(p.pos)) { reach(`p_${role}_${p.pos}`, who, get, sc(false)); reach(`p_ro_${p.pos}`, who, get, sc(false)); }
-      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]]);
+      const cx = { i, p };
+      reach(`p_${role}_ALL`, who, get, sc(p.st), cx); reach(`p_ro_ALL`, who, get, sc(true), cx);
+      if (POS.includes(p.pos)) { reach(`p_${role}_${p.pos}`, who, get, sc(false), cx); reach(`p_ro_${p.pos}`, who, get, sc(false), cx); }
+      if (p.st) reach("p_share", who, (R) => R.team[i].pf ? R.pts[i][k] / R.team[i].pf : null, [["all", 0], ...(reg ? [["reg", 0]] : []), ["season", 0]], { i, p, own: true });
     });
   });
   const run = (pts) => {
@@ -532,39 +534,54 @@ async function recordWatch(meta) {
     const r = LW.rows_t[ri]; return r ? `${esc(r[0])}${s.kind === "game" ? ` v ${esc(r[3] || "")}` : ""} ${r[1]} ${esc(r[2])}` : "";
   };
   const rows = targets.map((x, j) => ({ ...x, p5: x.top5 / N, p1: x.rec / N, pt: x.tie / N, med: seen[j] ? sums[j] / seen[j] : null, curV: x.get(now) }))
-    .filter((x) => x.p5 >= 0.01).sort((a, b) => b.p1 + b.pt - a.p1 - a.pt || b.p5 - a.p5 || b.b[0] - a.b[0]);
+    .filter((x) => x.p5 >= 0.01).sort((a, b) => b.p5 - a.p5 || b.p1 + b.pt - a.p1 - a.pt || b.b[0] - a.b[0]);
   const pctTxt = (x) => x >= 0.995 ? "certain" : x < 0.01 ? "<1%" : Math.round(x * 100) + "%";
   const fmtS = (x, v) => fmt(statById[x.stat].fmt || { d: 2 }, v);
-  const tabs = ["All", "League", "Filtered", "This season", "Franchise", "Career"];
-  const counts = Object.fromEntries(tabs.map((t) => [t, t === "All" ? rows.length : rows.filter((x) => WATCH_SCOPES[x.sc.split(":")[0]] === t).length]));
   if (!el()) return;
-  let tab = "All", showAll = false;
   const nBoards = Object.keys(BD).length;
-  // has this mark's player / team / game already started (some numbers in)?
+  // where each mark stands: "pre" (its numbers not started), "live" (still counting),
+  // "done" (counting has stopped: every game it waits on is over)
   const begun = (p) => p.f < 1 || p.cur !== 0;
-  const startedWho = (who) => {
-    if (who.startsWith("pid:")) { const pid = who.slice(4); return teams.some((t) => t.players.some((p) => p.pid === pid && begun(p))); }
-    return who.split(" v ").some((n) => teams.some((t) => t.team === n && t.players.some(begun)));
+  const tBegun = (i) => teams[i].players.some(begun), tDone = (i) => teams[i].players.every((p) => p.f === 0);
+  const mBegun = (i) => tBegun(i) || tBegun(teams[i].opp), mDone = (i) => tDone(i) && tDone(teams[i].opp);
+  const status = (x) => {
+    if (!anyLeft) return "done";
+    if (x.p) {                                   // a player mark (his team's result too if filtered by it)
+      if (!begun(x.p)) return "pre";
+      return x.p.f === 0 && (!x.cond || mDone(x.i)) && (!x.own || tDone(x.i)) ? "done" : "live";
+    }
+    const both = x.both || x.cond;
+    if (!(both ? mBegun(x.i) : tBegun(x.i))) return "pre";
+    return (both ? mDone(x.i) : tDone(x.i)) ? "done" : "live";
   };
+  rows.forEach((x) => (x.st = status(x)));
+  const VIEWS = { "Not started": (x) => x.st === "pre", Counting: (x) => x.st === "live", Finished: (x) => x.st === "done" };
+  const tabs = ["All", "League", "Filtered", "This season", "Franchise", "Career"];
+  let view = ["Counting", "Not started", "Finished"].find((v) => rows.some(VIEWS[v])) || "Not started", tab = "All";
   const item = (x) => `<li>
-      <div class="wtop"><span><b>${esc(boardLabel(x))}</b> · ${whoHtml(x.who)}</span><span class="wp"><b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}</span></div>
-      <div class="muted small">${anyPlayed && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)} · record ${fmtS(x, x.b[1][0])} (${rowLabel(statById[x.stat], x.b[2][0])}) · 5th ${fmtS(x, x.b[1][4])} · ${x.b[0].toLocaleString()} on the board</div></li>`;
+      <div class="wtop"><span><b>${esc(boardLabel(x))}</b> · ${whoHtml(x.who)}</span><span class="wp">${x.st === "done"
+        ? `<b>${x.p1 >= 0.5 ? "record" : x.pt >= 0.5 ? "ties the record" : "top 5"}</b>` : `<b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}`}</span></div>
+      <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`} · record ${fmtS(x, x.b[1][0])} (${rowLabel(statById[x.stat], x.b[2][0])}) · 5th ${fmtS(x, x.b[1][4])} · ${x.b[0].toLocaleString()} on the board</div></li>`;
   const draw = () => {
-    const list = rows.filter((x) => tab === "All" || WATCH_SCOPES[x.sc.split(":")[0]] === tab);
-    // in play first (once games start, only marks with some numbers in); the rest —
-    // marks all but set (a lineup count) and, mid-week, ones not yet started — in the dropdown
-    const open = list.filter((x) => x.p5 < 0.995 && (!anyPlayed || startedWho(x.who))), sure = list.filter((x) => !open.includes(x));
-    const shown = showAll ? open : open.slice(0, 15);
+    const inView = rows.filter(VIEWS[view]);
+    const counts = Object.fromEntries(tabs.map((t) => [t, t === "All" ? inView.length : inView.filter((x) => WATCH_SCOPES[x.sc.split(":")[0]] === t).length]));
+    const list = inView.filter((x) => tab === "All" || WATCH_SCOPES[x.sc.split(":")[0]] === tab);
+    // the preview: the view's top 15 by chance of a top-5 place (marks all but certain
+    // before a point is scored — lineup counts — are left to the list below)
+    const fin = view === "Finished";
+    const eligible = fin ? list : list.filter((x) => x.p5 < 0.995);
+    const shown = (fin ? eligible.slice().sort((a, b) => b.p1 + b.pt - a.p1 - a.pt || b.b[0] - a.b[0]) : eligible).slice(0, 15);
+    const rest = list.filter((x) => !shown.includes(x));
     el().innerHTML = `<h2>Record watch · week ${esc(wk)} ${liveNote(live)}</h2>
     <p class="muted small">${anyLeft ? (anyPlayed ? "Games under way: chances come from simulating the rest of the week." : "Before kickoff: chances come from simulating the whole week from projections.") : "Every game is over: these are where this week's numbers landed."} ${LW.stats.length} weekly stats on ${nBoards.toLocaleString()} boards (league, filtered, this season, each franchise, each player's career).</p>
+    <div class="seg">${Object.keys(VIEWS).map((v) => { const n = rows.filter(VIEWS[v]).length; return `<button aria-pressed="${v === view}" data-wview="${v}"${n ? "" : " disabled"}>${v} ${n}</button>`; }).join("")}</div>
     <div class="seg">${tabs.map((t) => `<button aria-pressed="${t === tab}" data-wtab="${t}"${counts[t] ? "" : " disabled"}>${t} ${counts[t]}</button>`).join("")}</div>
-    ${open.length ? `<h3>${anyLeft ? "In play" : "This week's marks"}</h3><ul class="wlist">${shown.map(item).join("")}</ul>
-      ${open.length > shown.length ? `<div class="seg"><button data-wmore>Show all ${open.length}</button></div>` : ""}`
-      : `<p class="muted">Nothing ${anyLeft ? "in play" : "here"} has even a 1% chance of a top-5 place.</p>`}
-    ${sure.length ? `<details${open.length ? "" : " open"}><summary><b>Every other board (${sure.length})</b> <span class="muted small">— ${anyPlayed && anyLeft ? "not started yet, or " : ""}all but certain (mostly lineup counts already fixed by who is rostered or started)</span></summary><ul class="wlist">${sure.map(item).join("")}</ul></details>` : ""}
-    <p class="muted small">Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player's projection is his forecast rate blended with this season's points per game, scaled by how much of his NFL game is left; a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
-    el().querySelectorAll("[data-wtab]").forEach((b) => (b.onclick = () => { tab = b.dataset.wtab; showAll = false; draw(); }));
-    const more = el().querySelector("[data-wmore]"); if (more) more.onclick = () => { showAll = true; draw(); };
+    ${shown.length ? `<h3>${view} · top ${shown.length}</h3><ul class="wlist">${shown.map(item).join("")}</ul>`
+      : `<p class="muted">${fin ? "No finished mark has made a top 5." : "Nothing here has even a 1% chance of a top-5 place."}</p>`}
+    ${rest.length ? `<details${shown.length ? "" : " open"}><summary><b>Every other board (${rest.length})</b> <span class="muted small">— ${fin ? "the rest of the finished marks" : "beyond the top 15, or all but certain (mostly lineup counts already fixed by who is rostered or started)"}</span></summary><ul class="wlist">${rest.map(item).join("")}</ul></details>` : ""}
+    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way; Finished = counting has stopped (every game it depends on — his, his team's, or both teams' for a result-filtered or game mark — is over). Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player's projection is his forecast rate blended with this season's points per game, scaled by how much of his NFL game is left; a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
+    el().querySelectorAll("[data-wtab]").forEach((b) => (b.onclick = () => { tab = b.dataset.wtab; draw(); }));
+    el().querySelectorAll("[data-wview]").forEach((b) => (b.onclick = () => { view = b.dataset.wview; tab = "All"; draw(); }));
   };
   draw();
 }
