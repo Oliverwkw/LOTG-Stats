@@ -413,8 +413,8 @@ def _record_watch_inputs_are_right():
     assert abs(B["p_st_ALL|h|all"][1][0] - pd.to_numeric(st.Points, errors="coerce").max()) < 1e-6
     wr = st[st.Position == "WR"]
     assert abs(B["p_st_WR|h|all"][1][0] - pd.to_numeric(wr.Points, errors="coerce").max()) < 1e-6
-    t0 = sorted(tw.Team.astype(str).unique())[0]           # a franchise's own record
-    assert B[f"pf|h|team:{t0}"][1][0] == round(float(num("PF")[tw.Team == t0].max()), 4)
+    assert B["pf|h|loss"][1][0] == round(float(num("PF")[tw["Win?"].astype(str) == "False"].max()), 4)
+    assert {k.split("|")[2] for k in B} <= {"all", "win", "loss", "rookie"}   # user: no season / franchise / career versions
     for k, (n, vals, rows) in B.items():
         assert n >= 10 and len(vals) == len(rows) == 5, k
         assert vals == sorted(vals, reverse=k.split("|")[1] == "h"), k

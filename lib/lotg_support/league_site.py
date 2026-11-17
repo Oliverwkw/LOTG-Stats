@@ -1155,10 +1155,9 @@ class Site:
           stats     every weekly stat it recomputes live: team-week stats, game
                     (combined) stats and player points (by role and position);
           boards    "stat|dir|scope" -> [rows on the board, top-5 values, top-5
-                    row ids]; scopes: all, win, loss, reg (regular season), season
-                    (this one), team:<Team> (the franchise's own record), and for
-                    players also rookie and pid:<id> (his career high in the
-                    league); boards with under 10 rows are left out;
+                    row ids]; scopes: all, win, loss, and for players also rookie
+                    (user, 2026-11-17: no regular-season / this-season / franchise /
+                    career versions); boards with under 10 rows are left out;
           rows_t / rows_p  the board rows' labels;
           prev      each team's points last week (the increase stat);
           rates     each rostered player's projected points for a week: the
@@ -1174,7 +1173,6 @@ class Site:
         key = ["Team", "Year", "Week"]
         g = pw[st_mask].groupby(key).Points
         tw = tw.join(g.max().rename("Highest starter score"), on=key).join(g.min().rename("Lowest starter score"), on=key)
-        kinds = tw["Week Name"].map(week_kind)
         rows_t, rows_p, rid_t, rid_p = [], [], {}, {}
 
         def row_t(i):
@@ -1201,9 +1199,7 @@ class Site:
                 s = v.sort_values(ascending=d == "l", kind="mergesort").head(5)
                 boards[f"{k[0]}|{d}|{k[2]}"] = [int(len(v)), [round(float(x), 4) for x in s], [rid(i) for i in s.index]]
 
-        team_scopes = [("all", slice(None)), ("win", win), ("loss", ~win & tw["Win?"].astype(str).str.lower().eq("false")),
-                       ("reg", kinds == "reg"), ("season", tw.Year == self.season)]
-        team_scopes += [(f"team:{t}", tw.Team == t) for t in sorted(tw.Team.astype(str).unique())]
+        team_scopes = [("all", slice(None)), ("win", win), ("loss", ~win & tw["Win?"].astype(str).str.lower().eq("false"))]
         stats = []
         for sid, col, dirs in self.WATCH_TEAM_STATS:
             if col not in tw.columns:
@@ -1220,14 +1216,11 @@ class Site:
             stats.append({"id": sid, "kind": "game", "label": _display(col, "team_week"), "col": col,
                           "dirs": dirs, "fmt": column_format(col)})
             v = pd.to_numeric(tw[col], errors="coerce")
-            for sc, m in (("all", game), ("reg", game & (kinds == "reg")), ("season", game & (tw.Year == self.season))):
-                add((sid, dirs, sc), v[m], row_t)
+            add((sid, dirs, "all"), v[game], row_t)
         # player points: role (st starter / bn bench / ro anyone rostered) x position
-        pk = pw["Week Name"].map(week_kind)
         pwin = pw["Win?"].astype(str).str.lower()
         rookie = pw["Rookie?"].astype(str).str.lower().eq("true")
         pts_fmt = column_format("Points")
-        pids_now = set(pw.loc[pw.Year == self.season, "Player ID"].dropna().astype(str).str.split(".").str[0])
         for role, rmask, rname in (("st", st_mask, "a starter"), ("bn", ~st_mask, "a benched player"),
                                    ("ro", pd.Series(True, index=pw.index), "a rostered player")):
             for pos in ("ALL", "QB", "RB", "WR", "TE"):
@@ -1237,24 +1230,15 @@ class Site:
                 who = rname if pos == "ALL" else rname.replace("player", pos).replace("starter", f"{pos} starter")
                 stats.append({"id": sid, "kind": "player", "role": role, "pos": pos, "dirs": dirs,
                               "label": f"Points by {who}", "fmt": pts_fmt})
-                sc = [("all", m0), ("win", m0 & pwin.eq("true")), ("loss", m0 & pwin.eq("false")),
-                      ("rookie", m0 & rookie), ("reg", m0 & (pk == "reg")), ("season", m0 & (pw.Year == self.season))]
-                sc += [(f"team:{t}", m0 & (pw.Team == t)) for t in sorted(pw.Team.astype(str).unique())]
+                sc = [("all", m0), ("win", m0 & pwin.eq("true")), ("loss", m0 & pwin.eq("false")), ("rookie", m0 & rookie)]
                 for s_, m in sc:
                     add((sid, dirs, s_), pw.Points[m], row_p)
-                if pos == "ALL" and role in ("st", "ro"):     # his career high in the league
-                    sub = pw[m0 & pw["Player ID"].notna()]
-                    ids = sub["Player ID"].astype(str).str.split(".").str[0]
-                    for pid, ix in sub.groupby(ids).groups.items():
-                        if pid in pids_now:
-                            add((sid, "h", f"pid:{pid}"), pw.Points[ix], row_p)
         share = "% of points (if starter)"
         if share in pw.columns:
             stats.append({"id": "p_share", "kind": "player", "role": "st", "pos": "ALL", "dirs": "h",
                           "label": _display(share, "player_week"), "fmt": column_format(share)})
             v = pd.to_numeric(pw[share], errors="coerce")
-            for s_, m in (("all", st_mask), ("reg", st_mask & (pk == "reg")), ("season", st_mask & (pw.Year == self.season))):
-                add(("p_share", "h", s_), v[m], row_p)
+            add(("p_share", "h", "all"), v[st_mask], row_p)
         cur = tw[tw.Year == self.season].sort_values(["Week"])
         prev = {str(t): [int(r.Week), _clean(pd.to_numeric(r.PF, errors="coerce"))] for t, r in
                 cur.groupby("Team").tail(1).set_index("Team").iterrows()}
