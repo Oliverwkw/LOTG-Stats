@@ -793,7 +793,7 @@ async function recordWatch(meta) {
   const item = (G) => { const x = G.x; return `<li>
       <div class="wtop"><span><b>${esc(boardLabel({ ...x, sc: "all" }))}</b> · ${whoHtml(x.who)}</span></div>
       <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`}${statById[x.stat].kind !== "game" && (MU.includes(x.i) || MU.includes((teams[x.i] || {}).opp)) ? ` · Sleeper win % ${teams[x.i] ? Math.round(100 * (MU.includes(x.i) ? SLW[MU.indexOf(x.i)] : 1 - SLW[MU.indexOf(teams[x.i].opp)])) + "%" : ""}` : ""}</div>
-      <ul class="wscopes">${G.xs.map((y) => `<li><div><b>${SCOPE_NAME[y.sc] || esc(y.sc)}</b> · ${odds(y)}</div><div class="muted small">record ${fmtS(y, y.b[1][0])} (${rowLabel(statById[y.stat], y.b[2][0])}) · 5th ${fmtS(y, y.b[1][4])} · ${y.b[0].toLocaleString()} on the board</div></li>`).join("")}</ul></li>`; };
+      <ul class="wscopes">${G.xs.map((y) => `<li><div>${odds(y)} · <span class="muted">${SCOPE_NAME[y.sc] || esc(y.sc)}</span></div><div class="muted small">record ${fmtS(y, y.b[1][0])} (${rowLabel(statById[y.stat], y.b[2][0])}) · 5th ${fmtS(y, y.b[1][4])} · ${y.b[0].toLocaleString()} on the board</div></li>`).join("")}</ul></li>`; };
   const draw = () => {
     const groups = groupsOf(rows.filter(VIEWS[view]));
     // the preview: the view's top 20 by chance of a top-5 place on any version of the board;
