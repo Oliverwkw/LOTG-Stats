@@ -1234,6 +1234,34 @@ def _render():
                   f"{str(got[0]):>7}{str(got[1]):>6}{str(got[2]):>6}   {why}{mark}")
 
 
+def test_healthy_scratch_is_coachs_decision_only():
+    """Hardship leaves out a game-day healthy scratch [per user, 2026-11-17]:
+    the tracker's "Coach's Decision" body part, and nothing else."""
+    from lotg_support.injury_tracker import is_healthy_scratch
+    assert is_healthy_scratch({"status": "out active", "body_part": "Coach's Decision"})
+    assert is_healthy_scratch({"status": "out", "body_part": "coach\u2019s decision"})
+    for bp in ("Hamstring", "Undisclosed", "Illness", ""):
+        assert not is_healthy_scratch({"status": "out", "body_part": bp}), bp
+    assert not is_healthy_scratch(None) and not is_healthy_scratch({})
+
+
+def test_status_index_carries_body_part():
+    """load_status_index keeps injury_body_part, which is_healthy_scratch reads.
+    On the committed tracker: every 2026 'Coach's Decision' row is a scratch."""
+    import csv
+    from lotg_support.injury_tracker import is_healthy_scratch, load_status_index, tracker_path
+    root = Path(__file__).resolve().parents[1]
+    if not tracker_path(root).exists():
+        print("  skip: no data/injury_tracker.csv"); return
+    idx = load_status_index(root)
+    with tracker_path(root).open(newline="") as f:
+        rows = [r for r in csv.DictReader(f) if r.get("injury_body_part") == "Coach's Decision"]
+    assert rows, "expected at least one Coach's Decision row in the committed tracker"
+    for r in rows:
+        e = idx[(r["player_id"], int(r["season"]), int(r["week"]))]
+        assert e["body_part"] == "Coach's Decision" and is_healthy_scratch(e), r
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0
