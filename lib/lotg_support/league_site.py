@@ -1117,79 +1117,149 @@ class Site:
                         for _, r in st.head(5).iterrows()]}},
         }
 
-    # -- the broader record watch: every stat a live week can set, with its history
+    # -- the broader record watch: every weekly stat a live week can set, with its history
+    # Team-week stats the page can recompute from Sleeper's live player points
+    # (id, team_week column, directions). Each matches its column on every
+    # finished week (tests/test_league_site.py); PF on the semifinal adds +5.
+    WATCH_TEAM_STATS = (
+        [("pf", "PF", "hl"), ("pa", "Points against", "hl"), ("margin", "Margin", "hl"),
+         ("maxpf", "Max PF", "hl"), ("eff", "Efficiency", "hl"), ("bench", "Bench points", "hl"),
+         ("left", "Points left on bench", "hl"), ("inc", "Increase in points from previous week", "hl"),
+         ("spread", "Difference between highest and lowest starters", "hl"),
+         ("hist", "Highest starter score", "hl"), ("lost", "Lowest starter score", "hl")]
+        + [(f"from_{p}", f"Points from {p}s", "hl") for p in ("QB", "RB", "WR", "TE")]
+        + [(f"pct_{p}", f"% of points from {p}s", "hl") for p in ("QB", "RB", "WR", "TE")]
+        + [(f"{a}_{w}", f"{c} ({w2})", "h") for a, c in (("don", "Donuts"), ("u10", "Players under 10 pts"),
+                                                           ("o20", "Players over 20 pts"), ("o30", "Players over 30 pts"),
+                                                           ("o40", "Players over 40 pts"), ("o50", "Players over 50 pts"))
+           for w, w2 in (("st", "starters"), ("ro", "roster"))]
+        + [(f"n{w}_{p}", f"Number of {p} {w2}", "hl") for p in ("QB", "RB", "WR", "TE")
+           for w, w2 in (("st", "started"), ("ro", "rostered"))]
+        + [("same_nfl", "Most number of players started from same NFL team", "h"),
+           ("nfl_teams", "Number of NFL teams among starting players", "hl"),
+           ("rk_st", "Number of rookies started", "h"), ("rk_ro", "Number of rookies rostered", "h")])
+    # one row per game (the winner's row carries the Combined columns)
+    WATCH_GAME_STATS = (
+        [("c_pf", "Combined points", "hl"), ("c_maxpf", "Combined Max PF", "hl"), ("c_eff", "Combined efficiency", "hl"),
+         ("c_bench", "Combined bench points", "h"), ("c_left", "Combined points left on bench", "h"),
+         ("c_don", "Combined donuts (starters)", "h"), ("c_u10", "Combined players under 10 pts (starters)", "h"),
+         ("c_rk", "Combined rookies started", "h")]
+        + [(f"c_from_{p}", f"Combined points from {p}s", "h") for p in ("QB", "RB", "WR", "TE")]
+        + [(f"c_o{n}", f"Combined players over {n} pts (starters)", "h") for n in (20, 30, 40, 50)])
+    WATCH_MIN_ROWS = 10        # a board with fewer rows makes any top 5 trivial
+
     def live_watch(self) -> Dict[str, object]:
-        """What the home page needs to estimate, while a week is played, which
-        records (and filtered versions of them) are possible or likely:
-          boards    each stat's all-time values, sorted (top 200 + how many),
-                    and its top 5 with who holds them; team stats per team-week,
-                    player stats per player-week, with the filter that defines
-                    the version ("in a loss", "by a WR", "rookie", "bench");
+        """What the home page's record watch needs to estimate, while a week is
+        played, which weekly records (and filtered versions of them) are possible
+        or likely:
+          stats     every weekly stat it recomputes live: team-week stats, game
+                    (combined) stats and player points (by role and position);
+          boards    "stat|dir|scope" -> [rows on the board, top-5 values, top-5
+                    row ids]; scopes: all, win, loss, reg (regular season), season
+                    (this one), team:<Team> (the franchise's own record), and for
+                    players also rookie and pid:<id> (his career high in the
+                    league); boards with under 10 rows are left out;
+          rows_t / rows_p  the board rows' labels;
+          prev      each team's points last week (the increase stat);
           rates     each rostered player's projected points for a week: the
                     forecast's preseason rate blended with this season's PPG
                     (4 games of prior weight);
-          rookies   this season's rookies (the rookie boards);
-          kickoffs  this season's NFL kickoffs (ET) per week and team, so the
-                    page knows how much of each player's game is left."""
+          rookies   this season's rookies; kickoffs this season's NFL kickoffs (ET)
+                    per week and team, so the page knows how much of each game is left."""
         tw = self.tw.copy()
-        for c in ("PF", "Points against", "Margin", "Max PF", "Bench points", "Points left on bench", "Efficiency",
-                  "Points from QBs", "Points from RBs", "Points from WRs", "Points from TEs",
-                  "Players over 20 pts (starters)", "Players over 30 pts (starters)"):
-            if c in tw:
-                tw[c] = pd.to_numeric(tw[c], errors="coerce")
         win = tw["Win?"].astype(str).str.lower().eq("true")
         pw = self.pw.copy()
         pw["Points"] = pd.to_numeric(pw.Points, errors="coerce")
         st_mask = pw["Starter/Bench"].astype(str) == "Starter"
-        st, bn = pw[st_mask], pw[~st_mask]
         key = ["Team", "Year", "Week"]
-        hi_st = st.groupby(key).Points.max().rename("Highest starter score")
-        lo_st = st.groupby(key).Points.min().rename("Lowest starter score")
-        tw = tw.join(hi_st, on=key).join(lo_st, on=key)
-        games = tw[tw.Team < tw.Opponent.astype(str)].copy()
-        games["Combined"] = games.PF + games["Points against"]
+        g = pw[st_mask].groupby(key).Points
+        tw = tw.join(g.max().rename("Highest starter score"), on=key).join(g.min().rename("Lowest starter score"), on=key)
+        kinds = tw["Week Name"].map(week_kind)
+        rows_t, rows_p, rid_t, rid_p = [], [], {}, {}
 
-        def board(bid, label, kind, values, frame, high=True, labels=None):
-            s = values.dropna().sort_values(ascending=not high, kind="mergesort")
-            top = frame.loc[s.index[:5]]
-            lab = labels or (lambda r: [str(r.Team), int(r.Year), str(r["Week Name"])])
-            return {"id": bid, "label": label, "kind": kind, "hi": high, "n": int(len(s)),
-                    "values": [round(float(v), 4) for v in s.head(200)],
-                    "top": [[round(float(v), 4), *lab(r)] for v, (_, r) in zip(s.head(5), top.iterrows())]}
-        plab = lambda r: [str(r.Player), str(r.Team), int(r.Year), str(r["Week Name"])]
-        boards = [
-            board("pf", "Most points in a week", "team", tw.PF, tw),
-            board("pf_lo", "Fewest points in a week", "team", tw.PF, tw, high=False),
-            board("pf_loss", "Most points in a loss", "team", tw.PF[~win], tw),
-            board("pf_win_lo", "Fewest points in a win", "team", tw.PF[win], tw, high=False),
-            board("margin", "Biggest margin of victory", "team", tw.Margin[win], tw),
-            board("combined", "Most combined points in a game", "team", games.Combined, games),
-            board("bench", "Most bench points", "team", tw["Bench points"], tw),
-            board("maxpf", "Highest max PF", "team", tw["Max PF"], tw),
-            board("left", "Most points left on bench", "team", tw["Points left on bench"], tw),
-            board("eff", "Best efficiency", "team", tw["Efficiency"], tw),
-            board("eff_lo", "Worst efficiency", "team", tw["Efficiency"], tw, high=False),
-            board("o30", "Most starters over 30 pts", "team", tw["Players over 30 pts (starters)"], tw),
-            board("o20", "Most starters over 20 pts", "team", tw["Players over 20 pts (starters)"], tw),
-            board("hist", "Highest starter score on a team", "team", tw["Highest starter score"], tw),
-            board("lost", "Lowest starter score on a team", "team", tw["Lowest starter score"], tw, high=False),
-        ]
-        for pos in ("QB", "RB", "WR", "TE"):
-            boards.append(board(f"from_{pos}", f"Most points from {pos}s", "team", tw[f"Points from {pos}s"], tw))
-        boards += [
-            board("p_st", "Most points by a starter", "player", st.Points, st, labels=plab),
-            board("p_st_loss", "Most points by a starter in a loss", "player",
-                  st.Points[~st["Win?"].astype(str).str.lower().eq("true")], st, labels=plab),
-            board("p_rookie", "Most points by a rookie starter", "player",
-                  st.Points[st["Rookie?"].astype(str).str.lower().eq("true")], st, labels=plab),
-            board("p_bn", "Most points on a bench", "player", bn.Points, bn, labels=plab),
-        ]
-        for pos in ("QB", "RB", "WR", "TE"):
-            boards.append(board(f"p_st_{pos}", f"Most points by a {pos} starter", "player",
-                                st.Points[st.Position.astype(str) == pos], st, labels=plab))
-            boards.append(board(f"p_bn_{pos}", f"Most points by a benched {pos}", "player",
-                                bn.Points[bn.Position.astype(str) == pos], bn, labels=plab))
-        return {"boards": boards, "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
+        def row_t(i):
+            if i not in rid_t:
+                r = tw.loc[i]
+                rid_t[i] = len(rows_t)
+                rows_t.append([str(r.Team), int(r.Year), str(r["Week Name"]), _clean(r.Opponent)])
+            return rid_t[i]
+
+        def row_p(i):
+            if i not in rid_p:
+                r = pw.loc[i]
+                rid_p[i] = len(rows_p)
+                rows_p.append([str(r["Player ID"]).split(".")[0], str(r.Player), str(r.Team), int(r.Year), str(r["Week Name"])])
+            return rid_p[i]
+
+        boards: Dict[str, list] = {}
+
+        def add(k, values, rid):
+            v = values.dropna()
+            if len(v) < self.WATCH_MIN_ROWS:
+                return
+            for d in k[1]:
+                s = v.sort_values(ascending=d == "l", kind="mergesort").head(5)
+                boards[f"{k[0]}|{d}|{k[2]}"] = [int(len(v)), [round(float(x), 4) for x in s], [rid(i) for i in s.index]]
+
+        team_scopes = [("all", slice(None)), ("win", win), ("loss", ~win & tw["Win?"].astype(str).str.lower().eq("false")),
+                       ("reg", kinds == "reg"), ("season", tw.Year == self.season)]
+        team_scopes += [(f"team:{t}", tw.Team == t) for t in sorted(tw.Team.astype(str).unique())]
+        stats = []
+        for sid, col, dirs in self.WATCH_TEAM_STATS:
+            if col not in tw.columns:
+                continue
+            stats.append({"id": sid, "kind": "team", "label": _display(col, "team_week"), "col": col,
+                          "dirs": dirs, "fmt": column_format(col)})
+            v = pd.to_numeric(tw[col], errors="coerce")
+            for sc, m in team_scopes:
+                add((sid, dirs, sc), v[m], row_t)
+        game = win                                       # the winner's row carries the game
+        for sid, col, dirs in self.WATCH_GAME_STATS:
+            if col not in tw.columns:
+                continue
+            stats.append({"id": sid, "kind": "game", "label": _display(col, "team_week"), "col": col,
+                          "dirs": dirs, "fmt": column_format(col)})
+            v = pd.to_numeric(tw[col], errors="coerce")
+            for sc, m in (("all", game), ("reg", game & (kinds == "reg")), ("season", game & (tw.Year == self.season))):
+                add((sid, dirs, sc), v[m], row_t)
+        # player points: role (st starter / bn bench / ro anyone rostered) x position
+        pk = pw["Week Name"].map(week_kind)
+        pwin = pw["Win?"].astype(str).str.lower()
+        rookie = pw["Rookie?"].astype(str).str.lower().eq("true")
+        pts_fmt = column_format("Points")
+        pids_now = set(pw.loc[pw.Year == self.season, "Player ID"].dropna().astype(str).str.split(".").str[0])
+        for role, rmask, rname in (("st", st_mask, "a starter"), ("bn", ~st_mask, "a benched player"),
+                                   ("ro", pd.Series(True, index=pw.index), "a rostered player")):
+            for pos in ("ALL", "QB", "RB", "WR", "TE"):
+                m0 = rmask & (pw.Position.astype(str) == pos if pos != "ALL" else True)
+                dirs = "hl" if role == "st" else "h"
+                sid = f"p_{role}_{pos}"
+                who = rname if pos == "ALL" else rname.replace("player", pos).replace("starter", f"{pos} starter")
+                stats.append({"id": sid, "kind": "player", "role": role, "pos": pos, "dirs": dirs,
+                              "label": f"Points by {who}", "fmt": pts_fmt})
+                sc = [("all", m0), ("win", m0 & pwin.eq("true")), ("loss", m0 & pwin.eq("false")),
+                      ("rookie", m0 & rookie), ("reg", m0 & (pk == "reg")), ("season", m0 & (pw.Year == self.season))]
+                sc += [(f"team:{t}", m0 & (pw.Team == t)) for t in sorted(pw.Team.astype(str).unique())]
+                for s_, m in sc:
+                    add((sid, dirs, s_), pw.Points[m], row_p)
+                if pos == "ALL" and role in ("st", "ro"):     # his career high in the league
+                    sub = pw[m0 & pw["Player ID"].notna()]
+                    ids = sub["Player ID"].astype(str).str.split(".").str[0]
+                    for pid, ix in sub.groupby(ids).groups.items():
+                        if pid in pids_now:
+                            add((sid, "h", f"pid:{pid}"), pw.Points[ix], row_p)
+        share = "% of points (if starter)"
+        if share in pw.columns:
+            stats.append({"id": "p_share", "kind": "player", "role": "st", "pos": "ALL", "dirs": "h",
+                          "label": _display(share, "player_week"), "fmt": column_format(share)})
+            v = pd.to_numeric(pw[share], errors="coerce")
+            for s_, m in (("all", st_mask), ("reg", st_mask & (pk == "reg")), ("season", st_mask & (pw.Year == self.season))):
+                add(("p_share", "h", s_), v[m], row_p)
+        cur = tw[tw.Year == self.season].sort_values(["Week"])
+        prev = {str(t): [int(r.Week), _clean(pd.to_numeric(r.PF, errors="coerce"))] for t, r in
+                cur.groupby("Team").tail(1).set_index("Team").iterrows()}
+        return {"stats": stats, "boards": boards, "rows_t": rows_t, "rows_p": rows_p, "prev": prev,
+                "rates": self._weekly_rates(), "rookies": self._rookie_ids(),
                 "kickoffs": self._kickoffs(), "season": self.season,
                 "roster_positions": self._roster_positions(), "playoff": self._playoff_shape()}
 
