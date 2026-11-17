@@ -416,10 +416,12 @@ async function recordWatch(meta) {
       const inj = (nfl[pid] || [])[4], st = (m.starters || []).includes(pid);
       // out, on IR / PUP / suspended, or in the reserve slot: he won't add points
       const out = (lr.ir && lr.ir.has(pid)) || ["IR", "Out", "PUP", "Sus", "NA", "DNR", "COV"].includes(inj);
-      const f = out ? 0 : left(pid);
+      const f = out ? 0 : left(pid), kt = ko[(nfl[pid] || [])[2]];
+      // his NFL game has kicked off (a bye, or out before kickoff, is not a start)
+      const kicked = !!kt && nowET >= new Date(kt);
       // a bench player on a bye or out is absent: not in the roster donut / under-10 counts
       return { pid, pos: (nfl[pid] || [])[1], nfl: (nfl[pid] || [])[2], st, rk: rookies.has(pid),
-        absent: !st && (out || !ko[(nfl[pid] || [])[2]]), cur: (m.players_points || {})[pid] || 0, f, rate: LW.rates[pid] ?? 3 }; }) };
+        absent: !st && (out || !ko[(nfl[pid] || [])[2]]), cur: (m.players_points || {})[pid] || 0, f, kicked, rate: LW.rates[pid] ?? 3 }; }) };
   });
   teams.forEach((t) => (t.opp = teams.findIndex((o) => o !== t && o.m.matchup_id === t.m.matchup_id)));
   const anyLeft = teams.some((t) => t.players.some((p) => p.f > 0));
@@ -538,7 +540,7 @@ async function recordWatch(meta) {
   const nBoards = Object.keys(BD).length;
   // where each mark stands: "pre" (its numbers not started), "live" (still counting),
   // "done" (counting has stopped: every game it waits on is over)
-  const begun = (p) => p.f < 1 || p.cur !== 0;
+  const begun = (p) => p.kicked || p.cur !== 0;
   const tBegun = (i) => teams[i].players.some(begun), tDone = (i) => teams[i].players.every((p) => p.f === 0);
   const mBegun = (i) => tBegun(i) || tBegun(teams[i].opp), mDone = (i) => tDone(i) && tDone(teams[i].opp);
   const status = (x) => {
