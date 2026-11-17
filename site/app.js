@@ -740,7 +740,8 @@ async function recordWatch(meta) {
   };
   const rows = targets.map((x, j) => ({ ...x, p5: x.top5 / N, p1: x.rec / N, pt: x.tie / N, med: seen[j] ? sums[j] / seen[j] : null, curV: x.get(now) }))
     .filter((x) => x.p5 >= 0.01).sort((a, b) => b.p5 - a.p5 || b.p1 + b.pt - a.p1 - a.pt || b.b[0] - a.b[0]);
-  const pctTxt = (x) => x >= 0.995 ? "certain" : x < 0.01 ? "<1%" : Math.round(x * 100) + "%";
+  // nothing still counting is "certain": the top reads 99%+
+  const pctTxt = (x) => x >= 0.995 ? "99%+" : x < 0.01 ? "<1%" : Math.round(x * 100) + "%";
   const fmtS = (x, v) => fmt(statById[x.stat].fmt || { d: 2 }, v);
   if (!el()) return;
   const nBoards = Object.keys(BD).length;
@@ -780,7 +781,14 @@ async function recordWatch(meta) {
       return { xs, x: xs[0], p5: Math.max(...xs.map((x) => x.p5)), p1: Math.max(...xs.map((x) => x.p1 + x.pt)), n: Math.max(...xs.map((x) => x.b[0])) };
     });
   };
+  // a Sleeper-projection stat on its unfiltered board has no chance to give (nothing here
+  // models projections or lineups moving before kickoff): where it would rank now instead
+  const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+  const isProj = (x) => /^proj_/.test(statById[x.stat].dep || "");
+  const rankNow = (x) => { const r = x.curV == null ? 0 : boardPlace(x.b[1], x.curV, x.d === "h");
+    return r === 1 ? "the record" : r === 0.5 ? "tying the record" : r ? `${ordinal(r)}` : "off the top 5"; };
   const odds = (x) => x.st === "done" ? `<b>${x.p1 >= 0.5 ? "record" : x.pt >= 0.5 ? "ties the record" : "top 5"}</b>`
+    : isProj(x) && !x.cond ? `<b>${rankNow(x)}</b> as projected now`
     : `<b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}`;
   const item = (G) => { const x = G.x; return `<li>
       <div class="wtop"><span><b>${esc(boardLabel({ ...x, sc: "all" }))}</b> · ${whoHtml(x.who)}</span></div>
@@ -800,7 +808,7 @@ async function recordWatch(meta) {
     ${shown.length ? `<h3>${view} · top ${shown.length}</h3><ul class="wlist">${shown.map(item).join("")}</ul>`
       : `<p class="muted">${fin ? "No finished mark has made a top 5." : "Nothing here has even a 1% chance of a top-5 place."}</p>`}
     ${rest.length ? `<details${shown.length ? "" : " open"}><summary><b>Every other board (${rest.length})</b> <span class="muted small">— ${fin ? "the rest of the finished marks" : "beyond the top 20, and lineup counts already fixed by who is rostered or started"}</span></summary><ul class="wlist">${rest.map(item).join("")}</ul></details>` : ""}
-    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way (a Sleeper-projection stat counts until its games kick off and the projections lock; a streak counts from the start of the week); Finished = counting has stopped. Each mark lists every version of its board it could make: the unfiltered board (every week since 2020), and the in a win / in a loss / by a rookie versions — the chance on an "in a win" line includes the chance of winning. Win chances are Sleeper's own (its app-style win %, on points so far plus Sleeper's projections for what is left): the simulation decides what happens given a result, Sleeper how likely each result is. Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player is simulated from his Sleeper projection (his blended rate where Sleeper has none) for the part of his game left, with the spread real starts have had around Sleeper's projections since 2020 (about ±7 points for a 10-point projection, ±9 for 20; a team ±25, a matchup's margin ±34); a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
+    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way (a Sleeper-projection stat counts until its games kick off and the projections lock; a streak counts from the start of the week); Finished = counting has stopped. Each mark lists every version of its board it could make: the unfiltered board (every week since 2020), and the in a win / in a loss / by a rookie versions — the chance on an "in a win" line includes the chance of winning. A Sleeper-projection stat's unfiltered line gives where it would rank as projected now, not a chance (nothing here models projections or lineups moving before kickoff); nothing still counting is called certain (99%+ at most). Win chances are Sleeper's own (its app-style win %, on points so far plus Sleeper's projections for what is left): the simulation decides what happens given a result, Sleeper how likely each result is. Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player is simulated from his Sleeper projection (his blended rate where Sleeper has none) for the part of his game left, with the spread real starts have had around Sleeper's projections since 2020 (about ±7 points for a 10-point projection, ±9 for 20; a team ±25, a matchup's margin ±34); a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
     el().querySelectorAll("[data-wview]").forEach((b) => (b.onclick = () => { view = b.dataset.wview; draw(); }));
   };
   draw();
