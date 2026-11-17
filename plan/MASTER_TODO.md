@@ -1568,6 +1568,37 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     - 2025 team_year Add/Drop skill moved 42.4 → 42.3 from that.
     - Post-merge is byte-identical to the branch build on every CSV. No UNEXPECTED diffs.
   - Exports are NOT committed by this plain dispatch.
+- [x] **Hardship leaves out game-day healthy scratches** [per user, 2026-11-17, from the
+  week-10 digest: shmuel256 "on pace for highest Hardship (Claude Projections)"]. A week the
+  injury tracker lists Out with body part "Coach's Decision" (rookie QB3s Ty Simpson, Carson
+  Beck, Riley Leonard, Drew Allar, Taylen Green ...) no longer counts in any Hardship column
+  (baseline + Claude twins + flips; Luck via SA Hardship). Injury? is unchanged; 2025 and
+  earlier have no body part and are untouched. 18 players / 95 player-weeks in 2026; the user
+  confirmed MHJ wk5 (about to be traded) and J.J. McCarthy wk1/3 (emergency QB3) as scratches.
+  Merged #616 / `7bc44023` after branch run 44199219334; #614 (digest wording only) merged
+  just before it as `ec858271`.
+  **3-part audit — PASS (2026-11-17): post-merge main run 44201947213 vs pre-merge main run
+  44184664522 (`9b326770`).**
+  - Part 1, code: build success; no new error lines in build_debug.log; pytest 1047 passed,
+    3 failed = the same 3 as the baseline (2× test_faab_speed: no scipy in CI;
+    test_no_binary_blobs_committed: data/faab_value/frozen/bag*.joblib). Pre-existing,
+    unrelated.
+  - Part 2, results: 7/7 cases pass.
+    - All 60 changed team-weeks hold a Coach's Decision player-week; none of the 821
+      team-weeks without one moved.
+    - No change outside 2026.
+    - Hardship only went down, never up.
+    - shmuel256 wk1 Claude Hardship 30.63 -> 8.47; wk7 87.79 -> 74.85 (Beck's wk7 "Back" is a
+      real injury and still counts).
+    - Win/loss-from-hardship flips: 0 cells changed.
+    - shmuel256 2026 Claude Hardship 648.18 -> 434.76 (no longer record pace).
+    - Injury? and every player_week column: 0 cells changed.
+  - Part 3, diff: only Hardship / SA Hardship / Combined SA / Claude twins, Luck and Avg yearly
+    luck changed (2026 only). Also changed, as EXPECTED live drift: one new add/drop
+    (AceMatthew adds Deshaun Watson / drops Malik Willis, 2026-11-17 18:05) and its
+    count columns, and the trade/pick link columns (drift every build). The post-merge build
+    is identical to the branch build cell for cell. No UNEXPECTED diffs.
+  - Exports are NOT committed by this plain dispatch; they land with the next Tuesday run.
 - [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
