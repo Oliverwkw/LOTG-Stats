@@ -9,7 +9,7 @@
 - `faab_features.game_form` / `since_injury` with their per-row memo give every row what it gets computed alone;
 - `faab_frozen` puts quarter-chunk output back in the year-chunk row order the serial base used.
 
-No scikit-learn, no network, no exports needed. Run: python tests/test_faab_speed.py
+No network or exports needed; the last two checks need scipy and scikit-learn (they print [SKIP] without them). Run: python tests/test_faab_speed.py
 """
 from __future__ import annotations
 
@@ -26,6 +26,18 @@ from lotg_support import faab_frame as kp  # noqa: E402
 from lotg_support import faab_pipeline as P  # noqa: E402
 from lotg_support import faab_value as F  # noqa: E402
 from lotg_support import faab_features as X  # noqa: E402
+
+
+def _needs_models() -> bool:
+    """faab_base / faab_frozen import scipy and scikit-learn. The build's CI has
+    neither, so the two checks below run in the FAAB workflows (faab_identity.yml
+    runs this file with both), as tests/test_faab_frozen.py does."""
+    try:
+        import scipy, sklearn  # noqa: F401,E401
+    except ImportError:
+        print("  [SKIP] no scipy / scikit-learn")
+        return False
+    return True
 
 
 def test_pd_mean_matches_pandas():
@@ -177,6 +189,7 @@ def test_since_injury_memo_equals_row_alone():
 
 
 def test_quarter_chunks_come_back_in_year_chunk_order():
+    if not _needs_models(): return
     from lotg_support import faab_frozen as FZ
     rng = np.random.default_rng(4); N = 3000
     d = pd.Series(pd.Timestamp("2020-03-05") + pd.to_timedelta(rng.integers(0, 6 * 365, N), "D"))
@@ -189,6 +202,7 @@ def test_quarter_chunks_come_back_in_year_chunk_order():
 
 
 def test_polyval_by_pos_matches_np_polyval():
+    if not _needs_models(): return
     from lotg_support import faab_base as B
     rng = np.random.default_rng(5)
     coefs = {"QB": np.array([-0.0021, 0.11, -1.37]), "RB": np.array([-0.004, 0.19, -2.1]), "WR": rng.normal(size=4)}

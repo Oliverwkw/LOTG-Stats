@@ -26,11 +26,10 @@ So this guard asserts the CLASS, not the two paths. It sniffs magic bytes
 rather than trusting extensions, because a compressed container is just as
 undeltifiable when it is called `snapshot.dat`.
 
-There is deliberately NO allowlist. At the time of writing all 1507 tracked
-files are text — the repo commits no binaries at all — so the honest invariant
-is simply "everything committed here is text", with no exemption list to rot.
-If a genuinely necessary binary ever has to be committed, add it explicitly
-below with a comment saying why it is worth permanent history.
+The allowlist is kept to files that are genuinely necessary and rarely
+rewritten: when this guard was written all 1507 tracked files were text. Add
+a binary explicitly below only with a comment saying why it is worth
+permanent history (the FAAB frozen base, 2026-11-14, is the one so far).
 
 Note this checks TRACKED files only. The build still writes the workbook and
 the zip into `exports/` on every run and still ships them in the LOTG_outputs
@@ -63,8 +62,15 @@ _COMPRESSED_MAGIC = {
     b"PAR1": "parquet",
 }
 
-# Nothing is exempt today. See the module docstring before adding anything.
-_ALLOWED: set[str] = set()
+# See the module docstring before adding anything.
+#
+# The FAAB frozen base (PR #593, 2026-11-14): five xz-compressed model bags,
+# ~10 MB each. Committed on purpose so CI and every session apply the same
+# models (plan/notes/FAAB_VALUE_SYSTEM.md, "The frozen base"); the weekly run
+# only reads them, and they change only when a reviewed --refreeze PR replaces
+# them — about 52 MB of permanent history per refreeze, so keep refreezes rare.
+# manifest.json (text) pins each file's sha256.
+_ALLOWED: set[str] = {f"data/faab_value/frozen/bag{i}.joblib" for i in range(5)}
 
 # A tripwire for a pathologically large file, well clear of the largest
 # legitimate one (exports/snapshot/sleeper_players_nfl.json, ~18 MB) and well
