@@ -1598,7 +1598,8 @@ guard-skipped fire), 581→584 (#453), 584→589 (#454), 589→597 (#455).
     (AceMatthew adds Deshaun Watson / drops Malik Willis, 2026-11-17 18:05) and its
     count columns, and the trade/pick link columns (drift every build). The post-merge build
     is identical to the branch build cell for cell. No UNEXPECTED diffs.
-  - Exports are NOT committed by this plain dispatch; they land with the next Tuesday run.
+  - Exports landed now: the new add/drop counted as a live roster change, so run 840
+    committed them (`53178339`).
 - [x] **Sleeper's own weekly projections as columns** [per user, 2026-10-07: "make sleeper
   projection columns"]. Source: `api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB|RB|WR|TE`
   (undocumented — the endpoint Sleeper's app uses; Rotowire). Week-specific back to 2018,
