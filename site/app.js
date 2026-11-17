@@ -448,7 +448,6 @@ function comebackSide(own, opp, pf, pa, stageT, lateT) {
   });
   return { S, choke };
 }
-const WATCH_SCOPES = { all: "League", win: "Filtered", loss: "Filtered", rookie: "Filtered" };
 // Every weekly stat a live week can set (data/live_watch.json: team-week, game and
 // player stats, each on the league board and its filtered versions — in a win / a
 // loss, rookies). The rest of the week is simulated from each
@@ -519,7 +518,7 @@ async function recordWatch(meta) {
       // his Sleeper projection (0 when out; a hole under 0.5 falls back to his rate, standing in
       // for the build's model fallback)
       const pj = proj && proj[pid] != null && proj[pid] >= 0.5 ? proj[pid] : LW.rates[pid] ?? 3;
-      return { pid, pos: (nfl[pid] || [])[1], nfl: (nfl[pid] || [])[2], st, rk: rookies.has(pid), out,
+      return { pid, pos: (nfl[pid] || [])[1], nfl: (nfl[pid] || [])[2], st, rk: rookies.has(pid), out, mu: pj,
         slot: st ? slots[(m.starters || []).indexOf(pid)] : null, kt: kt ? +new Date(kt) : null, sp: out || !kt ? 0 : pj,
         absent: !st && (out || !ko[(nfl[pid] || [])[2]]), cur: (m.players_points || {})[pid] || 0, f, kicked, rate: LW.rates[pid] ?? 3 }; }) };
   });
@@ -684,7 +683,7 @@ async function recordWatch(meta) {
   const N = anyLeft ? 2000 : 1;
   const sums = targets.map(() => 0), seen = targets.map(() => 0);
   for (let n = 0; n < N; n++) {
-    const R = run(teams.map((t) => t.players.map((p) => p.f > 0 ? p.cur + Math.max(0, p.rate * p.f + gauss() * Math.max(3, 0.65 * p.rate) * Math.sqrt(p.f)) : p.cur)));
+    const R = run(teams.map((t) => t.players.map((p) => p.f > 0 ? p.cur + Math.max(0, p.mu * p.f + gauss() * Math.min(9.5, 3 + 0.35 * p.mu) * Math.sqrt(p.f)) : p.cur)));
     targets.forEach((x, j) => {
       if (x.cond && Math.sign(R.team[x.cond.team].margin) !== x.cond.w) return;
       const v = x.get(R); if (v === null || v === undefined || isNaN(v)) return;
@@ -744,32 +743,40 @@ async function recordWatch(meta) {
   };
   rows.forEach((x) => (x.st = status(x)));
   const VIEWS = { "Not started": (x) => x.st === "pre", Counting: (x) => x.st === "live", Finished: (x) => x.st === "done" };
-  const tabs = ["All", "League", "Filtered"];
-  let view = ["Counting", "Not started", "Finished"].find((v) => rows.some(VIEWS[v])) || "Not started", tab = "All";
-  const item = (x) => `<li>
-      <div class="wtop"><span><b>${esc(boardLabel(x))}</b> · ${whoHtml(x.who)}</span><span class="wp">${x.st === "done"
-        ? `<b>${x.p1 >= 0.5 ? "record" : x.pt >= 0.5 ? "ties the record" : "top 5"}</b>` : `<b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}`}</span></div>
-      <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`} · record ${fmtS(x, x.b[1][0])} (${rowLabel(statById[x.stat], x.b[2][0])}) · 5th ${fmtS(x, x.b[1][4])} · ${x.b[0].toLocaleString()} on the board</div></li>`;
+  let view = ["Counting", "Not started", "Finished"].find((v) => rows.some(VIEWS[v])) || "Not started";
+  // one entry per stat, end and team / player / game, with every version of its board under it
+  const SCOPE_NAME = { all: "League", win: "In a win", loss: "In a loss", rookie: "By a rookie" };
+  const LINEUP = /^(nst_|nro_|rk_|c_rk$|same_nfl$|nfl_teams$)/;   // fixed by who is rostered / started
+  const groupsOf = (list) => {
+    const g = new Map();
+    for (const x of list) { const k = `${x.stat}|${x.d}|${x.who}`; if (!g.has(k)) g.set(k, []); g.get(k).push(x); }
+    return [...g.values()].map((xs) => {
+      xs.sort((a, b) => Object.keys(SCOPE_NAME).indexOf(a.sc) - Object.keys(SCOPE_NAME).indexOf(b.sc));
+      return { xs, x: xs[0], p5: Math.max(...xs.map((x) => x.p5)), p1: Math.max(...xs.map((x) => x.p1 + x.pt)), n: Math.max(...xs.map((x) => x.b[0])) };
+    });
+  };
+  const odds = (x) => x.st === "done" ? `<b>${x.p1 >= 0.5 ? "record" : x.pt >= 0.5 ? "ties the record" : "top 5"}</b>`
+    : `<b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}`;
+  const item = (G) => { const x = G.x; return `<li>
+      <div class="wtop"><span><b>${esc(boardLabel({ ...x, sc: "all" }))}</b> · ${whoHtml(x.who)}</span></div>
+      <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`}</div>
+      <ul class="wscopes">${G.xs.map((y) => `<li><div><b>${SCOPE_NAME[y.sc] || esc(y.sc)}</b> · ${odds(y)}</div><div class="muted small">record ${fmtS(y, y.b[1][0])} (${rowLabel(statById[y.stat], y.b[2][0])}) · 5th ${fmtS(y, y.b[1][4])} · ${y.b[0].toLocaleString()} on the board</div></li>`).join("")}</ul></li>`; };
   const draw = () => {
-    const inView = rows.filter(VIEWS[view]);
-    const counts = Object.fromEntries(tabs.map((t) => [t, t === "All" ? inView.length : inView.filter((x) => WATCH_SCOPES[x.sc.split(":")[0]] === t).length]));
-    const list = inView.filter((x) => tab === "All" || WATCH_SCOPES[x.sc.split(":")[0]] === tab);
-    // the preview: the view's top 15 by chance of a top-5 place (marks all but certain
-    // before a point is scored — lineup counts — are left to the list below)
+    const groups = groupsOf(rows.filter(VIEWS[view]));
+    // the preview: the view's top 15 by chance of a top-5 place on any version of the board;
+    // lineup counts (already fixed by who is rostered or started) go below
     const fin = view === "Finished";
-    const eligible = fin ? list : list.filter((x) => x.p5 < 0.995);
-    const shown = (fin ? eligible.slice().sort((a, b) => b.p1 + b.pt - a.p1 - a.pt || b.b[0] - a.b[0]) : eligible).slice(0, 15);
-    const rest = list.filter((x) => !shown.includes(x));
+    const eligible = groups.filter((G) => !LINEUP.test(G.x.stat))
+      .sort(fin ? (a, b) => b.p1 - a.p1 || b.n - a.n : (a, b) => b.p5 - a.p5 || b.p1 - a.p1 || b.n - a.n);
+    const shown = eligible.slice(0, 15), rest = groups.filter((G) => !shown.includes(G)).sort((a, b) => b.p5 - a.p5 || b.p1 - a.p1);
     el().innerHTML = `<h2>Record watch · week ${esc(wk)} ${liveNote(live)}</h2>
     <p class="muted small">${anyLeft ? (anyPlayed ? "Games under way: chances come from simulating the rest of the week." : "Before kickoff: chances come from simulating the whole week from projections.") : "Every game is over: these are where this week's numbers landed."} ${LW.stats.length} weekly stats on ${nBoards.toLocaleString()} boards (league; in a win, in a loss, by a rookie).</p>
-    <div class="seg">${Object.keys(VIEWS).map((v) => { const n = rows.filter(VIEWS[v]).length; return `<button aria-pressed="${v === view}" data-wview="${v}"${n ? "" : " disabled"}>${v} ${n}</button>`; }).join("")}</div>
-    <div class="seg">${tabs.map((t) => `<button aria-pressed="${t === tab}" data-wtab="${t}"${counts[t] ? "" : " disabled"}>${t} ${counts[t]}</button>`).join("")}</div>
+    <div class="seg">${Object.keys(VIEWS).map((v) => { const n = groupsOf(rows.filter(VIEWS[v])).length; return `<button aria-pressed="${v === view}" data-wview="${v}"${n ? "" : " disabled"}>${v} ${n}</button>`; }).join("")}</div>
     ${shown.length ? `<h3>${view} · top ${shown.length}</h3><ul class="wlist">${shown.map(item).join("")}</ul>`
       : `<p class="muted">${fin ? "No finished mark has made a top 5." : "Nothing here has even a 1% chance of a top-5 place."}</p>`}
-    ${rest.length ? `<details${shown.length ? "" : " open"}><summary><b>Every other board (${rest.length})</b> <span class="muted small">— ${fin ? "the rest of the finished marks" : "beyond the top 15, or all but certain (mostly lineup counts already fixed by who is rostered or started)"}</span></summary><ul class="wlist">${rest.map(item).join("")}</ul></details>` : ""}
-    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way; Finished = counting has stopped (every game it depends on — his, his team's, or both teams' for a result-filtered or game mark — is over). Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player's projection is his forecast rate blended with this season's points per game, scaled by how much of his NFL game is left; a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
-    el().querySelectorAll("[data-wtab]").forEach((b) => (b.onclick = () => { tab = b.dataset.wtab; draw(); }));
-    el().querySelectorAll("[data-wview]").forEach((b) => (b.onclick = () => { view = b.dataset.wview; tab = "All"; draw(); }));
+    ${rest.length ? `<details${shown.length ? "" : " open"}><summary><b>Every other board (${rest.length})</b> <span class="muted small">— ${fin ? "the rest of the finished marks" : "beyond the top 15, and lineup counts already fixed by who is rostered or started"}</span></summary><ul class="wlist">${rest.map(item).join("")}</ul></details>` : ""}
+    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way (a Sleeper-projection stat counts until its games kick off and the projections lock; a streak counts from the start of the week); Finished = counting has stopped. Each mark lists every version of its board it could make: the league board, and the in a win / in a loss / by a rookie versions — the chance on an "in a win" line includes the chance of winning. Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player is simulated from his Sleeper projection (his blended rate where Sleeper has none) for the part of his game left, with the spread real starts have had around Sleeper's projections since 2020 (about ±7 points for a 10-point projection, ±9 for 20; a team ±25, a matchup's margin ±34); a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
+    el().querySelectorAll("[data-wview]").forEach((b) => (b.onclick = () => { view = b.dataset.wview; draw(); }));
   };
   draw();
 }
