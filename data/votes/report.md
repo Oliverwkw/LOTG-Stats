@@ -963,15 +963,15 @@
 - 2026-11-09: **Tetairoa McMillan** $1,686 vs **Jalen Hurts** $1,705: votes say Tetairoa McMillan (s +1.00, 2 answers) — DISAGREES
   - Tetairoa McMillan: availability x1.32, share_talent x1.29, wr_band x0.78, efficiency x0.86
   - Jalen Hurts: inj_ir x0.69, track x1.18, aw_nfl x1.14, severe x0.89
-- 2026-11-09: **Matthew Stafford** board $478, votes: too high 2 (2 answers) — DISAGREES
-  - aw_nfl x2.52, availability x1.30, team_q x1.17, usage x1.15
-- 2026-11-09: **Matthew Stafford** board $478, votes: too high 2 (2 answers) — DISAGREES
-  - aw_nfl x2.52, availability x1.30, team_q x1.17, usage x1.15
 - 2026-11-09: **Matthew Stafford** board $478, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x2.52, availability x1.30, team_q x1.17, usage x1.15
-- 2026-10-26: **Matthew Stafford** board $615, votes: too high 2 (2 answers) — DISAGREES
-  - aw_nfl x2.79, availability x1.29, usage x1.21, team_q x1.15
+- 2026-11-09: **Matthew Stafford** board $478, votes: too high 2 (2 answers) — DISAGREES
+  - aw_nfl x2.52, availability x1.30, team_q x1.17, usage x1.15
+- 2026-11-09: **Matthew Stafford** board $478, votes: too high 2 (2 answers) — DISAGREES
+  - aw_nfl x2.52, availability x1.30, team_q x1.17, usage x1.15
 - 2026-10-26: **Matthew Stafford** board $615, votes: too high 1 (1 answers) — DISAGREES
+  - aw_nfl x2.79, availability x1.29, usage x1.21, team_q x1.15
+- 2026-10-26: **Matthew Stafford** board $615, votes: too high 2 (2 answers) — DISAGREES
   - aw_nfl x2.79, availability x1.29, usage x1.21, team_q x1.15
 - 2026-11-09: **Makai Lemon** board $1,509, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - rookie_capital x1.55, wr_talent x1.29, wr_band x0.78, usage x0.84
