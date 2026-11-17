@@ -681,17 +681,42 @@ async function recordWatch(meta) {
   const rand = mulberry(hashStr(`${wk}|${+nowET}|` + teams.map((t) => t.team + ":" + t.players.map((p) => p.pid + "=" + p.cur).join(",")).join(";")));
   const gauss = () => { let u = 0, v = 0; while (!u) u = rand(); while (!v) v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
   const N = anyLeft ? 2000 : 1;
-  const sums = targets.map(() => 0), seen = targets.map(() => 0);
+  // Win chances are Sleeper's (the app-style win %, lotg_support.gametime.app_win_pct, on the
+  // starters' points so far + their Sleeper projections for what is left): the simulated weeks
+  // are tallied by which side won each matchup, then reweighted so every matchup's win chance
+  // is Sleeper's — what happens given a result is simulated, how likely the result is is Sleeper's
+  const MU = teams.map((t, i) => i).filter((i) => i < teams[i].opp);
+  const projFinal = (t) => t.players.reduce((a, p) => a + (p.st ? p.cur + p.sp * p.f : 0), 0);
+  const curPF = (t) => t.players.reduce((a, p) => a + (p.st ? p.cur : 0), 0);
+  const SLW = MU.map((i) => { const A = teams[i], B = teams[A.opp], a = projFinal(A), b = projFinal(B);
+    return appPct(a, b, a + b > 0 ? (curPF(A) + curPF(B)) / (a + b) : 0, true); });
+  const C = 1 << MU.length, nC = new Float64Array(C);
+  const acc = targets.map(() => ({ t5: new Float64Array(C), r1: new Float64Array(C), ti: new Float64Array(C), sum: new Float64Array(C), seen: new Float64Array(C) }));
   for (let n = 0; n < N; n++) {
     const R = run(teams.map((t) => t.players.map((p) => p.f > 0 ? p.cur + Math.max(0, p.mu * p.f + gauss() * Math.min(9.5, 3 + 0.35 * p.mu) * Math.sqrt(p.f)) : p.cur)));
+    let c = 0;
+    MU.forEach((i, k) => { if (R.team[i].margin > 0) c |= 1 << k; });
+    nC[c]++;
     targets.forEach((x, j) => {
       if (x.cond && Math.sign(R.team[x.cond.team].margin) !== x.cond.w) return;
       const v = x.get(R); if (v === null || v === undefined || isNaN(v)) return;
-      seen[j]++; sums[j] += v;
+      const A = acc[j]; A.seen[c]++; A.sum[c] += v;
       const r = boardPlace(x.b[1], v, x.d === "h");
-      if (r) { x.top5++; if (r === 1) x.rec++; else if (r === 0.5) x.tie++; }
+      if (r) { A.t5[c]++; if (r === 1) A.r1[c]++; else if (r === 0.5) A.ti[c]++; }
     });
   }
+  // each outcome's weight: Sleeper's chance of it over the simulation's
+  const simW = MU.map((i, k) => { let w = 0; for (let c = 0; c < C; c++) if (c & (1 << k)) w += nC[c]; return w / N; });
+  const W = new Float64Array(C);
+  for (let c = 0; c < C; c++) W[c] = MU.reduce((w, i, k) => {
+    const ps = simW[k], pa = SLW[k];
+    if (!anyLeft || ps <= 0 || ps >= 1) return w;           // a result the simulation never drew: leave it
+    return w * (c & (1 << k) ? pa / ps : (1 - pa) / (1 - ps));
+  }, 1);
+  const total = nC.reduce((a, n, c) => a + n * W[c], 0) || 1;
+  const wsum = (arr) => arr.reduce((a, v, c) => a + v * W[c], 0);
+  targets.forEach((x, j) => { const A = acc[j]; x.top5 = wsum(A.t5) / total * N; x.rec = wsum(A.r1) / total * N; x.tie = wsum(A.ti) / total * N; });
+  const sums = acc.map((A) => wsum(A.sum)), seen = acc.map((A) => wsum(A.seen));
   const nameOf = (pid) => (nfl[pid] || [])[0] || NAMES_BY_ID[pid] || pid;
   const whoHtml = (who) => {
     if (who.startsWith("pid:")) { const pid = who.slice(4), t = teams.find((x) => x.players.some((p) => p.pid === pid));
@@ -759,7 +784,7 @@ async function recordWatch(meta) {
     : `<b>${pctTxt(x.p5)}</b> top 5 · ${pctTxt(x.p1)} record${x.pt >= 0.01 ? ` · ${pctTxt(x.pt)} tie` : ""}`;
   const item = (G) => { const x = G.x; return `<li>
       <div class="wtop"><span><b>${esc(boardLabel({ ...x, sc: "all" }))}</b> · ${whoHtml(x.who)}</span></div>
-      <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`}</div>
+      <div class="muted small">${x.st === "done" ? `final ${x.curV == null ? "—" : fmtS(x, x.curV)}` : `${x.st === "live" && x.curV != null ? `now ${fmtS(x, x.curV)} → ` : ""}projected ${x.med == null ? "—" : fmtS(x, x.med)}`}${MU.includes(x.i) || MU.includes((teams[x.i] || {}).opp) ? ` · Sleeper win % ${teams[x.i] ? Math.round(100 * (MU.includes(x.i) ? SLW[MU.indexOf(x.i)] : 1 - SLW[MU.indexOf(teams[x.i].opp)])) + "%" : ""}` : ""}</div>
       <ul class="wscopes">${G.xs.map((y) => `<li><div><b>${SCOPE_NAME[y.sc] || esc(y.sc)}</b> · ${odds(y)}</div><div class="muted small">record ${fmtS(y, y.b[1][0])} (${rowLabel(statById[y.stat], y.b[2][0])}) · 5th ${fmtS(y, y.b[1][4])} · ${y.b[0].toLocaleString()} on the board</div></li>`).join("")}</ul></li>`; };
   const draw = () => {
     const groups = groupsOf(rows.filter(VIEWS[view]));
@@ -775,7 +800,7 @@ async function recordWatch(meta) {
     ${shown.length ? `<h3>${view} · top ${shown.length}</h3><ul class="wlist">${shown.map(item).join("")}</ul>`
       : `<p class="muted">${fin ? "No finished mark has made a top 5." : "Nothing here has even a 1% chance of a top-5 place."}</p>`}
     ${rest.length ? `<details${shown.length ? "" : " open"}><summary><b>Every other board (${rest.length})</b> <span class="muted small">— ${fin ? "the rest of the finished marks" : "beyond the top 15, and lineup counts already fixed by who is rostered or started"}</span></summary><ul class="wlist">${rest.map(item).join("")}</ul></details>` : ""}
-    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way (a Sleeper-projection stat counts until its games kick off and the projections lock; a streak counts from the start of the week); Finished = counting has stopped. Each mark lists every version of its board it could make: the league board, and the in a win / in a loss / by a rookie versions — the chance on an "in a win" line includes the chance of winning. Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player is simulated from his Sleeper projection (his blended rate where Sleeper has none) for the part of his game left, with the spread real starts have had around Sleeper's projections since 2020 (about ±7 points for a 10-point projection, ±9 for 20; a team ±25, a matchup's margin ±34); a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
+    <p class="muted small">Not started = no game the mark depends on has kicked off; Counting = under way (a Sleeper-projection stat counts until its games kick off and the projections lock; a streak counts from the start of the week); Finished = counting has stopped. Each mark lists every version of its board it could make: the league board, and the in a win / in a loss / by a rookie versions — the chance on an "in a win" line includes the chance of winning. Win chances are Sleeper's own (its app-style win %, on points so far plus Sleeper's projections for what is left): the simulation decides what happens given a result, Sleeper how likely each result is. Top 5 follows the digest's tie rule: a mark ties its way in only if everything tied with it fits; "record" is an outright record, "tie" a share of it. Projected = the average simulated outcome. Each player is simulated from his Sleeper projection (his blended rate where Sleeper has none) for the part of his game left, with the spread real starts have had around Sleeper's projections since 2020 (about ±7 points for a 10-point projection, ±9 for 20; a team ±25, a matchup's margin ±34); a player who is out, on IR or on a bye adds nothing. ${anyLeft ? `${N.toLocaleString()} simulations, run in your browser and seeded from the live scores and a 10-minute clock: the same scores give everyone the same odds, on every reload.` : ""} Boards count every finished week since 2020 (all week types unless filtered); team marks include the semifinal +5 bonus, live points do not. Rosters count every player (taxi and IR too). <a href="#/records/team_week">Record book →</a></p>`;
     el().querySelectorAll("[data-wview]").forEach((b) => (b.onclick = () => { view = b.dataset.wview; draw(); }));
   };
   draw();
