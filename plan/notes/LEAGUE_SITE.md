@@ -20,7 +20,17 @@ A static site for league-mates, published on GitHub Pages at
 | Week: every matchup that week | `#/week/<year>/<week>` | same |
 | Pick: the pick's stats and its full history | `#/pick/<sheet>/<row>` | `data/draft.json`, `data/pick_history.json` |
 | Search (players, teams; links into the record book and the Data page) | `#/search/<q>` | `data/search.json` |
+| Weeks: every week of a season with the league's totals (league_week), a points-per-week chart, season tabs; previous / next week links on week and matchup pages come from the same rows | `#/weeks/<year>` | `data/sheets/league_week/*.json` |
+| Compare: two players or two teams, every career / all-time stat side by side; teams add their head-to-head | `#/compare?a=<t\|p>:<key>&b=…` | `data/team/*.json` or `data/player/*.json`, `data/h2h.json` |
+| My team: opens the team the reader picked in the ☰ menu (kept in their browser), or asks which | `#/mine` | — |
 | Predictions: pick winners and move players. It replays the home page's forecast seasons (`data/forecast_sims.bin`: int16 tenths of a point, sims x `forecast.sim.weeks` x `forecast.sim.teams`, raw points, no +5), so with no changes its odds ARE the home page's: both are counted from the same rounded scores by the same rules (`league_site.replay_sims` / app.js `simulateFull`, line for line, in integer hundredths; tests `test_replay_sims_follows_the_rules`, `test_site_forecast_is_its_own_odds`). A pick puts the picked side's score on top in that game; a roster move shifts the team's simulated weeks by `forecast.sim.slope` x the change in its best fielded lineup (`forecast.sim.rates` = the forecast's own player rates; who can play each week from `forecast.avail`, hashed per player/week so two rosters share draws); a week Sleeper finished since the build uses its real scores, and the week in progress live points + what is left once it has started. An older home.json without `forecast.sim` falls back to the old lighter simulation (best lineup by blended rate, ±0.65 x rate per player) | `#/predict` | `data/home.json`, `data/forecast_sims.bin`, `data/live_watch.json`, Sleeper live |
+
+**Shell conventions (UX pass, 2026-11-18; full list in `SITE_UX_OVERHAUL_2026-11.md`):**
+- A page's filters live in the URL (`setQuery`, replaceState): a copied link reproduces the view. New filters should do the same.
+- Every table goes through `table()` / `dataTable()`: keyboard sort with `aria-sort`, a row filter + Copy + CSV once it has 16+ rows, "Show all" past 150 rows, `teamOf` to highlight the reader's team, `rowLink` to open a row.
+- Team names go through `teamLink` (avatar + link); players through `playerLink`, positions through `posBadge`.
+- The reader's settings (their team, theme, density, page size, recent pages) and Sleeper's team avatars / fantasy names / league logo are in localStorage under `lotg:*`; nothing is sent anywhere.
+- Team avatars, fantasy team names and the league logo come from Sleeper's `users` and `league` endpoints, read with the rosters on page open.
 
 **"Still counting"** on the record boards is decided per cell (`Counting`, `column_clock` in league_site.py). Each column of a move sheet runs on its own clock, read from its definition in formulas.csv:
 

@@ -553,6 +553,23 @@ def test_shell_assets_are_versioned():
     assert re.search(r'window\.SITE_BUILD="\d{14}"</script>\s*<script src="app\.js', html_text)
 
 
+def test_shell_keeps_its_basics():
+    """The 2026-11 UX pass: the shell carries a skip link, a labelled search, the
+    web-app manifest (copied with the shell), and every route the menu links to
+    exists in app.js; every table header can be sorted from the keyboard."""
+    out = Path(tempfile.mkdtemp(prefix="lotg_shell_"))
+    S.copy_shell(out)
+    html_text = (out / "index.html").read_text(encoding="utf-8")
+    assert 'class="skip"' in html_text and 'for="q"' in html_text
+    assert (out / "manifest.webmanifest").exists() and 'rel="manifest"' in html_text
+    json.loads((out / "manifest.webmanifest").read_text(encoding="utf-8"))
+    app = (S.SHELL / "app.js").read_text(encoding="utf-8")
+    routes = re.search(r"const routes = \{(.*?)\};", app, re.S).group(1)
+    for href in re.findall(r'href="#/([a-z]+)"', html_text):
+        assert href == "mine" or re.search(rf"\b{href}\b", routes), href
+    assert 'aria-sort=' in app and 'tabindex="${c.nosort ? -1 : 0}"' in app
+
+
 def test_privacy_scan_catches_a_leak():
     d = Path(tempfile.mkdtemp(prefix="lotg_leak_"))
     (d / "data").mkdir()

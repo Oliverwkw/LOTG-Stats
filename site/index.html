@@ -2,34 +2,74 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>LOTG League</title>
 <meta name="description" content="LOTG dynasty league: standings, odds, record book, teams, players, trades and drafts. Rebuilt every week from the league's stats exports.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="LOTG">
+<meta property="og:title" content="LOTG League">
+<meta property="og:description" content="Standings, odds, the record book, every team, player, trade and draft pick of the LOTG dynasty league.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://sleepercdn.com/avatars/bacf626c72ab39f35077ce4a4f99a149">
+<link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232d5bd7'/%3E%3Ctext x='32' y='41' font-family='system-ui,sans-serif' font-size='22' font-weight='800' fill='white' text-anchor='middle'%3ELOTG%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="https://sleepercdn.com/avatars/bacf626c72ab39f35077ce4a4f99a149">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://api.sleeper.app" crossorigin>
+<link rel="preconnect" href="https://sleepercdn.com">
 <link rel="stylesheet" href="style.css">
+<script>
+// theme and density before first paint, so a forced theme never flashes
+try { var th = localStorage.getItem("lotg:theme"); if (th === '"dark"' || th === '"light"') document.documentElement.dataset.theme = JSON.parse(th);
+      if (localStorage.getItem("lotg:density") === '"compact"') document.documentElement.dataset.density = "compact"; } catch (e) {}
+</script>
 </head>
 <body>
-<header class="top">
+<a class="skip" href="#app">Skip to content</a>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<header class="top" id="top">
   <div class="bar">
-    <a class="brand" href="#/">LOTG</a>
-    <form class="search" id="searchForm" role="search">
-      <input id="q" type="search" placeholder="Search players, teams, stats…" autocomplete="off" aria-label="Search">
+    <a class="brand" href="#/" aria-label="LOTG home"><span class="logo" id="logo" aria-hidden="true">LOTG</span><span class="bt"><span>LOTG</span><small id="lname">Dynasty league</small></span></a>
+    <form class="search" id="searchForm" role="search" autocomplete="off">
+      <label class="sr" for="q">Search players, teams and stats</label>
+      <input id="q" type="search" placeholder="Search players, teams, stats…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-controls="sugg" aria-expanded="false" enterkeyhint="search">
+      <kbd aria-hidden="true">/</kbd>
+      <div class="sugg" id="sugg" role="listbox" aria-label="Suggestions"></div>
     </form>
+    <div class="rel">
+      <button class="iconbtn" id="menuBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="menu" title="Settings: your team, theme, density">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="menu" id="menu" role="menu" aria-label="Settings"></div>
+    </div>
   </div>
-  <nav class="nav" id="nav">
-    <a href="#/">Home</a>
-    <a href="#/teams">All-time standings</a>
-    <a href="#/records">Records</a>
-    <a href="#/h2h">Head to head</a>
-    <a href="#/trades">Trades</a>
-    <a href="#/draft">Draft</a>
-    <a href="#/predict">Predictions</a>
-    <a href="#/faab">FAAB values</a>
-    <a href="#/data">Data</a>
-    <a href="rate/">Rate players</a>
-  </nav>
+  <div class="navwrap" id="navwrap">
+    <nav class="nav" id="nav" aria-label="Main">
+      <a href="#/">Home</a>
+      <a href="#/mine" id="navMine" class="mine" hidden>My team</a>
+      <a href="#/teams">All-time standings</a>
+      <a href="#/weeks">Weeks</a>
+      <a href="#/records">Records</a>
+      <a href="#/h2h">Head to head</a>
+      <a href="#/trades">Trades</a>
+      <a href="#/draft">Draft</a>
+      <a href="#/predict">Predictions</a>
+      <a href="#/faab">FAAB values</a>
+      <a href="#/compare">Compare</a>
+      <a href="#/data">Data</a>
+      <a href="rate/">Rate players ↗</a>
+    </nav>
+  </div>
 </header>
-<main id="app"><p class="muted">Loading…</p></main>
+<main id="app" tabindex="-1" aria-busy="true"><div class="skel h1"></div><div class="skel blk"></div><div class="skel blk"></div></main>
 <footer class="foot" id="foot"></footer>
-<script src="app.js"></script>
+<button class="totop" id="totop" type="button" aria-label="Back to top" title="Back to top">↑</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="box" id="modalBox"></div></div>
+<div class="sr" id="announce" aria-live="polite"></div>
+<script src="app.js" defer></script>
 </body>
 </html>
