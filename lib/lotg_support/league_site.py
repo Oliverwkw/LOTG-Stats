@@ -28,7 +28,7 @@ import shutil
 import time
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -576,22 +576,108 @@ def digest_items(path: Path = DIGEST_HTML) -> Dict[str, object]:
 
 # ---------------------------------------------------------------- forecast
 
+def replay_sims(sims: "np.ndarray", weeks: Sequence[int], rids: Sequence[int], names: Sequence[str],
+                obs: Dict[int, List[int]], pairs: Dict[int, List[Tuple[int, int]]], regular_weeks: int,
+                playoff_teams: int, semifinal_week: int, final_weeks: Sequence[int],
+                bonus: int) -> Dict[str, Dict[str, float]]:
+    """Playoff / final / title / 1st-seed counts and total wins from simulated
+    seasons, in integer hundredths of a point so it is exact — site/app.js
+    `replaySims` is this line for line, which is what makes the predictions
+    page's baseline the home page's odds to the decimal.
+
+    sims    sims x len(weeks) x len(rids), raw points in hundredths (no +5)
+    obs     {played week: [hundredths per rid]}; pairs {week: [(i, j)]} as rid
+            indexes; the table is wins + ½ ties, then PF, then the team's name
+            (lotg_support.replay._standings), the bracket 1v4 / 2v3 with +bonus to
+            the higher seed (ties to him), the final over `final_weeks` (ties to
+            the 1v4 side) — replay._bracket."""
+    n = len(rids)
+    col = {w: j for j, w in enumerate(weeks)}
+    order_name = sorted(range(n), key=lambda k: names[k])
+    rank_name = {k: i for i, k in enumerate(order_name)}
+    out = {nm: {"playoffs": 0, "final": 0, "title": 0, "seed1": 0, "wins": 0.0} for nm in names}
+    rows = sims.tolist() if hasattr(sims, "tolist") else sims
+    for sim in rows:
+        def pts(w, k, sim=sim):
+            return sim[col[w]][k] if w in col else (obs.get(w) or [0] * n)[k]
+        half = [0] * n
+        pf = [0] * n
+        for w in range(1, regular_weeks + 1):
+            if w not in col and w not in obs:
+                continue
+            for a, b in pairs.get(w, ()):
+                x, y = pts(w, a), pts(w, b)
+                pf[a] += x
+                pf[b] += y
+                if x > y:
+                    half[a] += 2
+                elif y > x:
+                    half[b] += 2
+                else:
+                    half[a] += 1
+                    half[b] += 1
+        table = sorted(range(n), key=lambda k: (-half[k], -pf[k], rank_name[k]))
+        for k in range(n):
+            out[names[k]]["wins"] += half[k] / 2
+        for k in table[:playoff_teams]:
+            out[names[k]]["playoffs"] += 1
+        out[names[table[0]]]["seed1"] += 1
+        if playoff_teams < 4 or (semifinal_week not in col and semifinal_week not in obs):
+            continue
+        sd = table[:4]
+        win = [hi if pts(semifinal_week, hi) + bonus >= pts(semifinal_week, lo) else lo
+               for hi, lo in ((sd[0], sd[3]), (sd[1], sd[2]))]
+        for k in win:
+            out[names[k]]["final"] += 1
+        fw = [w for w in final_weeks if w in col or w in obs]
+        if not fw:
+            continue
+        a, b = win
+        champ = a if sum(pts(w, a) for w in fw) >= sum(pts(w, b) for w in fw) else b
+        out[names[champ]]["title"] += 1
+    return out
+
+
 def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
     """Title / finals / playoff odds from lotg_support.forecast, or None if the
-    forecast cannot run (the site still builds without it)."""
+    forecast cannot run (the site still builds without it).
+
+    The simulated seasons themselves go to the site too (key "_sims", written by
+    `Site.build` as data/forecast_sims.bin: int16 tenths of a point, sims x
+    weeks x teams): the predictions page replays exactly these seasons, so its
+    no-changes odds are these odds. The odds here are counted from those same
+    rounded scores (`replay_sims`), so both pages agree to the decimal."""
     try:
         import warnings
         from . import forecast as F
+        from . import inquiry as Q
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            fc = F.forecast(year, sims=sims)
+            fc = F.forecast(year, sims=sims, keep_scores=True)
     except Exception as exc:                            # pragma: no cover - depends on snapshot
         return {"error": f"{type(exc).__name__}: {exc}"[:300]}
-    rows = [{"team": o.team, "champion": round(o.champion, 1), "finals": round(o.finals, 1),
-             "playoffs": round(o.playoffs, 1), "wins": round(o.expected_wins, 2),
-             "pf": round(o.expected_pf, 2),
-             "next": None if o.next_week is None else round(o.next_week, 2)}
-            for o in fc.by_champion()]
+    meta = Q.season_meta(year)
+    teams = Q.teams(year)
+    rids = list(fc.sim_rids)
+    names = [teams[r] for r in rids]
+    idx = {r: k for k, r in enumerate(rids)}
+    tenths = np.clip(np.rint(fc.sim_scores * 10), -32768, 32767).astype("<i2")
+    obs_raw = {w: s for w, s in F._observed_scores(year).items() if w in fc.played_weeks}
+    obs = {w: [int(round(float(s.get(r, 0.0)) * 100)) for r in rids] for w, s in obs_raw.items()}
+    pairs = {w: [(idx[a], idx[b]) for a, b in Q.pairings(year, w) if a in idx and b in idx]
+             for w in range(1, meta.regular_season_weeks + 1)}
+    bonus = int(round(Q.SEMIFINAL_HOME_BONUS * 100))
+    counts = replay_sims(tenths.astype(np.int64) * 10, fc.sim_weeks, rids, names, obs, pairs,
+                         meta.regular_season_weeks, meta.playoff_teams, meta.semifinal_week,
+                         list(meta.finals_weeks), bonus)
+    n = max(fc.sims, 1)
+    by = {o.team: o for o in fc.odds}
+    rows = [{"team": t, "champion": round(100 * c["title"] / n, 1), "finals": round(100 * c["final"] / n, 1),
+             "playoffs": round(100 * c["playoffs"] / n, 1), "wins": round(c["wins"] / n, 2),
+             "pf": round(by[t].expected_pf, 2),
+             "next": None if by[t].next_week is None else round(by[t].next_week, 2)}
+            for t, c in counts.items()]
+    rows.sort(key=lambda r: (-r["champion"], -r["finals"], -r["playoffs"], r["team"]))
     # P(he plays) in each remaining week, per Sleeper id, from the forecast's injury
     # model — what the predictions page draws its lineups from (site/app.js predict)
     avail = {pid: [round(float(x), 3) for x in v] for pid, v in fc.player_availability.items()}
@@ -604,7 +690,20 @@ def forecast_odds(year: int, sims: int = 20000) -> Optional[Dict[str, object]]:
             "espn": dict(sorted(fc.espn_timelines.items())),
             # every hurt / tagged / ESPN-listed player: [ESPN timeline, what the odds assume]
             "injuries": {k: list(v) for k, v in sorted(fc.injury_basis.items())},
-            "espn_at": at.isoformat(timespec="minutes") if at else None}
+            "espn_at": at.isoformat(timespec="minutes") if at else None,
+            # how the predictions page replays the same seasons (site/app.js predict)
+            "sim": {"file": "forecast_sims.bin", "weeks": list(fc.sim_weeks), "teams": names,
+                    "obs": {str(w): v for w, v in obs.items()},
+                    "pairs": {str(w): [list(p) for p in v] for w, v in pairs.items()},
+                    "regular_weeks": meta.regular_season_weeks, "playoff_teams": meta.playoff_teams,
+                    "semifinal_week": meta.semifinal_week, "final_weeks": list(meta.finals_weeks),
+                    "bonus": bonus,
+                    # a roster move shifts a team's simulated weeks by slope x the
+                    # change in its fielded lineup — the calibration that turns a
+                    # projection gap into a points gap (forecast.Calibration.slope)
+                    "slope": round(float(fc.calibration.slope), 4),
+                    "rates": {k: round(v, 2) for k, v in sorted(fc.player_rates.items())}},
+            "_sims": tenths}
 
 
 def _kind_records(x: pd.DataFrame) -> Dict[str, int]:
@@ -1755,6 +1854,11 @@ class Site:
         put("meta.json", self.meta())
         t = time.time()
         odds = forecast_odds(self.season, sims=sims) if forecast else None
+        if odds and "_sims" in odds:
+            arr = odds.pop("_sims")
+            (data).mkdir(parents=True, exist_ok=True)
+            (data / "forecast_sims.bin").write_bytes(arr.tobytes())
+            sizes["forecast_sims.bin"] = arr.nbytes
         timings["forecast"] = round(time.time() - t, 1)
         put("home.json", self.home(odds))
         self._trades = self.trade_list()

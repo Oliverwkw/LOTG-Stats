@@ -1106,6 +1106,10 @@ class FieldedDistribution:
     # hurt, tagged or ESPN-listed startable player
     basis: Dict[str, Tuple[str, str]] = field(default_factory=dict)
     first_week: int = 1
+    # {player id: the weekly rate the lineups were built from} (after the
+    # in-season blend and any research multiplier) — what the site's
+    # predictions page prices a roster move with
+    rates: Dict[str, float] = field(default_factory=dict)
 
     def depth_cost(self, rid: int) -> float:
         """Points a week the roster loses to unavailability — the depth tax."""
@@ -1250,6 +1254,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
     expired: set = set()
     first_sim_week = through_week + 1
     player_avail: Dict[str, np.ndarray] = {}
+    player_values: Dict[str, float] = {}
     n_ir_total = n_tagged_total = 0
 
     for rid, pids in pool.items():
@@ -1390,6 +1395,7 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
             resets.append(reset)
 
         pid_list = list(values)
+        player_values.update(values)
         healthy[rid] = float(L.compute_optimal_lineup(values, pos_map, year))
         p_arr = np.array(probs, dtype=float)
         if spells:
@@ -1494,7 +1500,8 @@ def fielded_distribution(year: int, model: RateModel = RateModel(),
                                unsigned=unsigned_count, researched=researched,
                                unplaced=unplaced, warnings=sorted(set(warnings)),
                                availability=player_avail, first_week=first_sim_week,
-                               espn=espn_applied, basis=basis)
+                               espn=espn_applied, basis=basis,
+                               rates={k: float(v) for k, v in player_values.items()})
 
 
 def roster_projection(year: int, model: RateModel = RateModel(),
@@ -1706,6 +1713,13 @@ class Forecast:
     espn_timelines: Dict[str, str] = field(default_factory=dict)
     # {Sleeper id: (ESPN's timeline or "", what the forecast assumed)}
     injury_basis: Dict[str, Tuple[str, str]] = field(default_factory=dict)
+    # keep_scores=True only: every simulated team-week, sims x sim_weeks x teams
+    # (raw points, no +5), the weeks and roster ids they belong to, and the
+    # projection's per-player rates — so a page can replay the same seasons
+    sim_scores: Optional[np.ndarray] = None
+    sim_weeks: Tuple[int, ...] = ()
+    sim_rids: Tuple[int, ...] = ()
+    player_rates: Dict[str, float] = field(default_factory=dict)
 
     def by_champion(self) -> List[TeamOdds]:
         return sorted(self.odds, key=lambda o: -o.champion)
@@ -1776,7 +1790,7 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
              availability: AvailabilityModel = AvailabilityModel(),
              calibration: Optional[Calibration] = None, seed: int = 20260807,
              strength_model: str = "roster", as_of_week: Optional[int] = None,
-             rules: Optional[Any] = None) -> Forecast:
+             rules: Optional[Any] = None, keep_scores: bool = False) -> Forecast:
     """Monte-Carlo the rest of `year` and return each team's championship odds.
 
     strength_model:
@@ -1907,12 +1921,15 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
     by_name = {name: rid for rid, name in teams.items()}
     n_playoff = int(getattr(rules, "playoff_teams", None) or meta.playoff_teams)
 
+    kept = np.zeros((sims, n_weeks, n_teams)) if keep_scores else None
     for i in range(sims):
         level = base + true_shift[i]
         scores: Dict[int, Dict[int, float]] = {w: dict(s) for w, s in observed.items()}
         for j, wk in enumerate(sim_weeks):
             row = level + avail_draw[i, j] + week_shock[i, j] + idio[i, j]
             scores[wk] = {rid: float(row[k]) for k, rid in enumerate(rids)}
+            if kept is not None:
+                kept[i, j] = row
         table = (rules.standings if rules is not None else R._standings)(scores, pairs, teams, meta)
         bracket = (rules.bracket if rules is not None else R._bracket)(scores, table, teams, meta)
         for place, standing in enumerate(table):
@@ -1953,7 +1970,9 @@ def forecast(year: int, sims: int = 20000, model: RateModel = RateModel(),
                                          for pid, v in proj.availability.items()},
                     availability_from_week=proj.first_week,
                     espn_timelines=dict(proj.espn),
-                    injury_basis=dict(proj.basis))
+                    injury_basis=dict(proj.basis),
+                    sim_scores=kept, sim_weeks=tuple(sim_weeks), sim_rids=tuple(rids),
+                    player_rates=dict(proj.rates) if keep_scores else {})
 
 
 # ---------------------------------------------------------------------------

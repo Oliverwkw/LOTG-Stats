@@ -485,6 +485,60 @@ def test_built_site_reconciles():
         check()
 
 
+def test_replay_sims_follows_the_rules():
+    """league_site.replay_sims (and site/app.js simulateFull, its line-for-line twin):
+    W + ½T then PF then name; 1v4 / 2v3 with the bonus to the higher seed (a tie
+    after it goes to him); the final summed over its weeks."""
+    import numpy as np
+    names = ["d", "c", "b", "a"]
+    # week 1 played: 0 beat 1, 2 tied 3. Week 2 simulated: 0 beat 2, 1 beat 3.
+    obs = {1: [10000, 9000, 8000, 8000]}
+    pairs = {1: [(0, 1), (2, 3)], 2: [(0, 2), (1, 3)]}
+    # sims x weeks(2, 3=semi, 4=final) x teams, hundredths
+    sims = np.array([[[9000, 9500, 8000, 7000],          # wk2: 0 beats 2, 1 beats 3
+                      [10000, 9000, 9000, 10500],          # semi: d 10000+500 = a 10500, tie to d; c+500 beats b
+                      [12000, 11000, 0, 0]]])              # final: 0 beats 1
+    out = S.replay_sims(sims, [2, 3, 4], [0, 1, 2, 3], names, obs, pairs, 2, 4, 3, [4], 500)
+    assert out["d"]["seed1"] == 1 and out["d"]["wins"] == 2.0
+    assert out["c"]["wins"] == 1.0 and out["b"]["wins"] == 0.5 and out["a"]["wins"] == 0.5
+    assert all(out[t]["playoffs"] == 1 for t in names)
+    # 0 (10000+500) >= 3 (10500): the higher seed takes the tie
+    assert out["d"]["final"] == 1 and out["a"]["final"] == 0
+    assert out["c"]["final"] == 1 and out["d"]["title"] == 1 and out["c"]["title"] == 0
+    # seeds there: d, c, then b over a on PF (16000 v 15000). Make PF equal and the
+    # name decides: "a" becomes seed 3 (v c), "b" seed 4 (v d)
+    sims2 = sims.copy()
+    sims2[0, 0, 3] = 8000                                  # a's PF -> 16000, still loses to c
+    sims2[0, 1] = [0, 0, 100, 600]                         # semi scores: index 2 = b, 3 = a
+    o2 = S.replay_sims(sims2, [2, 3, 4], [0, 1, 2, 3], names, obs, pairs, 2, 4, 3, [4], 500)
+    # d (0 + 500) v b (100): d; c (0 + 500) v a (600): a
+    assert o2["d"]["final"] == 1 and o2["a"]["final"] == 1 and o2["b"]["final"] == 0, o2
+
+
+def test_site_forecast_is_its_own_odds():
+    """The odds on the home page are counted from exactly the simulated seasons the
+    predictions page replays, and they match the forecast's own float odds."""
+    if not _HAVE_EXPORTS:
+        return _skip("no exports/")
+    import warnings
+    from lotg_support import forecast as F
+    year = int(S.Site().season)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        o = S.forecast_odds(year, sims=600)
+    if not o or "error" in o:
+        return _skip(f"forecast did not run: {o and o.get('error')}")
+    arr, sim = o.pop("_sims"), o["sim"]
+    assert arr.dtype.str == "<i2" and arr.shape == (600, len(sim["weeks"]), len(sim["teams"]))
+    assert set(sim["rates"]) and 0 < sim["slope"] < 3
+    fc = F.forecast(year, sims=600)
+    own = {x.team: x for x in fc.odds}
+    for r in o["odds"]:
+        # rounding to a tenth of a point can flip a near-tie; 600 sims, allow 1.5 points
+        assert abs(r["playoffs"] - own[r["team"]].playoffs) <= 1.5, (r, own[r["team"]].playoffs)
+        assert abs(r["champion"] - own[r["team"]].champion) <= 1.5, (r, own[r["team"]].champion)
+
+
 def test_shell_assets_are_versioned():
     """A deploy must not hide behind a browser's cached app.js: index.html asks
     for each asset with a hash of its contents."""
