@@ -139,15 +139,6 @@ def last_expected_fire(now: datetime, fires: Sequence[Tuple[int, int]], dow: str
     return None
 
 
-def primary_fire_on(day_of: datetime, fires: Sequence[Tuple[int, int]]) -> Optional[datetime]:
-    """The earliest scheduled instant on `day_of`'s calendar day, in UTC."""
-    if not fires:
-        return None
-    hour, minute = min(fires)
-    d = day_of.astimezone(UTC)
-    return datetime(d.year, d.month, d.day, hour, minute, tzinfo=UTC)
-
-
 def should_skip_run(repo_root: Path, schedule: Optional[str],
                     now: Optional[datetime] = None,
                     workflow: str = "build.yml", dow: str = "2") -> bool:
@@ -187,9 +178,14 @@ def should_skip_run(repo_root: Path, schedule: Optional[str],
         if this not in fires or this == min(fires):
             return False                      # the primary itself, or unknown
         now = (now or datetime.now(UTC)).astimezone(UTC)
-        primary = primary_fire_on(now, fires)
-        if primary is None:
+        # The primary of the most recent SCHEDULED day, not of now's calendar
+        # day: a catch-up queued past midnight UTC (run 842, Tue 2026-11-17's
+        # 17:47 fire, started 00:08 Wed) would otherwise be compared against
+        # Wednesday 13:47, find the stamp "stale" and mail the digest again.
+        days = fire_days(now, fires, dow, back_weeks=1)
+        if not days:
             return False
+        primary = days[0][0]
         stamp = _read_stamp(Path(repo_root) / "data" / "digest" / "ranks_snapshot.json",
                             "meta", "captured_at")
         return stamp is not None and stamp >= primary
