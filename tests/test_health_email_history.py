@@ -44,14 +44,30 @@ def test_code_changes_since_lists_commits_and_warns_on_a_missing_range(capsys=No
         old_root = A._ROOT
         A._ROOT = Path(d)
         try:
+            run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q",
+                "--allow-empty", "-m", "FAAB values: weekly rebuild [skip ci]")
             got = A.code_changes_since(base)
-            assert [s for _, s in got] == ["A real code change (#999)"], got
+            assert [s for _, s in got] == ["A real code change (#999)"], got   # bot push skipped
             assert A.code_changes_since("0" * 40) == []      # unknown range -> [] + warning
         finally:
             A._ROOT = old_root
 
 
+def test_built_from_reads_the_baseline_copy_first():
+    """the health build re-stamps exports/snapshot/ with HEAD before the audit; the
+    baseline's copy of the committed meta is the one that names the exports' build"""
+    import json
+    import audit_weekly as A
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "raw").mkdir()
+        (Path(d) / "raw" / "_snapshot_meta.json").write_text(json.dumps({"built_from_commit": "abc123"}))
+        assert A.exports_built_from(Path(d)) == "abc123"
+    with tempfile.TemporaryDirectory() as d:          # no baseline copy -> the checkout's
+        assert A.exports_built_from(Path(d)) == A.snapshot_built_from_commit(A._ROOT)
+
+
 if __name__ == "__main__":
+    test_built_from_reads_the_baseline_copy_first()
     test_health_workflow_checks_out_full_history()
     test_code_changes_since_lists_commits_and_warns_on_a_missing_range()
     print("ok")

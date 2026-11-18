@@ -857,7 +857,7 @@ def run_audit(current_dir: Path, baseline_dir: Optional[Path],
     ktc_attrib = KtcAttribution(baseline_dir, _sleeper_players(current_dir))
     faab_attrib = FaabAttribution(baseline_dir, current_dir)
     ktc_attrib.faab_moved = faab_attrib.active
-    code_changes = code_changes_since(snapshot_built_from_commit(_ROOT))
+    code_changes = code_changes_since(exports_built_from(baseline_dir))
     attributed = audit_diffs(cur, base, season, rep, attrib, code_changes,
                              ktc_attrib=ktc_attrib, faab_attrib=faab_attrib)
     rep.drift, rep.nflverse_attributed = drift, attributed
@@ -1190,6 +1190,22 @@ def nflverse_cache_age(before_dir: Optional[Path] = None) -> Optional[str]:
     return f"{stamp} ({days} days ago)"
 
 
+def exports_built_from(baseline_dir: Optional[Path]) -> Optional[str]:
+    """The commit the BASELINE exports were built from. The health workflow keeps the
+    committed `_snapshot_meta.json` in the baseline's raw/ because its own build
+    re-captures exports/snapshot/ and stamps it with HEAD before the audit runs;
+    reading the checkout's copy then lists no code changes ever. Falls back to the
+    checkout's copy when the baseline has none (a local audit of committed exports)."""
+    if baseline_dir is not None:
+        try:
+            meta = json.loads((Path(baseline_dir) / "raw" / "_snapshot_meta.json").read_text())
+            if meta.get("built_from_commit"):
+                return meta["built_from_commit"]
+        except Exception:
+            pass
+    return snapshot_built_from_commit(_ROOT)
+
+
 def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
     """(sha, subject) for each commit between the exports' build and HEAD."""
     if not commit:
@@ -1215,9 +1231,14 @@ def code_changes_since(commit: Optional[str]) -> List[Tuple[str, str]]:
         if not line:
             continue
         sha, _, subject = line.partition(" ")
-        # Skip the bot's own export/snapshot pushes: they change data, not code.
+        # Skip the bot's own pushes (exports, snapshots, FAAB rebuilds, injury
+        # sweeps, votes — all `[skip ci]`) and doc-only edits: they change data,
+        # not code. The data they move has its own attribution (NFLverse, KTC,
+        # FAAB history, league events), and counting them would turn every week's
+        # audit into "reported, not flagged" (the 2026-11-18 run had two).
         if subject.startswith(("Auto-refresh committed exports",
-                               "Weekly digest snapshot rotation")):
+                               "Weekly digest snapshot rotation")) \
+                or subject.rstrip().endswith("[skip ci]"):
             continue
         rows.append((sha, subject))
     return rows

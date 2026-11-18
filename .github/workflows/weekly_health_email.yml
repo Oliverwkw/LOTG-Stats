@@ -132,6 +132,19 @@ jobs:
           # which is why tests/test_workflow_schedules.py pins this line.
           cp exports/raw/ktc_provenance.csv "$BASE"/raw/ 2>/dev/null || \
             echo "note: no exports/raw/ktc_provenance.csv — KTC re-pricing will be reported as breakages"
+          # The FAAB history stamp the committed build read. audit_weekly.FaabAttribution
+          # compares it with the fresh build's: without the baseline's copy it is inert,
+          # and every weekly FAAB rebuild reads as a breakage (124+165+112+48+15 rows on
+          # the 2026-11-18 run).
+          cp exports/raw/faab_history.json "$BASE"/raw/ 2>/dev/null || \
+            echo "note: no exports/raw/faab_history.json — FAAB re-valuing will be reported as breakages"
+          # Which commit the committed exports were built from. The build below
+          # re-captures exports/snapshot/ and rewrites this file with ITS commit
+          # (HEAD), so read after the build it names no code changes at all — the
+          # audit's code-change attribution was off on every run. Keep the
+          # committed copy; audit_weekly.exports_built_from reads it first.
+          cp exports/snapshot/_snapshot_meta.json "$BASE"/raw/ 2>/dev/null || \
+            echo "note: no exports/snapshot/_snapshot_meta.json — code-change attribution is off"
           echo "BASELINE_DIR=$BASE" >> "$GITHUB_ENV"
           echo "Snapshotted $(ls "$BASE"/*.csv | wc -l) committed CSVs into $BASE"
           # Same idea for the NFLverse cache: these are the upstream files the

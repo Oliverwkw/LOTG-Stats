@@ -262,7 +262,14 @@ def test_the_health_baseline_carries_what_the_audit_reads_from_it():
         carried quote from a KTC value breaking, and every re-priced checkpoint
         is a breakage again (32 rows on the 2026-09-09 run).
 
-    This pins both by name against the step that copies them.
+      * `faab_history.json` — without it `audit_weekly.FaabAttribution` has no
+        baseline stamp and every weekly FAAB rebuild is a breakage (464 rows on
+        the 2026-11-18 run).
+      * `_snapshot_meta.json` — the build re-stamps exports/snapshot/ with HEAD
+        before the audit, so without the committed copy code-change attribution
+        never lists a commit.
+
+    This pins each by name against the step that copies them.
     """
     step = ""
     for job in (_load("weekly_health_email.yml").get("jobs") or {}).values():
@@ -270,7 +277,8 @@ def test_the_health_baseline_carries_what_the_audit_reads_from_it():
             if "Snapshot the committed exports" in str(s.get("name", "")):
                 step = str(s.get("run", ""))
     assert step, "no 'Snapshot the committed exports' step in weekly_health_email.yml"
-    for needed in ("pick_ref_index.csv", "ktc_provenance.csv"):
+    for needed in ("pick_ref_index.csv", "ktc_provenance.csv", "faab_history.json",
+                   "_snapshot_meta.json"):
         assert needed in step, (
             f"the baseline snapshot does not copy exports/raw/{needed}; the audit "
             f"reads it from the BASELINE and goes silently inert without it")
