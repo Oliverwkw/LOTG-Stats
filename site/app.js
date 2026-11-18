@@ -1624,6 +1624,9 @@ function espnCard(F, nfl, live) {
 // weeks (two from 2026, summed). Everything runs in the browser.
 async function predict(_a, _q, live) {
   const [meta, LW, nfl, H] = await Promise.all([load("meta.json"), load("live_watch.json"), loadNfl(), load("home.json")]);
+  // the home page's forecast seasons, replayed here (lotg_support.league_site.forecast_odds)
+  const SIM = H.forecast && H.forecast.sim;
+  const SB = SIM ? await fetch(withBuild("data/" + SIM.file)).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null) : null;
   live = live || await loadLive();
   if (!live) { $app.innerHTML = `<h1>Predictions</h1><p class="muted">Needs Sleeper's rosters and schedule, and Sleeper is unreachable right now.</p>`; return; }
   // the season's calendar (live_watch.json); the 2026 layout if an older file lacks it
@@ -1740,6 +1743,133 @@ async function predict(_a, _q, live) {
     }
     return { tally, L };
   }
+  // ---- the full forecast: replay the home page's simulated seasons ----------------
+  // forecast_sims.bin = int16 tenths of a point, sims x SIM.weeks x SIM.teams, raw
+  // points (no +5). With no changes this counts exactly what the home page counted
+  // (league_site.replay_sims, line for line, in integer hundredths). A pick puts the
+  // picked side's score on top in that game; a roster move shifts the team's
+  // simulated weeks by the forecast's slope x the change in its fielded lineup
+  // (forecast rates, forecast availability); a week Sleeper has finished since the
+  // build uses its real scores, and the week in progress its live points plus what
+  // is left once its games have started.
+  const S16 = SB && SIM ? new Int16Array(SB) : null;
+  const FULL = !!(S16 && S16.length && S16.length % (SIM.weeks.length * SIM.teams.length) === 0);
+  const SW = FULL ? SIM.weeks : [], TN = FULL ? SIM.teams : [], nW = SW.length, nT = TN.length;
+  const NS = FULL ? S16.length / (nW * nT) : 0;
+  const tIdx = Object.fromEntries(TN.map((t, k) => [t, k])), wCol = Object.fromEntries(SW.map((w, j) => [w, j]));
+  const nameRank = (() => { const o = TN.map((_, k) => k).sort((a, b) => (TN[a] < TN[b] ? -1 : TN[a] > TN[b] ? 1 : 0)); const r = []; o.forEach((k, i) => (r[k] = i)); return r; })();
+  const FR = (FULL && SIM.rates) || {};
+  const rateOf = (pid) => FR[pid] ?? LW.rates[pid] ?? 3;
+  // fielded lineup's expected points in week w: K availability draws, each player's
+  // draw hashed from (player, week, k) so two rosters share draws for shared players
+  const hash01 = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
+  const bestMean = (pids) => {
+    const pool = pids.map((pid) => ({ pos: (nfl[pid] || [])[1], r: rateOf(pid) })).sort((x, y) => y.r - x.r), used = new Set();
+    let m = 0;
+    for (const sl of LW.roster_positions.slice().sort((a, b) => (fits[a] || []).length - (fits[b] || []).length)) {
+      const i = pool.findIndex((x, j) => !used.has(j) && (fits[sl] || []).includes(x.pos));
+      if (i >= 0) { used.add(i); m += pool[i].r; }
+    }
+    return m;
+  };
+  const fielded = (pids, t, w) => {
+    const ps = pids.map((pid) => pAvail(pid, t, w));
+    if (ps.every((x) => x >= 0.999)) return bestMean(pids);
+    let m = 0;
+    for (let k = 0; k < K; k++) m += bestMean(pids.filter((pid, j) => hash01(`${pid}|${w}|${k}`) < ps[j]));
+    return m / K;
+  };
+  const startable = (t) => (live.rosterOf[t]?.players || []).filter((pid) => !(live.rosterOf[t].taxi || new Set()).has(pid));
+  // real scores Sleeper has for weeks the forecast simulated (finished since the build)
+  const doneWk = {};
+  weeks.forEach((w, i) => {
+    if (!FULL || !(w in wCol) || w >= curWk) return;
+    const row = new Array(nT).fill(0);
+    for (const m of mus[i]) { const k = tIdx[live.byRid[m.roster_id]]; if (k != null) row[k] = Math.round((m.points || 0) * 100); }
+    if (row.some((x) => x)) doneWk[w] = row;
+  });
+  // regular-season games by (week, team index), to apply picks
+  const pickAt = (withChanges) => {
+    const o = {};
+    if (!withChanges) return o;
+    games.forEach((g, i) => { const p = picks[i]; if (!p) return; (o[g.w] = o[g.w] || []).push([tIdx[g.a], tIdx[g.b], p]); });
+    return o;
+  };
+  function simulateFull(withChanges) {
+    seed = 20261114;
+    // per team, per simulated week: the roster-move shift in hundredths
+    const shift = TN.map(() => new Array(nW).fill(0));
+    const R = withChanges ? rosterNow() : null;
+    if (withChanges && moves.length) {
+      const touched = new Set(moves.map((m) => m.to).filter((t) => t !== "out"));
+      for (const m of moves) for (const t of teams) if ((live.rosterOf[t]?.players || []).includes(m.pid)) touched.add(t);
+      for (const t of touched) {
+        const k = tIdx[t]; if (k == null) continue;
+        const b = startable(t), a = R[t].filter((pid) => !(live.rosterOf[t]?.taxi || new Set()).has(pid));
+        SW.forEach((w, j) => (shift[k][j] = Math.round(100 * SIM.slope * (fielded(a, t, w) - fielded(b, t, w)))));
+      }
+    }
+    // the week in progress: live points + what each starter has left
+    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const liveWk = {};
+    for (const g of games) if (g.w === curWk && g.w in wCol) for (const m of g.ms) {
+      const t = live.byRid[m.roster_id], ko = LW.kickoffs[String(g.w)] || {};
+      let rem = 0, v = 0;
+      for (const pid of m.starters || []) {
+        const kk = ko[(nfl[pid] || [])[2]]; if (!kk || out(pid, t)) continue;
+        const h = (nowET - new Date(kk)) / 36e5, f = h < 0 ? 1 : Math.max(0, 1 - h / 3.3), r = LW.rates[pid] ?? 3;
+        rem += r * f; v += (0.65 * Math.max(3, r)) ** 2 * f;
+      }
+      if ((m.points || 0) > 0) liveWk[tIdx[t]] = { mean: 100 * ((m.points || 0) + rem), sd: 100 * Math.sqrt(v) };
+    }
+    const anyLive = Object.keys(liveWk).length > 0;
+    const PK = pickAt(withChanges), obs = SIM.obs || {}, pairs = SIM.pairs || {};
+    const tally = Object.fromEntries(teams.map((t) => [t, { playoffs: 0, final: 0, title: 0, wins: 0, seed1: 0, pts: 0 }]));
+    const regLeft = SW.filter((w) => w <= SIM.regular_weeks && w !== curWk);
+    const cur = new Array(nW);
+    for (let s = 0; s < NS; s++) {
+      const off = s * nW * nT;
+      for (let j = 0; j < nW; j++) {
+        const w = SW[j], row = new Array(nT);
+        if (doneWk[w]) for (let k = 0; k < nT; k++) row[k] = doneWk[w][k];
+        else for (let k = 0; k < nT; k++) row[k] = S16[off + j * nT + k] * 10 + shift[k][j];
+        if (w === curWk && anyLive) for (const k in liveWk) row[k] = Math.round(liveWk[k].mean + gauss() * liveWk[k].sd);
+        for (const [a, b, p] of PK[w] || []) {
+          if (a == null || b == null) continue;
+          if ((p === "a" && row[a] < row[b]) || (p === "b" && row[b] < row[a]) || row[a] === row[b]) {
+            if (row[a] === row[b]) row[p === "a" ? a : b] += 1; else { const x = row[a]; row[a] = row[b]; row[b] = x; }
+          }
+        }
+        cur[j] = row;
+      }
+      const pts = (w, k) => (w in wCol ? cur[wCol[w]][k] : (obs[w] || [])[k] || 0);
+      const half = new Array(nT).fill(0), pf = new Array(nT).fill(0);
+      for (let w = 1; w <= SIM.regular_weeks; w++) {
+        if (!(w in wCol) && !(w in obs)) continue;
+        for (const [a, b] of pairs[w] || []) {
+          const x = pts(w, a), y = pts(w, b);
+          pf[a] += x; pf[b] += y;
+          if (x > y) half[a] += 2; else if (y > x) half[b] += 2; else { half[a]++; half[b]++; }
+        }
+      }
+      const table = TN.map((_, k) => k).sort((a, b) => half[b] - half[a] || pf[b] - pf[a] || nameRank[a] - nameRank[b]);
+      for (let k = 0; k < nT; k++) { tally[TN[k]].wins += half[k] / 2; for (const w of regLeft) tally[TN[k]].pts += pts(w, k); }
+      for (const k of table.slice(0, SIM.playoff_teams)) tally[TN[k]].playoffs++;
+      tally[TN[table[0]]].seed1++;
+      const sfw = SIM.semifinal_week;
+      if (SIM.playoff_teams < 4 || (!(sfw in wCol) && !(sfw in obs))) continue;
+      const sd = table.slice(0, 4);
+      const win = [[sd[0], sd[3]], [sd[1], sd[2]]].map(([hi, lo]) => (pts(sfw, hi) + SIM.bonus >= pts(sfw, lo) ? hi : lo));
+      win.forEach((k) => tally[TN[k]].final++);
+      const fw = SIM.final_weeks.filter((w) => w in wCol || w in obs);
+      if (!fw.length) continue;
+      const [a, b] = win, tot = (k) => fw.reduce((z, w) => z + pts(w, k), 0);
+      tally[TN[tot(a) >= tot(b) ? a : b]].title++;
+    }
+    const L = Object.fromEntries(teams.map((t) => [t, { mean: regLeft.length ? tally[t].pts / NS / regLeft.length / 100 : NaN }]));
+    return { tally, L, n: NS };
+  }
+  const runSim = (withChanges) => (FULL ? simulateFull(withChanges) : { ...simulate(withChanges), n: N });
   let base = null;
   // clinched / out with the picked games counted as played
   const status = () => {
@@ -1751,8 +1881,8 @@ async function predict(_a, _q, live) {
   // the same, in the column's own units (wins, points), to one decimal
   const delta1 = (a, b) => { const d = Math.round((a - b) * 10) / 10; return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d.toFixed(1)}</span>` : ""; };
   function draw() {
-    const res = simulate(true);
-    const T = res.tally;
+    const res = runSim(true);
+    const T = res.tally, N = res.n;
     const rows = teams.map((t) => ({ t, ...T[t], mean: res.L[t].mean, base: base.tally[t], baseMean: base.L[t].mean })).sort((a, b) => b.title - a.title || b.playoffs - a.playoffs);
     const ST = status();
     const pct = (x, t, cap) => oddsText(x, !cap && ST.sure.has(t), ST.out.has(t), false);
@@ -1774,9 +1904,9 @@ async function predict(_a, _q, live) {
   const allPlayers = teams.flatMap((t) => (live.rosterOf[t]?.players || []).map((pid) => [pid, t])).filter(([pid]) => (nfl[pid] || [])[1])
     .sort((a, b) => ((nfl[a[0]] || [])[0] || "").localeCompare((nfl[b[0]] || [])[0] || ""));
   $app.innerHTML = `<h1>Predictions</h1>
-    <p class="muted">Pick winners and make roster moves; the rest of ${meta.season} is simulated ${N.toLocaleString()} times in your browser through the league's playoff rules. ${liveNote(live)}</p>
+    <p class="muted">Pick winners and make roster moves; the rest of ${meta.season} is replayed ${(FULL ? NS : N).toLocaleString()} times in your browser through the league's playoff rules. ${liveNote(live)}</p>
     <div class="card"><h2>Season odds</h2><p class="small muted" id="pstate"></p><div id="pres"><p class="muted">Simulating…</p></div>
-      <p class="muted small">Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG), with who can play each week from the forecast's injury model: players listed Out come back on the league's return curve, players on IR not before the NFL's 4-game minimum, Questionable players play 85% of the time this week, a sourced "out for the season" note keeps a player out, and ESPN's injury list (captured daily) holds a player out for the season when ESPN dates his return after the season and the reporting says it is season-ending, or until ESPN's estimated return week, after which he comes back on the return curve. Pts/wk is the expected points a week over the remaining regular season, after injuries. The week in progress counts live points plus what is left. Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}. The home page's odds come from the full forecast model, so they differ a little.</p></div>
+      <p class="muted small">${FULL ? `These are the home page's forecast seasons: the same ${NS.toLocaleString()} simulations (lotg_support.forecast, built ${esc((meta.built || "").slice(0, 16))}), replayed here through the league's rules, so with no changes the odds are the home page's exactly. Each simulated season draws every team's true level (its roster projection, calibrated on past seasons and updated with this season's scores), a league-wide swing each week, each team's own weekly spread, and who is available each week from the forecast's injury model: players listed Out come back on the league's return curve, players on IR not before the NFL's 4-game minimum, Questionable players play 85% of the time this week, a sourced "out for the season" note keeps a player out, and ESPN's injury list (captured daily) sets return weeks. A pick puts the picked team's score on top in that game. A roster move moves each of the team's simulated weeks by the change in its best fielded lineup (the forecast's player rates and availability) times the forecast's calibration slope (${SIM.slope}). A week Sleeper has finished since the build uses its real scores; once the week in progress has started, it uses live points plus what each starter has left. Pts/wk is the expected points a week over the remaining regular season.` : `Each team's week = its best lineup from its current roster's projections (the forecast's rate blended with this season's PPG), with who can play each week from the forecast's injury model. The forecast's own simulations are not in this build, so these odds come from a simpler model than the home page's and differ from it.`} Standings: wins, then PF; top ${P.teams} make the playoffs; semifinal +${P.semifinal_bonus} to the higher seed; the final is ${P.final_weeks.length} week${P.final_weeks.length > 1 ? "s" : ""}.</p></div>
     ${espnCard(H.forecast, nfl, live)}
     <div class="card"><h2>Roster moves</h2>
       <div class="controls"><select id="mp"><option value="">Player…</option>${allPlayers.map(([pid, t]) => `<option value="${pid}">${esc((nfl[pid] || [])[0])} (${esc((nfl[pid] || [])[1])}, ${esc(t)})</option>`).join("")}</select>
@@ -1796,7 +1926,7 @@ async function predict(_a, _q, live) {
   document.getElementById("preset").onclick = () => { picks = {}; $app.querySelectorAll(".pgame button").forEach((x) => x.classList.remove("won")); rerun(); };
   document.getElementById("madd").onclick = () => { const pid = document.getElementById("mp").value; if (!pid) return; moves = moves.filter((m) => m.pid !== pid); moves.push({ pid, to: document.getElementById("mt").value }); rerun(); };
   document.getElementById("pmoves").onclick = (e) => { const b = e.target.closest("[data-undo]"); if (!b) return; moves.splice(+b.dataset.undo, 1); rerun(); };
-  setTimeout(() => { base = simulate(false); draw(); }, 20);
+  setTimeout(() => { base = runSim(false); draw(); }, 20);
 }
 
 // ---------- router
