@@ -175,6 +175,21 @@ def test_the_catch_up_runs_when_the_primary_did_not():
     assert SW.should_skip_run(root, CATCH_UP, now=TUE_FIRE + timedelta(hours=4)) is False
 
 
+def test_a_catch_up_queued_past_midnight_utc_still_skips():
+    """Run 842: Tuesday's 17:47 fire started 00:08 UTC WEDNESDAY. The guard took
+    "today's primary" from now's calendar day (Wed 13:47), found Tuesday's fresh
+    stamp older than that, ran, and mailed the league the same digest again."""
+    root = _repo(digest_at=TUE_FIRE + timedelta(hours=8, minutes=19))   # 22:06 Tue
+    past_midnight = TUE_FIRE + timedelta(hours=10, minutes=21)           # 00:08 Wed
+    assert SW.should_skip_run(root, CATCH_UP, now=past_midnight) is True
+
+
+def test_a_catch_up_queued_past_midnight_utc_runs_when_the_primary_did_not():
+    root = _repo(digest_at=TUE_FIRE - timedelta(days=7))
+    past_midnight = TUE_FIRE + timedelta(hours=10, minutes=21)
+    assert SW.should_skip_run(root, CATCH_UP, now=past_midnight) is False
+
+
 def test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up():
     """Rotation is the LAST step, after the email — a stale stamp means the
     chain did not finish, however far the run got."""
@@ -314,6 +329,8 @@ TESTS = [test_the_week_being_played_is_not_unfinalized_yet,
          test_the_catch_up_skips_once_the_primary_has_done_the_work,
          test_the_primary_itself_is_never_skipped,
          test_the_catch_up_runs_when_the_primary_did_not,
+         test_a_catch_up_queued_past_midnight_utc_still_skips,
+         test_a_catch_up_queued_past_midnight_utc_runs_when_the_primary_did_not,
          test_a_primary_that_died_before_rotating_does_not_suppress_the_catch_up,
          test_the_guard_fails_open_on_every_unknown,
          test_the_cli_prints_a_bare_boolean_and_never_raises,
