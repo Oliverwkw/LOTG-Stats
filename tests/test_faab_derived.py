@@ -4,7 +4,7 @@ Static tests use synthetic frames; the data test reads exports/raw/faab_derived/
 and skips when it is absent. Run directly (`python tests/test_faab_derived.py`) or via pytest.
 """
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -82,16 +82,38 @@ def test_search_without_a_transform_reproduces_the_side_output():
     if not side or "_fd_pk_recv" not in side.get("trades", pd.DataFrame()):
         print("skip: no exports/raw/faab_derived with pick specs (written by the CI build)")
         return
-    s = D.Search(D.EXPORTS, D.OUT, date.today())
-    res = s.run(D.Transform())
-    for sh, df in res.items():
-        for c in df.columns:
-            fc = c + D.SUFFIX
-            if fc not in s.side[sh]:
-                continue
-            a, b = D._num(s.side[sh][fc]), D._num(df[c])
-            bad = int((((a - b).abs() > 0.051) | (a.isna() != b.isna())).sum())
-            assert bad == 0, (sh, c, bad)
+    # The build values everything as of its own UTC date, not the date this test
+    # runs: build run 44203846607 wrote the side output on 2026-11-17 and ran this
+    # test at 00:04 UTC on the 18th, so 61 trade O-Scores moved by a day of
+    # history. Recompute on the build's day (inputs_manifest's written_at, or the
+    # day before it: the FAAB passes run before the manifest is written) and
+    # require one of them to reproduce the build exactly.
+    days = [date.today()]
+    try:
+        import json
+        wa = json.loads((D.EXPORTS / "raw" / "inputs_manifest.json").read_text())["written_at"]
+        d0 = date.fromisoformat(str(wa)[:10])
+        days = [d0, d0 - timedelta(days=1)]
+    except Exception:
+        pass
+    fails = []
+    for day in days:
+        s = D.Search(D.EXPORTS, D.OUT, day)
+        res = s.run(D.Transform())
+        bad_cols = []
+        for sh, df in res.items():
+            for c in df.columns:
+                fc = c + D.SUFFIX
+                if fc not in s.side[sh]:
+                    continue
+                a, b = D._num(s.side[sh][fc]), D._num(df[c])
+                bad = int((((a - b).abs() > 0.051) | (a.isna() != b.isna())).sum())
+                if bad:
+                    bad_cols.append((sh, c, bad))
+        if not bad_cols:
+            return
+        fails.append((day.isoformat(), bad_cols))
+    assert False, fails
 
 
 if __name__ == "__main__":
