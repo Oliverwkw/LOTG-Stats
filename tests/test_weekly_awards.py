@@ -1,7 +1,8 @@
 """Weekly player awards (src/lotg.py player_week_award_flags), user rules 2026-11-18.
 
 - Benchwarmer of the week = highest-scoring BENCH player league-wide; Dud of the
-  week = lowest-scoring starter; Bench dud of the week = lowest-scoring bench player.
+  week = lowest-scoring starter; Roster dud of the week = lowest scorer of
+  every rostered player (starters + bench).
 - Injured / suspended players can't win any of them; a bye week is still eligible.
 - Every tied player wins, except a tie at 0 (2+ on 0): nobody. One player alone
   on 0 still wins.
@@ -48,7 +49,18 @@ def test_benchwarmer_is_the_top_bench_scorer_not_a_starter():
     ])
     assert _winners(pw, "Benchwarmer of the week?") == ["B1"]
     assert _winners(pw, "Dud of the week?") == ["S1"]          # one player alone on 0 still wins
-    assert _winners(pw, "Bench dud of the week?") == ["B2"]
+    assert _winners(pw, "Roster dud of the week?") == ["S1"]      # starters count too
+
+
+def test_roster_dud_spans_starters_and_bench():
+    pw = _pw([
+        ("S1", "A", 2025, 1, "Starter", "QB", -2.0),
+        ("B1", "A", 2025, 1, "Bench", "QB", -1.0),
+        ("S2", "B", 2025, 1, "Starter", "WR", 4.0),
+        ("Hurt", "B", 2025, 1, "Bench", "WR", -3.0, True),        # can't score < 0 when out; exempt anyway
+    ])
+    assert _winners(pw, "Roster dud of the week?") == ["S1"]
+    assert _winners(pw, "Dud of the week?") == ["S1"]
 
 
 def test_ties_all_win_except_at_zero():
@@ -65,7 +77,7 @@ def test_ties_all_win_except_at_zero():
     assert _winners(pw, "Dud of the week?") == []              # 2 starters tied on 0
     assert _winners(pw, "RB of the week?") == []               # tied at 0 on a max award too
     assert _winners(pw, "Benchwarmer of the week?") == []
-    assert _winners(pw, "Bench dud of the week?") == []
+    assert _winners(pw, "Roster dud of the week?") == []
     # per team: A's lowest is S3 alone on 0 -> wins
     assert _winners(pw, "Lowest starter on team?") == ["S3", "S4"]
 
@@ -100,7 +112,7 @@ def test_bench_by_position_and_weeks_are_separate():
     ])
     assert _winners(pw, "Bench QB of the week?") == ["B1", "B3"]
     assert _winners(pw, "Benchwarmer of the week?") == ["B1", "B4"]
-    assert _winners(pw, "Bench dud of the week?") == ["B2", "B3"]
+    assert _winners(pw, "Roster dud of the week?") == ["B2", "B3"]
 
 
 def test_captain_ties_and_injury():

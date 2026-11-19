@@ -2061,7 +2061,7 @@ def _positional_percentile(pts, pos, sorted_scores) -> Optional[float]:
 PLAYER_WEEK_AWARDS: Tuple[str, ...] = (
     "Player of the week?", "QB of the week?", "RB of the week?", "WR of the week?", "TE of the week?",
     "Benchwarmer of the week?", "Bench QB of the week?", "Bench RB of the week?", "Bench WR of the week?",
-    "Bench TE of the week?", "Dud of the week?", "Bench dud of the week?",
+    "Bench TE of the week?", "Dud of the week?", "Roster dud of the week?",
     "Highest starter on team?", "Lowest starter on team?", "Captain?",
 )
 
@@ -2088,8 +2088,8 @@ def player_week_award_flags(pw: pd.DataFrame) -> pd.DataFrame:
       - TIES: every tied player wins, EXCEPT a tie at 0 (2+ players tied for an
         award on 0) — then nobody wins it. One player alone on 0 still wins.
       - Benchwarmer of the week = the league's highest-scoring BENCH player;
-        Dud of the week = its lowest-scoring starter; Bench dud of the week =
-        its lowest-scoring bench player (bench = every non-starter).
+        Dud of the week = its lowest-scoring starter; Roster dud of the week =
+        the lowest scorer of EVERY rostered player, starters and bench alike.
     Points are compared at 2 decimals; Captain's share at 6.
     """
     res = pd.DataFrame(0, index=pw.index, columns=list(PLAYER_WEEK_AWARDS))
@@ -2114,7 +2114,7 @@ def player_week_award_flags(pw: pd.DataFrame) -> pd.DataFrame:
         _award(pts.loc[si], "max", wins["Player of the week?"])
         _award(pts.loc[si], "min", wins["Dud of the week?"])
         _award(pts.loc[bi], "max", wins["Benchwarmer of the week?"])
-        _award(pts.loc[bi], "min", wins["Bench dud of the week?"])
+        _award(pts.loc[g.index], "min", wins["Roster dud of the week?"])
         for pos in ("QB", "RB", "WR", "TE"):
             _award(pts.loc[si[(pos_series.loc[si] == pos).to_numpy()]], "max", wins[f"{pos} of the week?"])
             _award(pts.loc[bi[(pos_series.loc[bi] == pos).to_numpy()]], "max", wins[f"Bench {pos} of the week?"])
@@ -7428,7 +7428,7 @@ def build_all(repo_root: Path) -> None:
                             "Bench WR of the week?": None,
                             "Bench TE of the week?": None,
                             "Dud of the week?": None,
-                            "Bench dud of the week?": None,
+                            "Roster dud of the week?": None,
                             "Highest starter on team?": None,
                             "Lowest starter on team?": None,
                         })
@@ -17124,7 +17124,7 @@ def build_all(repo_root: Path) -> None:
                 "Bench WR of the week?": "Times as Bench WR of the week?",
                 "Bench TE of the week?": "Times as Bench TE of the week?",
                 "Dud of the week?": "Times as Dud of the week?",
-                "Bench dud of the week?": "Times as Bench dud of the week?",
+                "Roster dud of the week?": "Times as Roster dud of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
                 "Captain?": "Times as Captain?",
@@ -17762,7 +17762,7 @@ def build_all(repo_root: Path) -> None:
                 "Bench WR of the week?": "Times as Bench WR of the week?",
                 "Bench TE of the week?": "Times as Bench TE of the week?",
                 "Dud of the week?": "Times as Dud of the week?",
-                "Bench dud of the week?": "Times as Bench dud of the week?",
+                "Roster dud of the week?": "Times as Roster dud of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
                 "Captain?": "Times as Captain?",

@@ -779,8 +779,8 @@ EQUATIONS = {
         "RUN_p over H weeks of [p = argmax_{p' ∈ ∪(R∖S)(·,w), pos = TE} pts(p',w)]",
     ('Dud of the week streak', 'player_week'):
         "RUN_p over H weeks of [p = argmin_{p' ∈ ∪S(·,w)} pts(p',w)]",
-    ('Bench dud of the week streak', 'player_week'):
-        "RUN_p over H weeks of [p = argmin_{p' ∈ ∪(R∖S)(·,w)} pts(p',w)]",
+    ('Roster dud of the week streak', 'player_week'):
+        "RUN_p over H weeks of [p = argmin_{p' ∈ ∪R(·,w)} pts(p',w)]",
     ('Highest starter on team streak', 'player_week'):
         "RUN_p over H weeks of [p = argmax_{p' ∈ S(t,w)} pts(p',w)]",
     ('Lowest starter on team streak', 'player_week'):
@@ -937,10 +937,10 @@ EQUATIONS = {
         "[p = argmin_{p' ∈ ∪_t S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Dud of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Dud of the week?⟩(p,w)',
-    ('Bench dud of the week?', 'player_week'):
-        "[p = argmin_{p' ∈ ∪_t R∖S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
-    ('Times as Bench dud of the week?', 'player_year / player_all_time'):
-        'Σ_w ⟨Bench dud of the week?⟩(p,w)',
+    ('Roster dud of the week?', 'player_week'):
+        "[p = argmin_{p' ∈ ∪_t R(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
+    ('Times as Roster dud of the week?', 'player_year / player_all_time'):
+        'Σ_w ⟨Roster dud of the week?⟩(p,w)',
     ('Highest starter on team?', 'player_week'):
         "[p = argmax_{p' ∈ S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Highest starter on team?', 'player_year / player_all_time'):

@@ -851,7 +851,7 @@ TEAM_AWARDS = ["Highest score?", "Lowest score?", "Largest blowout?", "Narrowest
 PLAYER_AWARDS = ["Player of the week?", "QB of the week?", "RB of the week?", "WR of the week?",
                  "TE of the week?", "Benchwarmer of the week?", "Bench QB of the week?",
                  "Bench RB of the week?", "Bench WR of the week?", "Bench TE of the week?",
-                 "Dud of the week?", "Bench dud of the week?",
+                 "Dud of the week?", "Roster dud of the week?",
                  "Highest starter on team?", "Lowest starter on team?", "Captain?"]
 
 
@@ -1292,7 +1292,7 @@ class Site:
         ("Benchwarmer of the week streak", "league"), ("Bench QB of the week streak", "league"),
         ("Bench RB of the week streak", "league"), ("Bench WR of the week streak", "league"),
         ("Bench TE of the week streak", "league"), ("Dud of the week streak", "league"),
-        ("Bench dud of the week streak", "league"), ("Highest starter on team streak", "own"),
+        ("Roster dud of the week streak", "league"), ("Highest starter on team streak", "own"),
         ("Lowest starter on team streak", "own"), ("Captain streak", "league"),
         ("10+ point streak", "self"), ("20+ point streak", "self"), ("30+ point streak", "self"),
         ("40+ point streak", "self"), ("50+ point streak", "self"))

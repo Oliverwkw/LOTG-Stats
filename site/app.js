@@ -916,7 +916,7 @@ async function recordWatch(meta) {
       const pv = (x) => x.v, est = el.filter((x) => x.p.st), ebn = el.filter((x) => !x.p.st);
       const W = {
         "Player of the week streak": win(est, pv, "max"), "Dud of the week streak": win(est, pv, "min"),
-        "Benchwarmer of the week streak": win(ebn, pv, "max"), "Bench dud of the week streak": win(ebn, pv, "min"),
+        "Benchwarmer of the week streak": win(ebn, pv, "max"), "Roster dud of the week streak": win(el, pv, "min"),
         "Captain streak": win(est.filter((x) => team[x.i].pf > 0), (x) => x.v / team[x.i].pf * 1e4, "max"),
         "Highest starter on team streak": new Set(), "Lowest starter on team streak": new Set() };
       for (const P of POS) {
