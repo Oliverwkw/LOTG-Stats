@@ -55,7 +55,7 @@ P0.update(vet_floor=0.0, rb_duds=0.0, wr_band=0.0, qb_band=0.0, rb_band=0.0, rb_
           boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 BOUNDS.update(vet_floor=(0.0, 1.0), rb_duds=(-1.0, 0.0), wr_band=(-0.6, 0.0), qb_band=(-0.6, 0.0), rb_band=(0.0, 0.6), rb_inj=(-1.0, 0.0),
     spike_vet_rb=(-1.0, 0.0), qb_inj=(-1.0, 0.0), wr_backup=(-1.0, 0.0), wr_clean_old=(-1.0, 0.0), tgt_lead=(0.0, 1.5), young_boom=(0.0, 1.5), rb_touch=(-1.5, 0.0), te_slide=(-1.5, 0.0), qb_tough=(0.0, 1.0), qb_ypg=(-1.0, 0.0), snap_cap=(0.0, 1.0), rb_hold=(0.0, 1.5), rb_old_hi=(-1.0, 0.0),
-    rb_hi=(0.0, 0.6), wr_hi=(-0.1, 0.1), qb_hi=(-0.2, 0.2),
+    rb_hi=(0.0, 0.6), wr_hi=(-0.6, 0.0), qb_hi=(-0.2, 0.2),   # wr_hi: top-end WR fade, lower only, held -0.5 (Oliver 2026-11-18)
     
     # can only LOWER value
     inj_ir=(-1.5, 0.0), inj_out=(-0.8, 0.0), severe=(-1.5, 0.0), prone=(-2.0, 0.0), recurring=(-0.8, 0.0), off_field=(-5.0, 0.0),
@@ -73,7 +73,7 @@ BOUNDS.update(vet_floor=(0.0, 1.0), rb_duds=(-1.0, 0.0), wr_band=(-0.6, 0.0), qb
 RAISE_ONLY = ["rb_hold", "tgt_lead", "young_boom", "qb_tough", "vet_floor", "rb_band", "young_elite", "young_upside", "qb_paid", "team_q_lo", "fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
               "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening", "peak_share", "avail_up"]
-LOWER_ONLY = ["rb_touch", "te_slide", "qb_ypg", "rb_duds", "wr_band", "qb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
+LOWER_ONLY = ["wr_hi", "rb_touch", "te_slide", "qb_ypg", "rb_duds", "wr_band", "qb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
@@ -562,6 +562,11 @@ def apply_rules(R, p, X=None, explain=False):
     v1 = v; lv = np.log(np.maximum(v, 1)); pos = R.pos.values
     curve = lambda lo, hi: np.interp(lv, np.log([150, 400, 900, 1800, 3000]), [lo, lo * 0.5, 0, hi * 0.5, hi])   # TE curve: ends move, middle stays
     top_curve = lambda lo, hi: np.interp(lv, np.log([150, 400, 900, 3000, 5000]), [lo, lo * 0.5, 0, 0, hi])   # QB/RB/WR: top end only above $3,000
+    # WRs at the top (wr_hi, lower only): an elite RB stands further above a flex-level starter than an elite WR does (top-3
+    # PPG over the 24th, rostered, weeks 1-14: RB 1.75-2.20 vs WR 1.66-1.85 in 2021-25, RB higher in 4 of 5), and the
+    # league's own fit already prices the top RBs up (rb_hi at its +0.6 bound). Held at -0.5 on Oliver's call (2026-11-18:
+    # "JSN jumped Gibbs & Bijan ... increase the fade on WRs in that range"); trades are indifferent (-0.08 to -0.6 all
+    # within 0.0003), -0.75 breaks CeeDee > Kyren.
     unpriced = np.clip((p.get("spike_hi", 1500) - v) / (0.6 * p.get("spike_hi", 1500)), 0, 1)     # a breakout the base value has not priced in
     T_ = {k: p.get(k, 0) * X[x] for k, x in RULE_KEYS.items()}
     # on IR the IR rule already charges for this season's injury: availability counts only the seasons before it

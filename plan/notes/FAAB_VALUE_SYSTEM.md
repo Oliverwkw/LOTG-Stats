@@ -311,6 +311,24 @@ however well he runs (the drop comes without warning). -0.1 is the smallest stre
 reaches only Henry's 9 vote/call-board rows (no trade or cut row moves), so it is a judgment rule like `boom_week`.
 Calls 128 -> 129 of 129.
 
+### Top-end WR fade (Oliver 2026-11-18)
+
+Oliver: "JSN jumped Gibbs & Bijan. He's in the convo but it's probably wrong. Increase the fade on WRs in that range."
+The fade is the existing top end of the WR position curve, `wr_hi`: a log multiplier on the post-vet value that is 0 at
+$3,000 and full from $5,000. It was fitted to -0.083 inside a narrow (-0.1, 0.1) bound. It is now lower only, bound
+(-0.6, 0), held at **-0.5** on Oliver's call. The reason: an elite RB stands further above a flex-level starter than an
+elite WR does. Top-3 PPG over the 24th at the position (rostered, weeks 1-14, 6+ games) was RB 1.75-2.20 vs WR
+1.66-1.85 in 2021-25, with RB higher in 4 of 5 seasons. The league's own fit already pays up for top RBs too (`rb_hi`
+sits at its +0.6 bound). The rule sits before the top compression (`top_g` 0.16), so -0.5 is about x0.93 on a $3,500+
+WR's final value. A WR whose post-injury value stays under $2,000 takes it uncompressed (Nabers x0.97 today).
+
+try-rule against -0.083: calls 125 -> 126 (the "Gibbs above everyone outside the top 3" call now passes); trades
+-0.0001 (3 better / 1 worse; Jefferson Sept 2022 worse, Jefferson May 2024 better); far-off 58 / 25 unchanged. Scan:
+-0.3 / -0.4 also pass the same call, -0.75 breaks CeeDee > Kyren and -1.0 also breaks Nabers > Tet. Across all
+history it reaches 17 WRs on 271 grid rows (Jefferson, JSN, Chase, Puka, Lamb, Adams, ARSB, Hill, Kupp, ...).
+Board 2026-11-18: JSN $3,950 (#2) -> $3,692 (#4), Puka $3,345 -> $3,126, Chase $3,292 -> $3,077, ARSB $3,209 ->
+$3,034, Lamb $2,974 -> $2,746. Bijan $3,949 and Gibbs $3,869 do not move.
+
 ## Votes that count as calls (2026-11-10)
 
 Oliver's rule: a rating-page vote that is unanimous, with 3+ teams agreeing, counts as a call. A team is one person;
