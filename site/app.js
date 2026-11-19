@@ -266,24 +266,24 @@ function downloadText(name, text, type = "text/csv") {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 // best / worst in each numeric column of a table (opts.extremes === false turns it off).
-// Lower is better where the name says so (points against, busts, left on the bench, …);
-// identifiers and neutral counts (year, week, age, trades, roster counts…) are left alone.
-const X_SKIP = /^(#|year|week|season|age|number|rank|round|pick|draft|from|to|place|weeks|weeks rostered|weeks as starter|games|n)$|\b(year|week number|number of (trades|add\/drops|teams|players|picks)|trades|add\/drop|transactions|faab spent|rostered|on roster|# players|# picks|players|picks held|id)\b/i;
-const X_LOW = /\b(against|pa|bust|lowest|left on (the )?bench|bench points left|donuts?|under 10|loss(es)?|hardship|injur(y|ies)|empty|turnover|choke|last place|adp|riskiness|age)\b/i;
+// An allow-list: only columns where more (X_GOOD) or less (X_LOW) is clearly better are
+// marked; shares, counts, ages, tenure, swing, riskiness, projections and the like aren't
+// good or bad, so they stay plain.
+const X_LOW = /^(pa|avg pa|points against|avg points against|points left on bench|avg points left on bench|bust week %|times lowest score|times least efficient|times underachiever.*|number of last place finishes|losses from hardship.*|hardship.*|starter-adjusted hardship.*|donuts.*|empty slots|weeks of (starter )?injuries)$/i;
+const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts)$/i;
 function extremesOf(cols, rows, val) {
   const out = cols.map(() => null);
   if (rows.length < 3) return out;
   cols.forEach((c, i) => {
-    if (i === 0 || c.noext || c.extremes === false) return;
-    const name = `${c.label} ${c.col || ""}`.trim();
-    if (X_SKIP.test(c.label) || X_SKIP.test(c.col || "")) return;
+    if (i === 0 || c.left || c.noext || c.extremes === false) return;
+    const low = X_LOW.test(c.label) || X_LOW.test(c.col || "");
+    if (!low && !X_GOOD.test(c.label) && !X_GOOD.test(c.col || "")) return;
     const vs = rows.map((r) => val(c, r)).filter((v) => typeof v === "number" && isFinite(v));
     if (vs.length < 3) return;
     const hi = Math.max(...vs), lo = Math.min(...vs);
     if (hi === lo) return;
     // a value most rows share is not a "best" (e.g. a column of zeros with one 1)
     const nHi = vs.filter((v) => v === hi).length, nLo = vs.filter((v) => v === lo).length;
-    const low = X_LOW.test(name);
     out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) <= Math.max(1, vs.length / 3), okW: (low ? nHi : nLo) <= Math.max(1, vs.length / 3) };
   });
   return out;
@@ -615,22 +615,27 @@ async function home() {
   );
   // this week's headlines
   const res = h.results || [];
-  const sides = res.flatMap((g) => [{ t: g.a, p: g.pa, o: g.b, q: g.pb }, { t: g.b, p: g.pb, o: g.a, q: g.pa }]);
-  const top = sides.slice().sort((x, y) => y.p - x.p)[0];
-  const close = res.slice().sort((x, y) => Math.abs(x.pa - x.pb) - Math.abs(y.pa - y.pb))[0];
-  const blow = res.slice().sort((x, y) => Math.abs(y.pa - y.pb) - Math.abs(x.pa - x.pb))[0];
+  // headline tiles: the playoff race and form, each a short label, a big value and one line
+  const byRank = h.standings.slice().sort((x, y) => x.rank - y.rank);
+  const cutT = byRank[spots - 1], outT = byRank[spots];
+  const near = cutT ? byRank.filter((r) => r.rank > spots && (cutT.w - r.w) <= 1).length : 0;
   const fav = hasOdds ? h.forecast.odds.slice().sort((x, y) => (y.champion ?? 0) - (x.champion ?? 0))[0] : null;
-  const leader = h.standings.slice().sort((x, y) => x.rank - y.rank)[0];
   const meRow = ME && h.standings.find((r) => r.team === ME);
   const gLink = (g) => `#/game/${meta.season}/${meta.week}/${tslug(g.a)}`;
   const heroT = (lab, val, sub, href) => `<div class="tile">${href ? `<a href="${href}">` : ""}<span>${lab}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ""}${href ? "</a>" : ""}</div>`;
+  // form: average points over the last three weeks played (week files), best and worst
+  const lastN = Math.min(3, meta.week);
+  const recent = lastN ? await Promise.all(Array.from({ length: lastN }, (_, i) => load(`week/${meta.season}-${meta.week - i}.json`).catch(() => null))) : [];
+  const form = Object.fromEntries(h.standings.map((r) => [r.team, []]));
+  for (const wk of recent) if (wk) for (const [t, sd] of Object.entries(wk.teams)) if (form[t]) form[t].push(sd.pf);
+  const avgF = Object.entries(form).filter(([, v]) => v.length).map(([t, v]) => [t, v.reduce((a, x) => a + x, 0) / v.length]).sort((x, y) => y[1] - x[1]);
+  const hot = avgF[0], cold = avgF[avgF.length - 1];
   const hero = [
-    meRow ? heroT("★ Your team", `${esc(ME)} ${meRow.w}-${meRow.l}`, `${ordinal(meRow.rank)} place${odds[ME] ? " · " + oddsCell(ME, odds[ME].playoffs) + " playoffs" : ""}`, `#/team/${tslug(ME)}`) : "",
-    leader ? heroT("League leader", esc(leader.team), `${leader.w}-${leader.l} · ${fmt({ d: 2 }, leader.pf)} PF`, `#/team/${tslug(leader.team)}`) : "",
-    top ? heroT(`Top score · ${esc(meta.week_name)}`, `${esc(top.t)} ${fmt({ d: 2 }, top.p)}`, `vs ${esc(top.o)}`, `#/game/${meta.season}/${meta.week}/${tslug(top.t)}`) : "",
-    close ? heroT("Closest game", `${fmt({ d: 2 }, Math.abs(close.pa - close.pb))} pts`, `${esc(close.a)} v ${esc(close.b)}`, gLink(close)) : "",
-    blow && blow !== close ? heroT("Biggest blowout", `${fmt({ d: 2 }, Math.abs(blow.pa - blow.pb))} pts`, `${esc(blow.pa > blow.pb ? blow.a : blow.b)} over ${esc(blow.pa > blow.pb ? blow.b : blow.a)}`, gLink(blow)) : "",
-    fav ? heroT("Title favourite", esc(fav.team), `${oddsCell(fav.team, fav.champion, true)} to win it all`, `#/team/${tslug(fav.team)}`) : "",
+    meRow ? heroT("★ Your team", `${meRow.w}-${meRow.l} · ${ordinal(meRow.rank)}`, odds[ME] ? `${oddsCell(ME, odds[ME].playoffs)} to make the playoffs` : esc(ME), `#/team/${tslug(ME)}`) : "",
+    cutT ? heroT("Playoff line", `${esc(cutT.team)} ${cutT.w}-${cutT.l}`, `holds the last spot${near ? ` · ${plural(near, "team")} within a game` : ""}${outT ? ` · next: ${esc(outT.team)} ${outT.w}-${outT.l}` : ""}`, `#/team/${tslug(cutT.team)}`) : "",
+    fav ? heroT("Title favorite", esc(fav.team), `${oddsCell(fav.team, fav.champion, true)} to win it all`, `#/team/${tslug(fav.team)}`) : "",
+    hot ? heroT("Hottest team", esc(hot[0]), `${fmt({ d: 1 }, hot[1])} pts a week over the last ${plural(lastN, "week")}`, `#/team/${tslug(hot[0])}`) : "",
+    cold && cold !== hot ? heroT("Coldest team", esc(cold[0]), `${fmt({ d: 1 }, cold[1])} pts a week over the last ${plural(lastN, "week")}`, `#/team/${tslug(cold[0])}`) : "",
   ].join("");
   const games = res.map((g) => {
     const aw = g.pa > g.pb, m = Math.abs(g.pa - g.pb);
@@ -1160,7 +1165,7 @@ async function teams() {
   const order = rows.map((r) => r.t);
   const ti = AT.cols.indexOf("Team");
   const allRows = AT.rows.slice().sort((a, b) => order.indexOf(a[ti]) - order.indexOf(b[ti]));
-  // the roll of honour: each finished season's champion and runner-up (team_year Result)
+  // champions: each finished season's champion, runner-up and 3rd (team_year Result)
   const roll = {};
   for (const t of ts) {
     const sc = (c) => t.seasons.cols.indexOf(c);
@@ -1175,7 +1180,7 @@ async function teams() {
   setTitle("All-time standings");
   $app.innerHTML = `${crumbs(["All-time standings"])}<div class="page-head"><h1>All-time standings</h1><div class="actions">${shareBtn()}</div></div>
     <p class="lede">Every season since ${meta.seasons[0]}, ${plural(meta.teams.length, "team")}.</p>
-    ${years.length ? `<div class="card"><h2>Roll of honour</h2><div class="games">${years.map((y) => `<div class="game"><div><b>${y}</b><span class="chip gold">🏆 ${roll[y].champ ? teamLink(roll[y].champ[0]) : "—"}</span></div>
+    ${years.length ? `<div class="card"><h2>Champions</h2><div class="games">${years.map((y) => `<div class="game"><div><b>${y}</b><span class="chip gold">🏆 ${roll[y].champ ? teamLink(roll[y].champ[0]) : "—"}</span></div>
       ${roll[y].second ? `<div class="small"><span class="muted">Runner-up</span><span>${teamLink(roll[y].second[0])}</span></div>` : ""}${roll[y].third ? `<div class="small"><span class="muted">3rd</span><span>${teamLink(roll[y].third[0])}</span></div>` : ""}</div>`).join("")}</div></div>` : ""}
     <div class="card">${table([
     { k: "t", label: "Team", left: true, html: (r) => teamLink(r.t) },
@@ -1561,11 +1566,12 @@ async function h2h(_a, query) {
     selA = a; selB = b; sync();
     $$("#mx td.sel").forEach((x) => x.classList.remove("sel"));
     const td = $(`#mx td[data-a="${CSS.escape(a)}"][data-b="${CSS.escape(b)}"]`); if (td) td.classList.add("sel");
-    const games = c.games || [];
+    // h2h.json lists meetings newest first: order them oldest -> newest (year, week)
+    const games = (c.games || []).slice().sort((p, q) => p[0] - q[0] || p[1] - q[1]);
     const streak = (() => { if (!games.length) return ""; const last = games[games.length - 1][5]; let n = 0; for (let i = games.length - 1; i >= 0 && games[i][5] === last; i--) n++; return `${last ? "W" : "L"}${n}`; })();
     $("#cell").innerHTML = `<div class="chead"><h2>${teamLink(a)} vs ${teamLink(b)}</h2><span><a class="btn sec" href="#/compare?a=t:${encodeURIComponent(a)}&b=t:${encodeURIComponent(b)}">⚖️ Compare</a> <button class="b sm" id="flip" title="See it from ${esc(b)}'s side">⇄ Flip</button></span></div>
       <div class="tiles"><div class="tile"><b>${c.w}-${c.l}</b><span>All games</span></div>${Object.entries(m.kinds).filter(([k]) => c[k + "w"] || c[k + "l"]).map(([k, n]) => `<div class="tile"><b>${c[k + "w"]}-${c[k + "l"]}</b><span>${esc(n)}</span></div>`).join("")}
-        <div class="tile"><b>${fmt({ d: 2 }, c.pf)}</b><span>Avg points for</span></div><div class="tile"><b>${fmt({ d: 2 }, c.pa)}</b><span>Avg points against</span></div>${streak ? `<div class="tile"><b class="${streak[0] === "W" ? "pos" : "neg"}">${streak}</b><span>Current streak</span></div>` : ""}</div>
+        <div class="tile"><b>${fmt({ d: 2 }, c.pf)}</b><span>Points for (all meetings)</span></div><div class="tile"><b>${fmt({ d: 2 }, c.pa)}</b><span>Points against (all meetings)</span></div>${streak ? `<div class="tile"><b class="${streak[0] === "W" ? "pos" : "neg"}">${streak}</b><span>Current streak</span></div>` : ""}</div>
       <div class="strip">${games.map(([y, w, n, pf, pa, won]) => `<a class="${won ? "W" : "L"}" href="#/game/${y}/${w}/${tslug(a)}" title="${y} ${esc(n)}: ${stripHtml(fmt({ d: 2 }, pf))}–${stripHtml(fmt({ d: 2 }, pa))}">${won ? "W" : "L"}</a>`).join("")}</div>
       <table class="rk"><tbody>${games.slice().reverse().map(([y, w, n, pf, pa, won]) => `<tr class="go" data-go="game/${y}/${w}/${tslug(a)}" tabindex="0"><td class="l"><a href="#/game/${y}/${w}/${tslug(a)}">${y} ${esc(n)}</a></td><td class="${won ? "w" : "lo"}">${won ? "W" : "L"}</td><td>${fmt({ d: 2 }, pf)}–${fmt({ d: 2 }, pa)}</td><td class="muted small">${signed({ d: 2 }, pf - pa)}</td></tr>`).join("")}</tbody></table>
       <p class="muted small">Newest first. The squares run oldest → newest.</p>`;
@@ -2491,7 +2497,7 @@ async function predict(_a, query, live, opt = {}) {
         <button class="b" id="madd">Apply</button></div><div id="pmoves"></div></div>
     <div class="card"><h2>Remaining games</h2><p class="muted small">Tap a team to make it win; tap again for "simulate".</p>
       ${byWeek.map(([w, gs]) => `<h3>Week ${w}${w === curWk ? " (in progress)" : ""}</h3><div class="pgames">${gs.map(([g, i]) => `<div class="pgame" data-g="${i}"><button data-side="a">${esc(g.a)}</button><span class="muted small">vs</span><button data-side="b">${esc(g.b)}</button></div>`).join("")}</div>`).join("")}
-      <p><button class="b" id="preset">Clear every pick</button>${ME && teams.includes(ME) ? ` <button class="b" id="pme">★ ${esc(ME)} wins out</button>` : ""} <button class="b" id="pfav" title="Each game to the side with more projected points per week">Pick the favourites</button> ${shareBtn().replace("Share", "Share this scenario")}</p></div>`;
+      <p><button class="b" id="preset">Clear every pick</button>${ME && teams.includes(ME) ? ` <button class="b" id="pme">★ ${esc(ME)} wins out</button>` : ""} <button class="b" id="pfav" title="Each game to the side with more projected points per week">Pick the favorites</button> ${shareBtn().replace("Share", "Share this scenario")}</p></div>`;
   const rerun = () => { document.getElementById("pres").style.opacity = .5; setTimeout(() => { draw(); document.getElementById("pres").style.opacity = 1; }, 20); };
   $app.querySelectorAll(".pgame").forEach((el) => el.onclick = (e) => {
     const b = e.target.closest("button[data-side]"); if (!b) return;
@@ -2502,7 +2508,7 @@ async function predict(_a, query, live, opt = {}) {
   });
   document.getElementById("preset").onclick = () => { picks = {}; $app.querySelectorAll(".pgame button").forEach((x) => x.classList.remove("won", "lost")); rerun(); };
   if ($("#pme")) $("#pme").onclick = () => { games.forEach((g, i) => { if (g.a === ME) picks[i] = "a"; else if (g.b === ME) picks[i] = "b"; }); rerun(); toast(`${ME} wins every remaining game`); };
-  $("#pfav").onclick = () => { if (!base) return; games.forEach((g, i) => { const a = base.L[g.a]?.mean, b = base.L[g.b]?.mean; if (isFinite(a) && isFinite(b)) picks[i] = a >= b ? "a" : "b"; }); rerun(); toast("Every game to the projected favourite"); };
+  $("#pfav").onclick = () => { if (!base) return; games.forEach((g, i) => { const a = base.L[g.a]?.mean, b = base.L[g.b]?.mean; if (isFinite(a) && isFinite(b)) picks[i] = a >= b ? "a" : "b"; }); rerun(); toast("Every game to the projected favorite"); };
   document.getElementById("madd").onclick = () => { const pid = document.getElementById("mp").value; if (!pid) return; moves = moves.filter((m) => m.pid !== pid); moves.push({ pid, to: document.getElementById("mt").value }); rerun(); };
   document.getElementById("pmoves").onclick = (e) => { const b = e.target.closest("[data-undo]"); if (!b) return; moves.splice(+b.dataset.undo, 1); rerun(); };
   setTimeout(() => { base = runSim(false); draw(); }, 20);
@@ -2530,129 +2536,313 @@ const weekNav = (y, w, toHref) => loadWeeks().then((ws) => {
     ${n ? `<a href="#/${toHref(n)}" data-next>${n.y} ${esc(n.n)} ›</a>` : '<span class="dis">Latest week ›</span>'}</div>`;
 });
 
-// ---------- trade calculator: two teams, any players and future picks, on the league's
-// own scale (the FAAB board's values; picks by the FAAB system's pick rule), with each
-// roster's value and rank and its projected points a week before and after.
-// State lives in the URL: ?a=<team>&b=<team>&sa=<assets A sends>&sb=<assets B sends>,
-// assets "p<sleeper id>" or "k<year>-<round>-<original team>".
+// ---------- KTC's own trade-calculator value adjustment (keeptradecut.com site.min.js,
+// ALGOTOUSE=2: processVNew / solveForX / adjustPackageNew / evaluateTrade, read 2026-11-19),
+// ported line for line. Each asset gets a raw score that grows faster than its value and is
+// highest for the best piece in the trade; the gap between the sides' raw totals is turned
+// back into "a player worth X" (Newton's method), so the side getting the best asset in a
+// 2-for-1 gets a bonus. `one` / `two` = KTC values of what each side GETS; `top` = the best
+// KTC value of any player (KTC uses its #1 + 100). Returns both adjusted totals, the
+// adjustment, and KTC's verdict (fair within 5%).
+const KTC_MAX = 1e4;
+function ktcSolveForX(e, a, t) {
+  let l = 5 * e;
+  const f = (r) => (0.1 * Math.pow(r / a, 1.4) + 0.7 * Math.pow(r / (1.05 * t), 1.25) + 0.2) * r - e;
+  const df = (x) => 0.24 * Math.pow(x, 1.4) / Math.pow(a, 1.4) + 1.575 * Math.pow(x, 1.25) / (Math.pow(1.05, 1.25) * Math.pow(t, 1.25)) + 0.2;
+  for (let i = 0; i < 20; i++) { const y = f(l), d = df(l); if (Math.abs(d) < 1e-12) return NaN; const n = l - y / d; if (Math.abs(n - l) < 1e-8) return n; l = n; }
+  return NaN;
+}
+const ktcEqual = (e, a, t) => { e = Math.max(0, e); a = Math.max(0, a); const r = e + a, s = Math.abs(e - a), n = Math.min(100, s / r * 100); return !(parseFloat(Math.round(10 * n) / 10) > t); };
+function ktcTrade(one, two, top, variance = 5) {
+  const T1 = one.reduce((x, v) => x + v, 0), T2 = two.reduce((x, v) => x + v, 0);
+  const out = { T1, T2, adj1: 0, adj2: 0, side: -1, value: 0, display: false };
+  if (!one.length || !two.length) { out.t1 = T1; out.t2 = T2; return ktcVerdict(out, variance); }
+  const t = top + 100, r = Math.max(...one, ...two);
+  const pv = (p) => (0.1 * Math.pow(p / 10099, 1.4) + 0.7 * Math.pow(p / (1.05 * r), 1.25) + 0.2) * p;
+  const e = one.reduce((x, v) => x + pv(v), 0), a = two.reduce((x, v) => x + pv(v), 0);
+  const d = e / T1, u = a / T2, c = Math.floor(Math.abs(e - a));
+  const rev = (x) => Math.round(ktcSolveForX(x, t, r));
+  let y = true, v, b, g, w, T;
+  if (ktcEqual(T1, T2, variance) && ktcEqual(e, a, variance)) {
+    if (e > a) { out.side = 1; v = rev(c); b = T2 + v - T1; if (b > 0) { out.value = b; out.adj1 = b; } else { y = false; out.side = 2; out.value = -b; out.adj2 = -b; } }
+    else if (a > e) { out.side = 2; v = rev(c); b = T1 + v - T2; if (b > 0) { out.value = b; out.adj2 = b; } else { y = false; out.side = 1; out.value = -b; out.adj1 = -b; } }
+  } else if (d > u) {
+    out.side = 1;
+    if (e > a) { v = rev(c); b = T2 + v - T1; if (b > 0) { out.value = b; out.adj1 = b; } else { y = false; out.side = 2; out.value = Math.abs(b); out.adj2 = Math.abs(b); } }
+    else {
+      g = -1; if (T1 + out.adj1 < T2 + out.adj2) g = 1; else if (T2 + out.adj2 < T1 + out.adj1) g = 2;
+      w = rev(Math.abs(e - a));
+      if (w > 0 && g > 0) {
+        out.side = g;
+        if (g === 2) { T = w - (T1 - T2); out.value = T; out.adj2 = T; if (!(T > 0)) y = false; }
+        else { T = w - (T2 - T1); if (T > 0) { if (T > KTC_MAX) { y = false; out.value = 0; out.side = 1; out.adj1 = 0; } else { out.side = 2; out.value = T; out.adj2 = T; } } else { y = true; out.value = -T; out.adj1 = -T; } }
+      } else y = false;
+    }
+  } else {
+    out.side = 2;
+    if (a > e) { v = rev(c); b = T1 + v - T2; if (b > 0) { out.value = b; out.adj2 = b; } else { y = false; out.side = 1; out.value = Math.abs(b); out.adj1 = Math.abs(b); } }
+    else {
+      g = -1; if (T1 + out.adj1 < T2 + out.adj2) g = 1; else if (T2 + out.adj2 < T1 + out.adj1) g = 2;
+      w = rev(Math.abs(e - a));
+      if (w > 0 && g > 0) {
+        out.side = g;
+        if (g === 1) { T = w - (T2 - T1); out.value = T; out.adj1 = T; if (!(T > 0)) y = false; }
+        else { T = w - (T1 - T2); if (T > 0) { if (T > KTC_MAX) { y = false; out.value = 0; out.side = 1; out.adj2 = 0; } else { out.side = 1; out.value = T; out.adj1 = T; } } else { y = true; out.value = -T; out.adj2 = -T; } }
+      } else y = false;
+    }
+  }
+  out.display = out.value !== 0 && y && !(Math.abs(out.value / (T1 + T2)) < 0.033);
+  out.t1 = Math.max(0, T1 + out.adj1); out.t2 = Math.max(0, T2 + out.adj2);
+  return ktcVerdict(out, variance);
+}
+function ktcVerdict(o, variance) {
+  const t = o.t1, r = o.t2, s = t + r, pct = s ? Math.min(100, Math.abs(t - r) / s * 100) : 0;
+  o.fair = !(parseFloat(Math.round(10 * pct) / 10) > variance);
+  o.favors = o.fair ? 0 : t >= r ? 1 : 2;
+  o.toEven = Math.round(Math.abs(t - r));
+  return o;
+}
+
+// ---------- trade calculator: two or more teams, any players and future picks. Every asset is
+// priced several ways (FAAB board, KTC with KTC's own value adjustment, projected points, rest of
+// season, this season's scoring); the reader picks which one drives the verdict and the
+// suggestions. Season odds come from the Predictions page's simulation.
+// State lives in the URL: two teams ?a=&b=&sa=&sb= (assets each sends); three or more
+// ?t=A,B,C&mv=<asset>><team>,… ; assets "p<sleeper id>" or "k<year>-<round>-<original team>";
+// &m=<metric>.
+const CALC_METRICS = {
+  ktc: { name: "KTC (with KTC's value adjustment)", short: "KTC", fmt: (v) => Math.round(v).toLocaleString() },
+  faab: { name: "FAAB value (the league's board)", short: "FAAB", fmt: (v) => money(v) },
+  proj: { name: "Projected points a week", short: "proj. pts/wk", fmt: (v) => fmt({ d: 1 }, v) },
+  ros: { name: "Rest-of-season points", short: "rest-of-season pts", fmt: (v) => fmt({ d: 1 }, v) },
+  ppg: { name: "This season's points a week", short: "pts/wk this season", fmt: (v) => fmt({ d: 1 }, v) },
+};
 async function calc(_a, query, live) {
   setTitle("Trade calculator");
   $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="skel blk"></div>`;
   const [meta, B, PK, nfl, LW, KT, SP, H] = await Promise.all([load("meta.json"), loadBoard(), load("picks.json"), loadNfl(), load("live_watch.json").catch(() => ({ rates: {}, roster_positions: [] })),
     load("ktc.json").catch(() => null), load("season_players.json").catch(() => null), load("home.json").catch(() => ({ standings: [] }))]);
   live = live || await loadLive();
-  // KTC for a pick: dynasty-daddy prices 12-team Early / Mid / Late quarters, so a pick's
-  // overall place in this league's draft is mapped onto them (the build's ktc.pick_label_candidates
-  // rule). Next year's slot comes from the standings (worst record picks first); a later year
-  // averages every quarter its round spans.
+  if (!B) { $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="card empty"><div class="big">💲</div><p>The FAAB board isn't published yet, so there are no values to compare.</p></div>`; return; }
+  // KTC for a pick: dynasty-daddy prices 12-team Early / Mid / Late quarters, so a pick's overall
+  // place in this league's draft is mapped onto them (the build's ktc.pick_label_candidates rule).
+  // Next year's slot comes from the standings (worst record picks first); a later year averages
+  // every quarter its round spans.
   const rankNow = Object.fromEntries((H.standings || []).map((r) => [r.team, r.rank]));
-  const ktcPick = (y, r, o, idx = 0) => {
+  const ktcPick = (y, r, o, i = 0) => {
     if (!KT || !KT.picks) return null;
     const n = meta.teams.length;
-    const ovs = y === PK.years[0] && rankNow[o] ? [(r - 1) * n + (n + 1 - rankNow[o])] : Array.from({ length: n }, (_, i) => (r - 1) * n + i + 1);
-    const vs = ovs.map((ov) => { const rn = Math.floor((ov - 1) / 12) + 1, ps = (ov - 1) % 12 + 1; const e = KT.picks[`${y} ${ps <= 4 ? "Early" : ps <= 8 ? "Mid" : "Late"} ${ORD[rn] || rn + "th"}`]; return e ? e[idx] : null; }).filter((v) => typeof v === "number");
+    const ovs = y === PK.years[0] && rankNow[o] ? [(r - 1) * n + (n + 1 - rankNow[o])] : Array.from({ length: n }, (_, j) => (r - 1) * n + j + 1);
+    const vs = ovs.map((ov) => { const rn = Math.floor((ov - 1) / 12) + 1, ps = (ov - 1) % 12 + 1; const e = KT.picks[`${y} ${ps <= 4 ? "Early" : ps <= 8 ? "Mid" : "Late"} ${ORD[rn] || rn + "th"}`]; return e ? e[i] : null; }).filter((v) => typeof v === "number");
     return vs.length ? vs.reduce((a, v) => a + v, 0) / vs.length : null;
   };
+  const KTOP = KT && KT.players ? Math.max(...Object.values(KT.players).map((x) => x[0])) : 9999;
   const spCol = SP ? SP.cols.indexOf("Avg points") : -1;
   const weeksLeft = Math.max(0, ((LW.playoff || {}).regular_weeks || 14) - meta.week);
-  if (!B) { $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="card empty"><div class="big">💲</div><p>The FAAB board isn't published yet, so there are no values to compare.</p></div>`; return; }
   const teams = meta.teams;
   const params = new URLSearchParams(query || "");
-  let A = teams.includes(params.get("a")) ? params.get("a") : (ME && teams.includes(ME) ? ME : teams[0]);
-  let Bt = teams.includes(params.get("b")) && params.get("b") !== A ? params.get("b") : teams.find((t) => t !== A);
   const split = (v) => (v || "").split(",").filter(Boolean);
-  let SA = split(params.get("sa")), SB = split(params.get("sb"));
+  let metric = CALC_METRICS[params.get("m")] ? params.get("m") : prefs.get("lotg:calcmetric", KT ? "ktc" : "faab");
+  if (metric === "ktc" && !KT) metric = "faab";
+  // the deal: participating teams, and each moving asset's destination
+  let T = [], MV = {};      // MV[asset] = team it goes to
+  if (params.get("t")) {
+    T = split(params.get("t")).filter((t) => teams.includes(t)).filter((t, i, a) => a.indexOf(t) === i).slice(0, 4);
+    for (const x of split(params.get("mv"))) { const [k, to] = x.split(">"); if (k && T.includes(to)) MV[k] = to; }
+  } else {
+    const A = teams.includes(params.get("a")) ? params.get("a") : (ME && teams.includes(ME) ? ME : teams[0]);
+    const Bt = teams.includes(params.get("b")) && params.get("b") !== A ? params.get("b") : teams.find((t) => t !== A);
+    T = [A, Bt];
+    split(params.get("sa")).forEach((k) => (MV[k] = Bt)); split(params.get("sb")).forEach((k) => (MV[k] = A));
+  }
+  while (T.length < 2) T.push(teams.find((t) => !T.includes(t)));
   const board = Object.fromEntries(B.players.map((x) => [String(x.sid), x]));
   // whose players and picks: Sleeper now when it answered, else the board's owners and the build's picks
   const rosterOf = (t) => live && live.rosterOf[t] ? live.rosterOf[t].players.map(String) : B.players.filter((x) => ownerTeam(x.owner, teams) === t).map((x) => String(x.sid));
   const blocked = (t) => live && live.rosterOf[t] ? new Set([...(live.rosterOf[t].taxi || []), ...(live.rosterOf[t].ir || [])].map(String)) : new Set();
   const HELD = livePicks(PK, live);
   const picksOf = (t) => (HELD[t] || []).map(([y, r, o]) => `k${y}-${r}-${o}`);
-  const info = (k) => {
+  const assetsOf = (t) => rosterOf(t).map((pid) => "p" + pid).concat(picksOf(t));
+  const ownerOf = {};
+  for (const t of teams) for (const k of assetsOf(t)) ownerOf[k] = t;
+  const INFO = {};
+  const info = (k) => INFO[k] || (INFO[k] = (() => {
     if (k[0] === "k") {
       const [y, r, ...o] = k.slice(1).split("-"), orig = o.join("-");
       return { k, pick: true, name: `${y} ${ORD[+r] || r + "th"}${orig ? ` (${orig})` : ""}`, pos: "PICK", value: pickValue(PK, B, +y, +r, orig) || 0, y: +y, r: +r,
-               ktc: ktcPick(+y, +r, orig), ktcAgo: ktcPick(+y, +r, orig, 1) };
+               ktc: ktcPick(+y, +r, orig), ktcAgo: ktcPick(+y, +r, orig, 1), rate: 0, ppg: null };
     }
     const pid = k.slice(1), b = board[pid], n = nfl[pid] || [];
     const kt = KT && KT.players ? KT.players[pid] : null, sp = SP && spCol >= 0 ? (SP.rows[pid] || [])[spCol] : null;
-    return { k, pid, name: (b && b.name) || n[0] || NAMES_BY_ID[pid] || pid, pos: (b && b.pos) || n[1] || "", nfl: (b && b.team) || n[2] || "", age: b ? b.age : n[3], inj: (b && b.injury) || n[4] || "", value: b ? b.value : 0, rate: LW.rates[pid],
+    return { k, pid, name: (b && b.name) || n[0] || NAMES_BY_ID[pid] || pid, pos: (b && b.pos) || n[1] || "", nfl: (b && b.team) || n[2] || "", age: b ? b.age : n[3], inj: (b && b.injury) || n[4] || "", value: b ? b.value : 0, rate: LW.rates[pid] ?? 0,
              ktc: kt ? kt[0] : null, ktcAgo: kt ? kt[1] : null, ktcRank: kt ? kt[2] : null, ppg: typeof sp === "number" ? sp : null };
-  };
-  const assetsOf = (t) => rosterOf(t).map((pid) => "p" + pid).concat(picksOf(t));
-  // keep only assets the team still has (a link can outlive a roster move)
-  const clean = () => { const a = new Set(assetsOf(A)), b = new Set(assetsOf(Bt)); SA = SA.filter((k) => a.has(k)); SB = SB.filter((k) => b.has(k)); };
+  })());
+  // drop assets a link names that their team no longer has, or whose team left the deal
+  const clean = () => { for (const k of Object.keys(MV)) if (!T.includes(ownerOf[k]) || !T.includes(MV[k]) || MV[k] === ownerOf[k]) delete MV[k]; };
   clean();
-  const sum = (ks) => ks.reduce((x, k) => x + (info(k).value || 0), 0);
+  const getsOf = (t, mv = MV) => Object.keys(mv).filter((k) => mv[k] === t);
+  const sendsOf = (t, mv = MV) => Object.keys(mv).filter((k) => ownerOf[k] === t);
+  // one asset on a metric (KTC raw; the adjustment is applied to whole packages)
+  const mval = (k, m = metric) => { const x = info(k); return m === "faab" ? x.value || 0 : m === "ktc" ? x.ktc || 0 : m === "proj" ? x.rate || 0 : m === "ros" ? (x.rate || 0) * weeksLeft : x.ppg || 0; };
+  // a team's side of the deal on a metric: what it gets, what it sends, net (KTC: KTC's adjusted totals)
+  const side = (t, mv = MV, m = metric) => {
+    const g = getsOf(t, mv), s = sendsOf(t, mv);
+    if (m === "ktc") { const r = ktcTrade(g.map((k) => mval(k, m)).filter((v) => v > 0), s.map((k) => mval(k, m)).filter((v) => v > 0), KTOP); return { gets: r.t1, sends: r.t2, net: r.t1 - r.t2, adj: r }; }
+    const gv = g.reduce((a, k) => a + mval(k, m), 0), sv = s.reduce((a, k) => a + mval(k, m), 0);
+    return { gets: gv, sends: sv, net: gv - sv };
+  };
+  // even = within 5% of the bigger side (KTC's own variance), with a small floor
+  const evenTol = (a, b, m = metric) => Math.max(m === "faab" ? 25 : m === "ktc" ? 150 : 0.5, 0.05 * Math.max(Math.abs(a), Math.abs(b)));
   const fits = { QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], FLEX: ["RB", "WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"], REC_FLEX: ["WR", "TE"], WRRB_FLEX: ["RB", "WR"] };
   const slots = (LW.roster_positions || []).filter((s) => fits[s]).sort((a, b) => fits[a].length - fits[b].length);
   // the best lineup by projected points a week (forecast rate blended with this season), taxi and IR left out
   const weekly = (pids, t) => {
     const no = blocked(t);
     const pool = pids.filter((p) => !no.has(p)).map((p) => ({ pos: (board[p] || {}).pos || (nfl[p] || [])[1], r: LW.rates[p] ?? 0 })).sort((x, y) => y.r - x.r), used = new Set();
-    let m = 0;
-    for (const sl of slots) { const i = pool.findIndex((x, j) => !used.has(j) && fits[sl].includes(x.pos)); if (i >= 0) { used.add(i); m += pool[i].r; } }
-    return m;
+    let m = 0, filled = 0;
+    for (const sl of slots) { const i = pool.findIndex((x, j) => !used.has(j) && fits[sl].includes(x.pos)); if (i >= 0) { used.add(i); m += pool[i].r; filled++; } }
+    return { pts: m, filled };
   };
-  // every team's roster value (players + picks), to rank before and after
-  const teamValue = (t, give = [], get = []) => {
-    const ks = assetsOf(t).filter((k) => !give.includes(k)).concat(get);
+  const teamValue = (t, mv = MV) => {
+    const give = new Set(sendsOf(t, mv)), ks = assetsOf(t).filter((k) => !give.has(k)).concat(getsOf(t, mv));
     const by = { QB: 0, RB: 0, WR: 0, TE: 0 };
     let total = 0, picks = 0;
     for (const k of ks) { const x = info(k); total += x.value || 0; if (x.pick) picks += x.value || 0; else if (x.pos in by) by[x.pos] += x.value || 0; }
-    return { total, picks, by, ks, n: ks.filter((k) => k[0] === "p").length, wk: weekly(ks.filter((k) => k[0] === "p").map((k) => k.slice(1)), t) };
+    const pl = ks.filter((k) => k[0] === "p"), w = weekly(pl.map((k) => k.slice(1)), t), no = blocked(t);
+    return { total, picks, by, ks, n: pl.length, active: pl.filter((k) => !no.has(k.slice(1))).length, wk: w.pts, filled: w.filled };
   };
-  const sync = () => setQuery({ a: A, b: Bt, sa: SA.join(","), sb: SB.join(",") });
-  const row = (x, side, inDeal) => `<button class="asset${inDeal ? " in" : ""}" data-side="${side}" data-k="${esc(x.k)}" title="${inDeal ? "Take out of the deal" : "Add to the deal"}">
+  const ROSTER_MAX = live && live.league && Array.isArray(live.league.roster_positions) ? live.league.roster_positions.length : null;
+  const sync = () => {
+    const o = { m: metric };
+    if (T.length === 2) { o.a = T[0]; o.b = T[1]; o.sa = sendsOf(T[0]).join(","); o.sb = sendsOf(T[1]).join(","); }
+    else { o.t = T.join(","); o.mv = Object.entries(MV).map(([k, to]) => `${k}>${to}`).join(","); }
+    setQuery(o);
+  };
+  const M = () => CALC_METRICS[metric];
+  const row = (x, ti, inDeal) => {
+    const t = T[ti], others = T.filter((u) => u !== t), to = MV[x.k];
+    const dest = inDeal && T.length > 2 ? `<select class="dest" data-dest="${esc(x.k)}" aria-label="Send ${esc(x.name)} to">${others.map((u) => `<option ${u === to ? "selected" : ""}>${esc(u)}</option>`).join("")}</select>` : "";
+    return `<div class="asset${inDeal ? " in" : ""}"><button class="arow" data-ti="${ti}" data-k="${esc(x.k)}" title="${inDeal ? "Take out of the deal" : "Add to the deal"}">
       <span class="ai">${inDeal ? "✕" : "+"}</span>${posBadge(x.pos)} <span class="an">${esc(x.name)}${x.inj ? ` <span class="chip bad">${esc(x.inj)}</span>` : ""}</span>
-      <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span>${x.ktc != null ? `<span class="ktcv" title="KTC superflex value">${Math.round(x.ktc).toLocaleString()}</span>` : ""}<b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>`;
-  const filt = { a: "", b: "" };
-  function sideHtml(side) {
-    const t = side === "a" ? A : Bt, other = side === "a" ? Bt : A, sends = side === "a" ? SA : SB;
-    return `<div class="card nocv calcside"><div class="chead"><h2>${avatar(t, "")}<select data-team="${side}" aria-label="Team ${side.toUpperCase()}">${teams.map((x) => `<option ${x === t ? "selected" : ""} ${x === other ? "disabled" : ""}>${esc(x)}</option>`).join("")}</select></h2><span class="muted small">sends</span></div>
-      <div class="sends">${sends.map((k) => row(info(k), side, true)).join("") || `<p class="muted small" style="margin:6px 0">Nothing yet — add players or picks below.</p>`}</div>
-      <p class="small" style="text-align:right;margin:4px 0 10px">Sends <b>${money(sum(sends))}</b></p>
-      <input class="f" data-filter="${side}" type="search" placeholder="Find a player or pick on ${esc(t)}" value="${esc(filt[side])}" aria-label="Find a player or pick" style="width:100%">
-      <div class="pool" data-pool="${side}"></div></div>`;
+      <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span>
+      ${metric !== "faab" && metric !== "ktc" ? `<span class="ktcv" title="${esc(M().name)}">${M().fmt(mval(x.k))}</span>` : ""}${x.ktc != null ? `<span class="ktcv" title="KTC superflex value">${Math.round(x.ktc).toLocaleString()}</span>` : ""}<b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>${dest}</div>`;
+  };
+  const filt = {}, sendTo = {};
+  function cardHtml(ti) {
+    const t = T[ti], sends = sendsOf(t), gets = getsOf(t), others = T.filter((u) => u !== t);
+    const s = side(t), x = M();
+    return `<div class="card nocv calcside"><div class="chead"><h2>${avatar(t)}<select data-team="${ti}" aria-label="Team ${ti + 1}">${teams.map((u) => `<option ${u === t ? "selected" : ""} ${u !== t && T.includes(u) ? "disabled" : ""}>${esc(u)}</option>`).join("")}</select></h2>
+        ${T.length > 2 ? `<button class="b sm ghost" data-drop="${ti}" title="Take ${esc(t)} out of the deal">✕</button>` : ""}</div>
+      ${gets.length ? `<div class="gl">Gets</div><div class="gets">${gets.map((k) => { const y = info(k); return `<div class="small">${posBadge(y.pos)} ${esc(y.name)} <span class="muted">from ${esc(ownerOf[k])}</span></div>`; }).join("")}</div>` : ""}
+      <div class="gl">Sends</div><div class="sends">${sends.map((k) => row(info(k), ti, true)).join("") || `<p class="muted small" style="margin:6px 0">Nothing yet — add players or picks below.</p>`}</div>
+      <p class="small" style="text-align:right;margin:4px 0 10px">${x.short}: gets <b>${x.fmt(s.gets)}</b> · sends <b>${x.fmt(s.sends)}</b> · net <b class="${s.net > 0 ? "pos" : s.net < 0 ? "neg" : ""}">${s.net > 0 ? "+" : s.net < 0 ? "−" : ""}${x.fmt(Math.abs(s.net))}</b></p>
+      ${T.length > 2 ? `<label class="small muted">New picks go to <select data-sendto="${ti}">${others.map((u) => `<option ${u === (sendTo[t] || others[0]) ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></label>` : ""}
+      <input class="f" data-filter="${ti}" type="search" placeholder="Find a player or pick on ${esc(t)}" value="${esc(filt[t] || "")}" aria-label="Find a player or pick" style="width:100%;margin-top:6px">
+      <div class="pool" data-pool="${ti}"></div></div>`;
   }
-  function poolHtml(side) {
-    const t = side === "a" ? A : Bt, sends = side === "a" ? SA : SB, q = filt[side].toLowerCase();
-    const xs = assetsOf(t).filter((k) => !sends.includes(k)).map(info).filter((x) => !q || x.name.toLowerCase().includes(q) || x.pos.toLowerCase() === q)
-      .sort((x, y) => (y.value || 0) - (x.value || 0));
-    return xs.map((x) => row(x, side, false)).join("") || `<p class="muted small">Nothing matches.</p>`;
+  function poolHtml(ti) {
+    const t = T[ti], q = (filt[t] || "").toLowerCase();
+    const xs = assetsOf(t).filter((k) => !(k in MV)).map(info).filter((x) => !q || x.name.toLowerCase().includes(q) || x.pos.toLowerCase() === q)
+      .sort((x, y) => mval(y.k) - mval(x.k) || (y.value || 0) - (x.value || 0));
+    return xs.map((x) => row(x, ti, false)).join("") || `<p class="muted small">Nothing matches.</p>`;
   }
-  // the deal through every lens the site has: each row = what each team receives
-  function lensesHtml(before, after) {
-    const getA = SB.map(info), getB = SA.map(info);
-    const tot = (xs, f) => { let s = 0, n = 0; for (const x of xs) { const v = f(x); if (typeof v === "number" && isFinite(v)) { s += v; n++; } } return { s, n, all: n === xs.length }; };
-    const wAge = (xs) => { const ps = xs.filter((x) => !x.pick && typeof x.age === "number"); const w = ps.reduce((a, x) => a + Math.max(1, x.value || 0), 0); return ps.length ? ps.reduce((a, x) => a + x.age * Math.max(1, x.value || 0), 0) / w : null; };
-    const rows = [];
-    const add = (lab, why, a, b, f, low) => {
-      const has = typeof a === "number" && typeof b === "number";
-      const edge = !has || Math.abs(a - b) < 1e-9 ? '<span class="muted">even</span>'
-        : `<span class="chip ${((a > b) !== !!low) ? "acc" : "gold"}">${esc((a > b) !== !!low ? A : Bt)} +${stripHtml(f(Math.abs(a - b)))}</span>`;
-      rows.push(`<tr><td class="l"><b>${lab}</b><div class="muted small">${why}</div></td><td>${typeof a === "number" ? f(a) : "—"}</td><td>${typeof b === "number" ? f(b) : "—"}</td><td class="l">${edge}</td></tr>`);
-    };
-    const n0 = (v) => Math.round(v).toLocaleString(), p1 = (v) => fmt({ d: 1 }, v);
-    add("FAAB value", `the league's stats-only board, ${esc(B.as_of)}`, tot(getA, (x) => x.value).s, tot(getB, (x) => x.value).s, money);
-    if (KT) {
-      const ka = tot(getA, (x) => x.ktc), kb = tot(getB, (x) => x.ktc);
-      add("KTC value", `KeepTradeCut superflex, ${esc(KT.as_of)}${ka.all && kb.all ? "" : " · some assets not on KTC"}`, ka.s, kb.s, n0);
-      const ta = tot(getA, (x) => x.ktc != null && x.ktcAgo != null ? x.ktc - x.ktcAgo : null), tb = tot(getB, (x) => x.ktc != null && x.ktcAgo != null ? x.ktc - x.ktcAgo : null);
-      add("KTC trend", "change in KTC value over the last month (rising assets score higher)", ta.s, tb.s, (v) => (v >= 0 ? "" : "−") + n0(Math.abs(v)));
+  // the verdict on the chosen metric; two teams = KTC's own calculator view
+  function verdictHtml() {
+    const x = M();
+    if (T.length === 2) {
+      const [A, Bt] = T, sa = side(A), sb = side(Bt);
+      const getA = sa.gets, getB = sb.gets, gap = getA - getB;
+      const even = Math.abs(gap) <= evenTol(getA, getB);
+      const pctA = getA + getB ? 100 * getA / (getA + getB) : 50;
+      const winner = gap > 0 ? A : Bt, loser = gap > 0 ? Bt : A;
+      const ka = metric === "ktc" ? ktcTrade(getsOf(A).map((k) => mval(k)).filter((v) => v > 0), getsOf(Bt).map((k) => mval(k)).filter((v) => v > 0), KTOP) : null;
+      // KTC shows its adjustment only when a side has more than one piece (its totals carry it either way)
+      const adjNote = ka && ka.display && (getsOf(A).length > 1 || getsOf(Bt).length > 1) ? `<p class="muted small">KTC value adjustment: <b>+${Math.round(ka.value).toLocaleString()}</b> to ${esc(ka.side === 1 ? A : Bt)} — it gets the best piece (KTC adds this when a trade has more pieces on one side).</p>` : "";
+      return `<div class="meter" role="img" aria-label="${esc(A)} gets ${Math.round(pctA)}% of the value"><i style="width:${pctA.toFixed(1)}%;background:${teamColor(A)}"></i><i style="flex:1;background:${teamColor(Bt)}"></i><span style="left:50%"></span></div>
+        <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px"><span>${avatar(A)}<b>${esc(A)}</b> gets ${x.fmt(getA)}</span><span>${esc(Bt)} gets ${x.fmt(getB)} ${avatar(Bt)}</span></div>
+        <p class="verdict">${even ? `<b>About even</b> on ${esc(x.short)}.` : `<b>${esc(winner)}</b> comes out ${x.fmt(Math.abs(gap))} ahead on ${esc(x.short)}${metric === "faab" ? ` — ${esc(pickText(B, Math.abs(gap)))}` : ""}. ${metric === "ktc" ? `KTC would say: add a player worth ~${Math.round(Math.abs(gap)).toLocaleString()} to ${esc(loser)}.` : ""}`}</p>${adjNote}`;
     }
-    add("Projected points a week", "the forecast's rate for each player received, this season blended in", tot(getA, (x) => x.rate).s, tot(getB, (x) => x.rate).s, p1);
-    if (weeksLeft) add(`Rest of the regular season`, `projected points over the ${plural(weeksLeft, "week")} left`, tot(getA, (x) => x.rate).s * weeksLeft, tot(getB, (x) => x.rate).s * weeksLeft, p1);
-    if (SP) add(`${SP.season} points a week`, "what the players have scored a week this season while rostered in the league", tot(getA, (x) => x.ppg).s, tot(getB, (x) => x.ppg).s, p1);
-    if (slots.length) add("Starting lineup", "change in each team's best projected lineup a week (fills its holes, or doesn't)", after[A].wk - before[A].wk, after[Bt].wk - before[Bt].wk, (v) => (v >= 0 ? "+" : "−") + p1(Math.abs(v)));
-    add("Age", "value-weighted average age of the players received (younger wins)", wAge(getA), wAge(getB), (v) => fmt({ d: 1 }, v), true);
-    add("Picks", "FAAB value of the draft picks received", tot(getA.filter((x) => x.pick), (x) => x.value).s, tot(getB.filter((x) => x.pick), (x) => x.value).s, money);
-    return `<div class="card nocv"><h2>Every angle</h2><div class="scroll"><table class="lens"><thead><tr><th class="l nosort">What each team receives</th><th class="nosort">${teamLink(A)}</th><th class="nosort">${teamLink(Bt)}</th><th class="l nosort">Edge</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
-      <p class="muted small">Different scales can disagree: FAAB is this league's own model (no news), KTC is the dynasty market, points are this season's production. ${KT ? "" : "KTC values aren't in this build."}</p></div>`;
+    const rows = T.map((t) => ({ t, ...side(t) })).sort((p, q) => q.net - p.net);
+    const mx = Math.max(...rows.map((r) => Math.abs(r.net)), 1e-9);
+    return `<table class="rk"><tbody>${rows.map((r) => `<tr><td class="l">${teamLink(r.t)}</td><td class="small muted">gets ${x.fmt(r.gets)} · sends ${x.fmt(r.sends)}</td><td style="width:35%"><div class="bar-h"><i style="width:${(100 * Math.abs(r.net) / mx).toFixed(1)}%;${r.net < 0 ? "background:var(--bad)" : ""}"></i></div></td><td class="v ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : ""}">${r.net > 0 ? "+" : r.net < 0 ? "−" : ""}${x.fmt(Math.abs(r.net))}</td></tr>`).join("")}</tbody></table>
+      <p class="verdict">${Math.abs(rows[0].net) <= evenTol(rows[0].gets, rows[0].sends) && Math.abs(rows[rows.length - 1].net) <= evenTol(rows[rows.length - 1].gets, rows[rows.length - 1].sends) ? "<b>About even</b> for everyone" : `<b>${esc(rows[0].t)}</b> comes out furthest ahead; <b>${esc(rows[rows.length - 1].t)}</b> gives up the most`} on ${esc(x.short)}.</p>`;
   }
-  // title / final / playoff odds before and after, from the Predictions page's simulation
+  // even it up: one more asset from the team that comes out ahead (two teams)
+  function fixHtml() {
+    if (T.length !== 2) return "";
+    const [A, Bt] = T, sa = side(A), sb = side(Bt), gap = sa.gets - sb.gets;
+    if (Math.abs(gap) <= evenTol(sa.gets, sb.gets)) return "";
+    const giver = gap > 0 ? A : Bt, to = giver === A ? Bt : A, gi = T.indexOf(giver);
+    const opts = assetsOf(giver).filter((k) => !(k in MV) && mval(k) > 0).map((k) => {
+      const mv = { ...MV, [k]: to }, a = side(A, mv), b = side(Bt, mv);
+      return [Math.abs(a.gets - b.gets), k];
+    }).sort((p, q) => p[0] - q[0]).slice(0, 5);
+    return opts.length ? `<h3>To even it up, ${esc(giver)} could add</h3><div class="pool short">${opts.map(([, k]) => row(info(k), gi, false)).join("")}</div><p class="muted small">The ${esc(giver)} assets that leave the smallest gap on ${esc(M().short)}. Or take something out of what ${esc(to)} sends.</p>` : "";
+  }
+  // a third team that evens it up: the team ahead sends one more asset to it, and it sends
+  // one to the team behind; ranked by the largest net left for any of the three teams
+  function thirdHtml() {
+    if (T.length !== 2 || T.length >= 4) return "";
+    const [A, Bt] = T, sa = side(A), sb = side(Bt), gap = sa.gets - sb.gets;
+    if (Math.abs(gap) <= evenTol(sa.gets, sb.gets)) return "";
+    const W = gap > 0 ? A : Bt, L = W === A ? Bt : A;
+    const top = (t, n) => assetsOf(t).filter((k) => !(k in MV) && mval(k) > 0).sort((p, q) => mval(q) - mval(p)).slice(0, n);
+    const wx = top(W, 30), ideas = [];
+    for (const C of teams.filter((t) => !T.includes(t))) {
+      let best = null;
+      for (const X of wx) for (const Y of top(C, 30)) {
+        const mv = { ...MV, [X]: C, [Y]: L };
+        const nets = [W, L, C].map((t) => side(t, mv).net);
+        const score = Math.max(...nets.map(Math.abs));
+        if (!best || score < best.score) best = { C, X, Y, score, nets };
+      }
+      if (best) ideas.push(best);
+    }
+    ideas.sort((p, q) => p.score - q.score);
+    const now = Math.max(Math.abs(side(W).net), Math.abs(side(L).net));
+    const good = ideas.filter((i) => i.score < now).slice(0, 4);
+    if (!good.length) return "";
+    return `<h3>Or bring in a third team</h3><div class="ideas">${good.map((i) => { const x = info(i.X), y = info(i.Y); return `<div class="idea"><div>${avatar(i.C)}<b>${esc(i.C)}</b> joins: ${esc(W)} sends ${posBadge(x.pos)} ${esc(x.name)} to ${esc(i.C)}; ${esc(i.C)} sends ${posBadge(y.pos)} ${esc(y.name)} to ${esc(L)}.</div>
+      <div class="muted small">Nets on ${esc(M().short)} after: ${[W, L, i.C].map((t, j) => `${esc(t)} ${i.nets[j] >= 0 ? "+" : "−"}${M().fmt(Math.abs(i.nets[j]))}`).join(" · ")}</div><button class="b sm" data-third="${esc(JSON.stringify([i.C, i.X, i.Y, L]))}">Add ${esc(i.C)} to the deal</button></div>`; }).join("")}</div>
+      <p class="muted small">Each idea moves one asset from ${esc(W)} to the new team and one from it to ${esc(L)}, picked so no one's net on ${esc(M().short)} is far from even.</p>`;
+  }
+  function checksHtml(after) {
+    const notes = [];
+    for (const t of T) {
+      if (!sendsOf(t).length && !getsOf(t).length) notes.push(`${esc(t)} isn't sending or getting anything yet.`);
+      const a = after[t];
+      if (ROSTER_MAX && a.active > ROSTER_MAX) notes.push(`${esc(t)} would have ${a.active} players on its active roster, ${a.active - ROSTER_MAX} over the ${ROSTER_MAX}-spot limit: it would need to cut or move ${a.active - ROSTER_MAX === 1 ? "someone" : "players"} to taxi or IR.`);
+      if (slots.length && a.filled < slots.length) notes.push(`${esc(t)} couldn't fill ${slots.length - a.filled} starting spot${slots.length - a.filled > 1 ? "s" : ""} afterwards.`);
+    }
+    return notes.length ? `<div class="note">${notes.map((n) => `<div>⚠️ ${n}</div>`).join("")}</div>` : `<p class="small pos">✓ Every team is in the deal, under the roster limit${ROSTER_MAX ? ` (${ROSTER_MAX} active spots)` : ""}, and can still fill its lineup.</p>`;
+  }
+  // every lens, as each team's net (what it gets minus what it sends)
+  function lensesHtml(before, after) {
+    const rows = [], cell = (v, f) => typeof v === "number" && isFinite(v) ? `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : v < 0 ? "−" : ""}${f(Math.abs(v))}</span>` : "—";
+    const add = (lab, why, f, fn, low) => {
+      const vs = T.map(fn), ok = vs.filter((v) => typeof v === "number" && isFinite(v));
+      const bestV = ok.length ? (low ? Math.min(...ok) : Math.max(...ok)) : null;
+      const lead = bestV != null && ok.filter((v) => v === bestV).length === 1 && Math.max(...ok) !== Math.min(...ok) ? T[vs.indexOf(bestV)] : null;
+      rows.push(`<tr class="${metricKey(lab) === metric ? "me" : ""}"><td class="l"><b>${lab}</b><div class="muted small">${why}</div></td>${vs.map((v) => `<td>${low ? (typeof v === "number" ? fmt({ d: 1 }, v) : "—") : cell(v, f)}</td>`).join("")}<td class="l">${lead ? `<span class="chip acc">${esc(lead)}</span>` : '<span class="muted">even</span>'}</td></tr>`);
+    };
+    const metricKey = (lab) => ({ "FAAB value": "faab", "KTC value": "ktc", "Projected points a week": "proj", "Rest of the regular season": "ros" })[lab] || (lab.endsWith("points a week") && lab !== "Projected points a week" ? "ppg" : "");
+    add("FAAB value", `the league's stats-only board, ${esc(B.as_of)}`, money, (t) => side(t, MV, "faab").net);
+    if (KT) {
+      add("KTC value", `KeepTradeCut superflex, ${esc(KT.as_of)}, with KTC's value adjustment`, (v) => Math.round(v).toLocaleString(), (t) => side(t, MV, "ktc").net);
+      add("KTC trend", "month change in KTC value of what it gets, minus what it sends", (v) => Math.round(v).toLocaleString(), (t) => getsOf(t).concat(sendsOf(t)).reduce((a, k) => { const x = info(k); if (x.ktc == null || x.ktcAgo == null) return a; return a + (MV[k] === t ? 1 : -1) * (x.ktc - x.ktcAgo); }, 0));
+    }
+    add("Projected points a week", "the forecast's rate for each player, this season blended in", (v) => fmt({ d: 1 }, v), (t) => side(t, MV, "proj").net);
+    if (weeksLeft) add("Rest of the regular season", `projected points over the ${plural(weeksLeft, "week")} left`, (v) => fmt({ d: 1 }, v), (t) => side(t, MV, "ros").net);
+    if (SP) add(`${SP.season} points a week`, "what the players have scored a week this season while rostered in the league", (v) => fmt({ d: 1 }, v), (t) => side(t, MV, "ppg").net);
+    if (slots.length) add("Starting lineup", "change in the best projected lineup a week (fills its holes, or doesn't)", (v) => fmt({ d: 1 }, v), (t) => after[t].wk - before[t].wk);
+    add("Age of players received", "value-weighted average age (younger wins)", null, (t) => { const ps = getsOf(t).map(info).filter((x) => !x.pick && typeof x.age === "number"); const w = ps.reduce((a, x) => a + Math.max(1, x.value || 0), 0); return ps.length ? ps.reduce((a, x) => a + x.age * Math.max(1, x.value || 0), 0) / w : null; }, true);
+    add("Picks", "FAAB value of draft picks received minus sent", money, (t) => getsOf(t).concat(sendsOf(t)).reduce((a, k) => { const x = info(k); return x.pick ? a + (MV[k] === t ? 1 : -1) * (x.value || 0) : a; }, 0));
+    return `<div class="card nocv"><h2>Every angle</h2><div class="scroll"><table class="lens"><thead><tr><th class="l nosort">Net for each team (gets − sends)</th>${T.map((t) => `<th class="nosort">${teamLink(t)}</th>`).join("")}<th class="l nosort">Ahead</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
+      <p class="muted small">The highlighted row drives the verdict and the suggestions (change it above). Different scales can disagree: FAAB is this league's own model (no news), KTC is the dynasty market, points are production.${KT ? "" : " KTC values aren't in this build."}</p></div>`;
+  }
+  // season odds before and after, from the Predictions page's simulation
   let oddsState = { key: "", html: "" };
-  const playerMoves = () => SA.filter((k) => k[0] === "p").map((k) => ({ pid: k.slice(1), to: Bt })).concat(SB.filter((k) => k[0] === "p").map((k) => ({ pid: k.slice(1), to: A })));
+  const playerMoves = () => Object.entries(MV).filter(([k]) => k[0] === "p").map(([k, to]) => ({ pid: k.slice(1), to }));
   function oddsHtml() {
     const key = JSON.stringify(playerMoves());
     if (oddsState.key === key && oddsState.html) return oddsState.html;
@@ -2672,87 +2862,80 @@ async function calc(_a, query, live) {
       E.setMoves([]);
       const pc = (x) => x == null ? "—" : (100 * x).toFixed(1) + "%";
       const dl = (x) => { const v = Math.round(1000 * x) / 10; return v ? `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : ""}${v.toFixed(1)}</span>` : '<span class="muted">±0</span>'; };
-      const rowFor = (t) => { const a = b.tally[t], z = res.tally[t]; return `<tr class="${t === A || t === Bt ? "" : "muted"}"><td class="l">${teamLink(t)}</td>${["playoffs", "final", "title"].map((k) => `<td>${pc(a[k] / b.n)} → <b>${pc(z[k] / N)}</b> ${dl(z[k] / N - a[k] / b.n)}</td>`).join("")}<td>${fmt({ d: 1 }, a.wins / b.n)} → <b>${fmt({ d: 1 }, z.wins / N)}</b></td></tr>`; };
-      const others = E.teams.filter((t) => t !== A && t !== Bt).sort((x, y) => Math.abs(res.tally[y].title / N - b.tally[y].title / b.n) - Math.abs(res.tally[x].title / N - b.tally[x].title / b.n));
-      oddsState = { key, html: `<h2>Season odds</h2><div class="scroll"><table><thead><tr><th class="l nosort">Team</th><th class="nosort">Playoffs</th><th class="nosort">Final</th><th class="nosort">Title</th><th class="nosort">Proj. wins</th></tr></thead><tbody>${rowFor(A)}${rowFor(Bt)}</tbody></table></div>
-        <details><summary class="small">Everyone else</summary><div class="scroll"><table><tbody>${others.map(rowFor).join("")}</tbody></table></div></details>
+      const rowFor = (t) => { const a = b.tally[t], z = res.tally[t]; return `<tr class="${T.includes(t) ? "" : "muted"}"><td class="l">${teamLink(t)}</td>${["playoffs", "final", "title"].map((k) => `<td>${pc(a[k] / b.n)} → <b>${pc(z[k] / N)}</b> ${dl(z[k] / N - a[k] / b.n)}</td>`).join("")}<td>${fmt({ d: 1 }, a.wins / b.n)} → <b>${fmt({ d: 1 }, z.wins / N)}</b></td></tr>`; };
+      const others = E.teams.filter((t) => !T.includes(t)).sort((x, y) => Math.abs(res.tally[y].title / N - b.tally[y].title / b.n) - Math.abs(res.tally[x].title / N - b.tally[x].title / b.n));
+      oddsState = { key, html: `<h2>Season odds</h2><div class="scroll"><table><thead><tr><th class="l nosort">Team</th><th class="nosort">Playoffs</th><th class="nosort">Final</th><th class="nosort">Title</th><th class="nosort">Proj. wins</th></tr></thead><tbody>${T.map(rowFor).join("")}</tbody></table></div>
+        ${others.length ? `<details><summary class="small">Everyone else</summary><div class="scroll"><table><tbody>${others.map(rowFor).join("")}</tbody></table></div></details>` : ""}
         <p class="muted small">${E.FULL ? `The home page's ${N.toLocaleString()} forecast seasons replayed with the players moved` : `${N.toLocaleString()} simulated seasons`} (the Predictions page's model: each team's best fielded lineup, injuries and the league's playoff rules). Small moves are noise. <a href="#/predict?mv=${encodeURIComponent(mv.map((m) => m.pid + ">" + m.to).join(","))}">Open in Predictions →</a></p>` };
     } catch (e) {
       oddsState = { key, html: `<h2>Season odds</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}.</p>` };
     }
     const el = $("#calcodds"); if (el && JSON.stringify(playerMoves()) === key) { el.innerHTML = oddsState.html; refreshAvatars(); }
   }, 350);
-
   function resultHtml() {
-    if (!SA.length && !SB.length) return `<div class="card empty"><div class="big">⚖️</div><p>Add what each team sends. Values are the league's FAAB board of ${esc(B.as_of)}; picks use the FAAB system's pick prices.</p></div>`;
-    const getA = sum(SB), getB = sum(SA), gap = getA - getB, big = Math.max(getA, getB, 1);
-    const even = Math.abs(gap) <= Math.max(25, big * 0.05);
-    const winner = gap > 0 ? A : Bt, loser = gap > 0 ? Bt : A;
-    const before = Object.fromEntries(teams.map((t) => [t, teamValue(t)]));
-    const after = { ...before, [A]: teamValue(A, SA, SB), [Bt]: teamValue(Bt, SB, SA) };
+    if (!Object.keys(MV).length) return `<div class="card empty"><div class="big">⚖️</div><p>Add what each team sends. The verdict and suggestions use ${esc(M().name)}; change it above.</p></div>`;
+    const before = Object.fromEntries(teams.map((t) => [t, teamValue(t, {})]));
+    const after = { ...before }; for (const t of T) after[t] = teamValue(t);
     const rank = (tbl, t) => 1 + teams.filter((u) => tbl[u].total > tbl[t].total).length;
-    const d = (x, f = money, keep) => { const v = Math.round(x * 10) / 10; return v ? `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : "−"}${f(Math.abs(v))}</span>` : (keep ? '<span class="muted">±0</span>' : ""); };
+    const d = (x, f = money) => { const v = Math.round(x * 10) / 10; return v ? `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : "−"}${f(Math.abs(v))}</span>` : ""; };
     const pts = (v) => fmt({ d: 1 }, v);
-    const line = (lab, f, fmtv, dv) => `<tr><td class="l">${lab}</td>${[A, Bt].map((t) => `<td>${fmtv(f(before[t], t))} → <b>${fmtv(f(after[t], t))}</b> ${dv(f(after[t], t) - f(before[t], t))}</td>`).join("")}</tr>`;
-    // what would even it up: the team getting more sends one more asset near the gap
-    let fix = "";
-    if (!even) {
-      // the team that comes out ahead sends one more asset near the gap
-      const giver = gap > 0 ? A : Bt, sends = gap > 0 ? SA : SB, need = Math.abs(gap);
-      const opts = assetsOf(giver).filter((k) => !sends.includes(k)).map(info).filter((x) => x.value > 0)
-        .sort((x, y) => Math.abs(x.value - need) - Math.abs(y.value - need)).slice(0, 5);
-      const side = giver === A ? "a" : "b";
-      fix = opts.length ? `<h3>To even it up, ${esc(giver)} could add</h3><div class="pool short">${opts.map((x) => row(x, side, false)).join("")}</div><p class="muted small">The ${esc(giver)} assets closest to the ${money(need)} gap. Or take something out of what ${esc(giver === A ? Bt : A)} sends.</p>` : "";
-    }
-    const mv = SA.filter((k) => k[0] === "p").map((k) => `${k.slice(1)}>${Bt}`).concat(SB.filter((k) => k[0] === "p").map((k) => `${k.slice(1)}>${A}`));
-    const pctA = getA + getB ? 100 * getA / (getA + getB) : 50;
-    return `<div class="card nocv"><h2>Verdict</h2>
-      <div class="meter" role="img" aria-label="${esc(A)} gets ${Math.round(pctA)}% of the value"><i style="width:${pctA.toFixed(1)}%;background:${teamColor(A)}"></i><i style="flex:1;background:${teamColor(Bt)}"></i><span style="left:50%"></span></div>
-      <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px"><span>${avatar(A)}<b>${esc(A)}</b> gets ${money(getA)}</span><span>${esc(Bt)} gets ${money(getB)} ${avatar(Bt)}</span></div>
-      <p class="verdict">${even ? `<b>About even</b> — within ${money(Math.max(25, big * 0.05))}.` : `<b>${esc(winner)}</b> comes out ${money(Math.abs(gap))} ahead — ${esc(pickText(B, Math.abs(gap)))}. ${esc(loser)} gives up ${Math.round(100 * Math.abs(gap) / big)}% more than it gets.`}</p>
-      ${fix}</div>
+    const line = (lab, f, fmtv, dv) => `<tr><td class="l">${lab}</td>${T.map((t) => `<td>${fmtv(f(before[t], t, before))} → <b>${fmtv(f(after[t], t, after))}</b> ${dv(f(after[t], t, after) - f(before[t], t, before))}</td>`).join("")}</tr>`;
+    const mv = playerMoves().map((m) => `${m.pid}>${m.to}`);
+    return `<div class="card nocv"><h2>Verdict <span class="muted small" style="font-weight:500">on ${esc(M().name)}</span></h2>${verdictHtml()}${checksHtml(after)}${fixHtml()}${thirdHtml()}</div>
       ${lensesHtml(before, after)}
       <div class="card nocv" id="calcodds">${oddsHtml()}</div>
-      <div class="card nocv"><h2>Before → after</h2><div class="scroll"><table><thead><tr><th class="l nosort"></th><th class="nosort">${teamLink(A)}</th><th class="nosort">${teamLink(Bt)}</th></tr></thead><tbody>
+      <div class="card nocv"><h2>Before → after</h2><div class="scroll"><table><thead><tr><th class="l nosort"></th>${T.map((t) => `<th class="nosort">${teamLink(t)}</th>`).join("")}</tr></thead><tbody>
         ${line("Roster value", (x) => x.total, money, (v) => d(v))}
-        ${line("Value rank", (x, t) => rank(before[t] === x ? before : after, t), (v) => ordinal(v), (v) => v ? `<span class="${v < 0 ? "pos" : "neg"}">${v < 0 ? "▲" : "▼"}${Math.abs(v)}</span>` : "")}
+        ${line("Value rank", (x, t, tbl) => rank(tbl, t), (v) => ordinal(v), (v) => v ? `<span class="${v < 0 ? "pos" : "neg"}">${v < 0 ? "▲" : "▼"}${Math.abs(v)}</span>` : "")}
         ${["QB", "RB", "WR", "TE"].map((p) => line(`${posBadge(p)} value`, (x) => x.by[p], money, (v) => d(v))).join("")}
         ${line("Picks value", (x) => x.picks, money, (v) => d(v))}
         ${slots.length ? line("Proj. points a week", (x) => x.wk, pts, (v) => d(v, (z) => pts(z))) : ""}
-        ${line("Players on roster", (x) => x.n, (v) => String(v), (v) => v ? `<span class="muted">${v > 0 ? "+" : ""}${v}</span>` : "")}
+        ${line("Active roster", (x) => x.active, (v) => String(v), (v) => v ? `<span class="muted">${v > 0 ? "+" : ""}${v}</span>` : "")}
       </tbody></table></div>
-      <p class="muted small">Values: the stats-only FAAB board of ${esc(B.as_of)} (league trades, cuts and calls; no news). Picks: next year's by the original team's projected slot, later years at the round average. Proj. points a week: the best lineup from the forecast's player rates (this season blended in), taxi and IR left out. Ownership is ${live ? "Sleeper's right now" : "the last build's (Sleeper didn't answer)"}. Roster limits aren't checked.</p>
-      <p>${mv.length ? `<a class="btn" href="#/predict?mv=${encodeURIComponent(mv.join(","))}">Title odds with this trade →</a> ` : ""}<button class="b" id="cswap">⇄ Swap sides</button> <button class="b" id="cclear">Clear</button> ${shareBtn()}</p></div>`;
+      <p class="muted small">Values: the stats-only FAAB board of ${esc(B.as_of)} (league trades, cuts and calls; no news). Picks: next year's by the original team's projected slot, later years at the round average. Proj. points a week: the best lineup from the forecast's player rates (this season blended in), taxi and IR left out. Ownership is ${live ? "Sleeper's right now" : "the last build's (Sleeper didn't answer)"}.</p>
+      <p>${mv.length ? `<a class="btn" href="#/predict?mv=${encodeURIComponent(mv.join(","))}">Title odds with this trade →</a> ` : ""}${T.length === 2 ? '<button class="b" id="cswap">⇄ Swap sides</button> ' : ""}<button class="b" id="cclear">Clear</button> ${shareBtn()}</p></div>`;
   }
   function draw() {
-    sync();
-    $("#calcsides").innerHTML = sideHtml("a") + sideHtml("b");
-    $$("[data-pool]").forEach((el) => (el.innerHTML = poolHtml(el.dataset.pool)));
+    clean(); sync();
+    $("#calcsides").innerHTML = T.map((_, i) => cardHtml(i)).join("") + (T.length < 4 ? `<div class="card nocv calcadd"><button class="b" id="cadd">+ Add a team</button><p class="muted small">Three- and four-team trades: each asset goes to the team you pick.</p></div>` : "");
+    $$("[data-pool]").forEach((el) => (el.innerHTML = poolHtml(+el.dataset.pool)));
     $("#calcres").innerHTML = resultHtml();
+    $("#cmetric").value = metric;
     refreshAvatars();
     runOdds();
-    const sw = $("#cswap"); if (sw) sw.onclick = () => { [A, Bt] = [Bt, A]; [SA, SB] = [SB, SA]; draw(); };
-    const cl = $("#cclear"); if (cl) cl.onclick = () => { SA = []; SB = []; draw(); };
   }
-  $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick two teams and tap what each sends: see it in FAAB value, KTC, points and title odds ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
+  $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick the teams and tap what each sends ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
+    <div class="controls"><label class="small muted" for="cmetric">Verdict and suggestions use</label><select id="cmetric">${Object.entries(CALC_METRICS).filter(([k]) => k !== "ktc" || KT).filter(([k]) => k !== "ppg" || SP).filter(([k]) => k !== "ros" || weeksLeft).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("")}</select></div>
     <div id="calc"><div class="grid2" id="calcsides"></div><div id="calcres"></div></div>`;
   const root = $("#calc");
-  // one listener for both sides: add / remove assets, switch teams, filter
+  $("#cmetric").onchange = (e) => { metric = e.target.value; prefs.set("lotg:calcmetric", metric); draw(); };
   root.addEventListener("click", (e) => {
-    const b = e.target.closest("button.asset"); if (!b) return;
-    const k = b.dataset.k, side = b.dataset.side, list = side === "a" ? SA : SB;
-    if (list.includes(k)) list.splice(list.indexOf(k), 1); else list.push(k);
-    draw();
+    const b = e.target.closest("button.arow");
+    if (b) {
+      const k = b.dataset.k, t = T[+b.dataset.ti];
+      if (k in MV) delete MV[k]; else { const others = T.filter((u) => u !== t); MV[k] = T.length === 2 ? others[0] : (sendTo[t] && others.includes(sendTo[t]) ? sendTo[t] : others[0]); }
+      draw(); return;
+    }
+    const th = e.target.closest("[data-third]");
+    if (th) { const [C, X, Y, L] = JSON.parse(th.dataset.third); T.push(C); MV[X] = C; MV[Y] = L; draw(); toast(`${C} added to the deal`); return; }
+    const dr = e.target.closest("[data-drop]");
+    if (dr) { T.splice(+dr.dataset.drop, 1); draw(); return; }
+    if (e.target.closest("#cadd")) { const n = teams.find((t) => !T.includes(t)); if (n) { T.push(n); draw(); } return; }
+    if (e.target.closest("#cswap")) { T.reverse(); draw(); return; }
+    if (e.target.closest("#cclear")) { MV = {}; draw(); return; }
   });
   root.addEventListener("change", (e) => {
-    const s = e.target.closest("select[data-team]"); if (!s) return;
-    if (s.dataset.team === "a") { A = s.value; SA = []; } else { Bt = s.value; SB = []; }
-    draw();
+    const s = e.target.closest("select[data-team]");
+    if (s) { const i = +s.dataset.team, old = T[i]; T[i] = s.value; for (const k of Object.keys(MV)) if (ownerOf[k] === old || MV[k] === old) delete MV[k]; draw(); return; }
+    const d = e.target.closest("select[data-dest]");
+    if (d) { MV[d.dataset.dest] = d.value; draw(); return; }
+    const st = e.target.closest("select[data-sendto]");
+    if (st) { sendTo[T[+st.dataset.sendto]] = st.value; }
   });
   root.addEventListener("input", (e) => {
     const f = e.target.closest("input[data-filter]"); if (!f) return;
-    filt[f.dataset.filter] = f.value;
-    const el = $(`[data-pool="${f.dataset.filter}"]`); if (el) el.innerHTML = poolHtml(f.dataset.filter);
+    const t = T[+f.dataset.filter]; filt[t] = f.value;
+    const el = $(`[data-pool="${f.dataset.filter}"]`); if (el) el.innerHTML = poolHtml(+f.dataset.filter);
   });
   draw();
 }
@@ -2811,7 +2994,7 @@ async function compare(_a, query) {
     if (isT && H) {
       const c = H.cells[`${x.team}|${y.team}`];
       if (c) extra = `<div class="card"><h2>Head to head</h2><p><b style="font-size:22px">${c.w}-${c.l}</b> <span class="muted">${esc(x.team)}'s record against ${esc(y.team)} · points ${fmt({ d: 2 }, c.pf)} – ${fmt({ d: 2 }, c.pa)}</span></p>
-        <div class="strip">${(c.games || []).map(([yy, w, n, pf, pa, won]) => `<a class="${won ? "W" : "L"}" href="#/game/${yy}/${w}/${tslug(x.team)}" title="${yy} ${esc(n)}: ${stripHtml(fmt({ d: 2 }, pf))}–${stripHtml(fmt({ d: 2 }, pa))}">${won ? "W" : "L"}</a>`).join("")}</div>
+        <div class="strip">${(c.games || []).slice().sort((p, q) => p[0] - q[0] || p[1] - q[1]).map(([yy, w, n, pf, pa, won]) => `<a class="${won ? "W" : "L"}" href="#/game/${yy}/${w}/${tslug(x.team)}" title="${yy} ${esc(n)}: ${stripHtml(fmt({ d: 2 }, pf))}–${stripHtml(fmt({ d: 2 }, pa))}">${won ? "W" : "L"}</a>`).join("")}</div>
         <p class="small"><a href="#/h2h?a=${encodeURIComponent(x.team)}&b=${encodeURIComponent(y.team)}">Every meeting →</a></p></div>`;
     } else if (!isT) {
       const pts = (p) => { const t = p.seasons; if (!t || !t.rows) return {}; const yi = t.cols.indexOf("Year"), pi = t.cols.indexOf("Points"); return Object.fromEntries(t.rows.map((r) => [r[yi], r[pi]])); };

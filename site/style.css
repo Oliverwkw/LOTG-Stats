@@ -538,3 +538,17 @@ td.xbest a,td.xworst a{color:inherit}
 table.lens td{white-space:normal;vertical-align:top}
 table.lens td:first-child{min-width:210px}
 table.lens td .muted.small{font-weight:400;margin-top:2px}
+/* calculator v2: rows are a button + an optional destination picker */
+.asset{display:flex;align-items:stretch;gap:6px;padding:0;background:none;border:0;margin:4px 0}
+.asset .arow{display:flex;align-items:center;gap:8px;flex:1;min-width:0;text-align:left;font:inherit;font-size:14px;color:var(--ink);background:var(--bg2);border:1px solid transparent;border-radius:12px;padding:7px 10px;cursor:pointer;transition:background .12s,border-color .12s}
+.asset .arow:hover{border-color:var(--accent-line);background:color-mix(in srgb,var(--accent) 8%,var(--bg2))}
+.asset.in .arow{background:color-mix(in srgb,var(--accent) 12%,var(--card));border-color:var(--accent-line)}
+.asset.in .ai{background:var(--bad-soft);color:var(--bad)}
+.asset select.dest{border-radius:12px;font-size:13px;max-width:42%;min-height:auto}
+.asset:hover{border:0;background:none}
+.calcside .gl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:8px 0 2px}
+.calcside .gets .small{margin:2px 0}
+.calcadd{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-style:dashed}
+.ideas{display:grid;gap:8px}
+.idea{background:var(--bg2);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+table.lens tr.me td{background:color-mix(in srgb,var(--accent) 10%,transparent)!important;box-shadow:none}
