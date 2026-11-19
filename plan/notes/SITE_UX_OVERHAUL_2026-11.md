@@ -608,3 +608,25 @@ browser.
 548. `tests/test_league_site.py::test_shell_keeps_its_basics`: skip link, search label, manifest copied and valid, every menu route exists, keyboard-sortable headers.
 549. `plan/notes/LEAGUE_SITE.md`: new routes, settings, Sleeper identity, and the URL-state rule.
 550. This list.
+
+## Follow-up (2026-11-19, user: trade calculator, more Sleeper than GitHub, Share)
+551. Trade calculator page (`#/calc`), linked from the menu, Trades and every team page (`g v`).
+552. Calculator: tap-to-add players and future picks per side, with a filter.
+553. Calculator: verdict meter in the two teams' colours, gap as rookie-pick equivalents.
+554. Calculator: the five assets closest to the gap, from the team that comes out ahead.
+555. Calculator: before → after roster value, value rank, QB/RB/WR/TE value, picks value, projected points a week, roster count.
+556. Calculator: the deal lives in the URL; Swap sides, Clear, Share.
+557. Calculator: "Title odds with this trade" opens Predictions with the players moved.
+558. Sleeper colours: navy surfaces, mint accent, coral losses, dark by default.
+559. Navy app bar in both themes with a mint → blue → purple strip under it.
+560. Mint active tab, round search box and menu button.
+561. Pill-shaped buttons and toggles.
+562. Poppins for headings, tile numbers and medals.
+563. Sleeper's position colours (QB pink, RB teal, WR blue, TE orange).
+564. Round W/L form dots; gradient progress and value bars.
+565. Theme menu: Sleeper dark (default), Light, Match the device (follows the device live).
+566. Favicon, theme-color and app manifest in the new colours.
+567. Share opens a dialog that always shows the link, with Copy, Share…, Text and Email.
+568. "Link copied" only when the copy really happened; otherwise the link is selected to copy by hand.
+569. Copy fallback works on iOS in-app browsers (selection range on a read-only field).
+570. Shared links use `?to=<route>` instead of `#/…`, so Sleeper chat (and others) make them tappable.

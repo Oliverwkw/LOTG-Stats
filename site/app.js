@@ -49,14 +49,54 @@ function toast(msg) {
   el.textContent = msg; el.classList.add("on");
   clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 2200);
 }
+// copy text to the clipboard; resolves true only when the copy really happened
 async function copyText(text, what = "Copied") {
-  try { await navigator.clipboard.writeText(text); toast(what); }
-  catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); toast(what); } catch (e2) { toast("Copy failed"); } ta.remove(); }
+  let ok = false;
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; } } catch (e) { ok = false; }
+  if (!ok) {
+    // older / in-app browsers: copy from a selected, read-only text field (iOS needs the range)
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+    document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    ta.remove();
+  }
+  if (what) toast(ok ? what : "Couldn't copy here — press and hold the link to copy it");
+  return ok;
+}
+// Share: a dialog that always shows the link, so it works even where the browser blocks
+// the clipboard or has no share sheet (in-app browsers in Messages, Sleeper, Gmail)
+// The link we share has no "#": chat apps (Sleeper's included) often won't make a URL with
+// "#/…", ":" or a second "?" tappable. ?to=<route> opens the same page (see the boot code).
+function shareUrl() {
+  const route = location.hash.replace(/^#\/?/, "");
+  const base = location.origin + location.pathname;
+  if (!route) return base;
+  return base + "?to=" + encodeURIComponent(route).replace(/%2F/g, "/");
 }
 function shareLink() {
-  const url = location.href;
-  if (navigator.share && matchMedia("(hover: none)").matches) navigator.share({ title: document.title, url }).catch(() => {});
-  else copyText(url, "Link copied");
+  const url = shareUrl(), title = document.title;
+  const canShare = typeof navigator.share === "function";
+  openModal(`<button class="b sm x" data-close aria-label="Close">✕</button><h2 id="modalTitle">Share this page</h2>
+    <p class="muted small">${esc(title)}</p>
+    <input class="f" id="shareurl" readonly value="${esc(url)}" aria-label="Link to this page" style="width:100%;font-size:14px">
+    <p class="small" id="sharemsg" aria-live="polite"></p>
+    <div class="controls" style="margin:4px 0 0">
+      <button class="b pri" id="sharecopy">Copy link</button>
+      ${canShare ? `<button class="b" id="sharenative">Share…</button>` : ""}
+      <a class="btn sec" href="sms:?&body=${encodeURIComponent(title + " " + url)}">Text</a>
+      <a class="btn sec" href="mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(url)}">Email</a>
+    </div>`);
+  const inp = $("#shareurl"), msg = $("#sharemsg");
+  const sel = () => { inp.focus(); inp.select(); inp.setSelectionRange(0, url.length); };
+  inp.onclick = sel;
+  setTimeout(sel, 30);
+  $("#sharecopy").onclick = async () => {
+    const ok = await copyText(url, "");
+    msg.innerHTML = ok ? '<span class="pos">✓ Link copied</span>' : "This browser won't copy for us: the link above is selected — press and hold (or Ctrl/⌘ C) to copy it.";
+    if (ok) toast("Link copied"); else sel();
+  };
+  if (canShare) $("#sharenative").onclick = () => navigator.share({ title, url }).catch((e) => { if (e && e.name !== "AbortError") msg.textContent = "Sharing didn't open here — use Copy link instead."; });
 }
 const announce = (t) => { const el = document.getElementById("announce"); if (el) el.textContent = t; };
 function setTitle(t) { document.title = t ? `${t} · LOTG` : "LOTG League"; }
@@ -366,7 +406,7 @@ function barChart(items, o = {}) {
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl, predict, weeks, compare,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl, predict, weeks, compare, calc,
 };
 
 // ---------- live layer: rosters and traded picks straight from Sleeper on open.
@@ -1189,7 +1229,7 @@ async function team(slug, _q, live) {
   setTitle(t.team);
   $app.innerHTML = `${crumbs(["All-time standings", "teams"], [t.team])}
     <div class="page-head"><div class="thead2">${avatar(t.team, "lg")}<div><h1>${esc(t.team)}${titles.length ? ` <span class="chip gold" title="Titles: ${titles.join(", ")}">🏆 ×${titles.length}</span>` : ""}</h1>${TINFO[t.team]?.name ? `<div class="tname">${esc(TINFO[t.team].name)}</div>` : ""}</div></div>
-      <div class="actions"><button class="b sm${isMe ? " on" : ""}" id="setme" aria-pressed="${isMe}">${isMe ? "★ My team" : "☆ This is my team"}</button><a class="btn sec" href="#/compare?a=t:${encodeURIComponent(t.team)}${ME && !isMe ? "&b=t:" + encodeURIComponent(ME) : ""}">⚖️ Compare</a>${shareBtn()}</div></div>
+      <div class="actions"><button class="b sm${isMe ? " on" : ""}" id="setme" aria-pressed="${isMe}">${isMe ? "★ My team" : "☆ This is my team"}</button><a class="btn sec" href="#/compare?a=t:${encodeURIComponent(t.team)}${ME && !isMe ? "&b=t:" + encodeURIComponent(ME) : ""}">⚖️ Compare</a><a class="btn sec" href="#/calc?${ME && !isMe ? `a=${encodeURIComponent(ME)}&b=${encodeURIComponent(t.team)}` : `a=${encodeURIComponent(t.team)}`}">🔁 Trade</a>${shareBtn()}</div></div>
     ${tiles(t.summary, t.summary_labels, t.summary_fmt, HEAD, "team_all_time")}
     <details class="more"><summary class="small">All ${Object.keys(allStats).length} all-time stats</summary>${tiles(allStats, allLabels, AT.fmt, Object.keys(allStats).filter((k) => !HEAD.includes(k)), "team_all_time")}</details>
     <nav class="secnav" aria-label="Sections">${nav.map(([id, n]) => `<button data-sec="${id}">${n}</button>`).join("")}</nav>
@@ -1559,7 +1599,7 @@ async function trades(id, query) {
   const perSeason = seasons.slice().reverse().map((s) => ({ label: String(s), v: tr.trades.filter((t) => t.season === s).length, href: `#/trades?season=${s}` }));
   const perTeam = meta.teams.map((t) => [t, tr.trades.filter((x) => x.sides.some((s) => s.team === t)).length]).sort((a, b) => b[1] - a[1]);
   setTitle("Trades");
-  $app.innerHTML = `${crumbs(["Trades"])}<div class="page-head"><h1>Trade history</h1><div class="actions">${shareBtn()}</div></div>
+  $app.innerHTML = `${crumbs(["Trades"])}<div class="page-head"><h1>Trade history</h1><div class="actions"><a class="btn" href="#/calc">⚖️ Trade calculator</a>${shareBtn()}</div></div>
     <div class="grid2"><div class="card"><h2>Trades per season</h2>${barChart(perSeason, { label: "Trades per season", h: 130 })}</div>
       <div class="card"><h2>Most active traders</h2>${perTeam.map(([t, n]) => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="width:150px">${teamLink(t)}</span><div class="bar-h" style="flex:1"><i style="width:${100 * n / (perTeam[0][1] || 1)}%"></i></div><a class="small" href="#/trades?team=${encodeURIComponent(t)}" style="width:36px;text-align:right">${n}</a></div>`).join("")}</div></div>
     <div class="controls sticky">
@@ -2442,6 +2482,150 @@ const weekNav = (y, w, toHref) => loadWeeks().then((ws) => {
     ${n ? `<a href="#/${toHref(n)}" data-next>${n.y} ${esc(n.n)} ›</a>` : '<span class="dis">Latest week ›</span>'}</div>`;
 });
 
+// ---------- trade calculator: two teams, any players and future picks, on the league's
+// own scale (the FAAB board's values; picks by the FAAB system's pick rule), with each
+// roster's value and rank and its projected points a week before and after.
+// State lives in the URL: ?a=<team>&b=<team>&sa=<assets A sends>&sb=<assets B sends>,
+// assets "p<sleeper id>" or "k<year>-<round>-<original team>".
+async function calc(_a, query, live) {
+  setTitle("Trade calculator");
+  $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="skel blk"></div>`;
+  const [meta, B, PK, nfl, LW] = await Promise.all([load("meta.json"), loadBoard(), load("picks.json"), loadNfl(), load("live_watch.json").catch(() => ({ rates: {}, roster_positions: [] }))]);
+  live = live || await loadLive();
+  if (!B) { $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="card empty"><div class="big">💲</div><p>The FAAB board isn't published yet, so there are no values to compare.</p></div>`; return; }
+  const teams = meta.teams;
+  const params = new URLSearchParams(query || "");
+  let A = teams.includes(params.get("a")) ? params.get("a") : (ME && teams.includes(ME) ? ME : teams[0]);
+  let Bt = teams.includes(params.get("b")) && params.get("b") !== A ? params.get("b") : teams.find((t) => t !== A);
+  const split = (v) => (v || "").split(",").filter(Boolean);
+  let SA = split(params.get("sa")), SB = split(params.get("sb"));
+  const board = Object.fromEntries(B.players.map((x) => [String(x.sid), x]));
+  // whose players and picks: Sleeper now when it answered, else the board's owners and the build's picks
+  const rosterOf = (t) => live && live.rosterOf[t] ? live.rosterOf[t].players.map(String) : B.players.filter((x) => ownerTeam(x.owner, teams) === t).map((x) => String(x.sid));
+  const blocked = (t) => live && live.rosterOf[t] ? new Set([...(live.rosterOf[t].taxi || []), ...(live.rosterOf[t].ir || [])].map(String)) : new Set();
+  const HELD = livePicks(PK, live);
+  const picksOf = (t) => (HELD[t] || []).map(([y, r, o]) => `k${y}-${r}-${o}`);
+  const info = (k) => {
+    if (k[0] === "k") {
+      const [y, r, ...o] = k.slice(1).split("-"), orig = o.join("-");
+      return { k, pick: true, name: `${y} ${ORD[+r] || r + "th"}${orig ? ` (${orig})` : ""}`, pos: "PICK", value: pickValue(PK, B, +y, +r, orig) || 0, y: +y, r: +r };
+    }
+    const pid = k.slice(1), b = board[pid], n = nfl[pid] || [];
+    return { k, pid, name: (b && b.name) || n[0] || NAMES_BY_ID[pid] || pid, pos: (b && b.pos) || n[1] || "", nfl: (b && b.team) || n[2] || "", age: b ? b.age : n[3], inj: (b && b.injury) || n[4] || "", value: b ? b.value : 0, rate: LW.rates[pid] };
+  };
+  const assetsOf = (t) => rosterOf(t).map((pid) => "p" + pid).concat(picksOf(t));
+  // keep only assets the team still has (a link can outlive a roster move)
+  const clean = () => { const a = new Set(assetsOf(A)), b = new Set(assetsOf(Bt)); SA = SA.filter((k) => a.has(k)); SB = SB.filter((k) => b.has(k)); };
+  clean();
+  const sum = (ks) => ks.reduce((x, k) => x + (info(k).value || 0), 0);
+  const fits = { QB: ["QB"], RB: ["RB"], WR: ["WR"], TE: ["TE"], FLEX: ["RB", "WR", "TE"], SUPER_FLEX: ["QB", "RB", "WR", "TE"], REC_FLEX: ["WR", "TE"], WRRB_FLEX: ["RB", "WR"] };
+  const slots = (LW.roster_positions || []).filter((s) => fits[s]).sort((a, b) => fits[a].length - fits[b].length);
+  // the best lineup by projected points a week (forecast rate blended with this season), taxi and IR left out
+  const weekly = (pids, t) => {
+    const no = blocked(t);
+    const pool = pids.filter((p) => !no.has(p)).map((p) => ({ pos: (board[p] || {}).pos || (nfl[p] || [])[1], r: LW.rates[p] ?? 0 })).sort((x, y) => y.r - x.r), used = new Set();
+    let m = 0;
+    for (const sl of slots) { const i = pool.findIndex((x, j) => !used.has(j) && fits[sl].includes(x.pos)); if (i >= 0) { used.add(i); m += pool[i].r; } }
+    return m;
+  };
+  // every team's roster value (players + picks), to rank before and after
+  const teamValue = (t, give = [], get = []) => {
+    const ks = assetsOf(t).filter((k) => !give.includes(k)).concat(get);
+    const by = { QB: 0, RB: 0, WR: 0, TE: 0 };
+    let total = 0, picks = 0;
+    for (const k of ks) { const x = info(k); total += x.value || 0; if (x.pick) picks += x.value || 0; else if (x.pos in by) by[x.pos] += x.value || 0; }
+    return { total, picks, by, ks, n: ks.filter((k) => k[0] === "p").length, wk: weekly(ks.filter((k) => k[0] === "p").map((k) => k.slice(1)), t) };
+  };
+  const sync = () => setQuery({ a: A, b: Bt, sa: SA.join(","), sb: SB.join(",") });
+  const row = (x, side, inDeal) => `<button class="asset${inDeal ? " in" : ""}" data-side="${side}" data-k="${esc(x.k)}" title="${inDeal ? "Take out of the deal" : "Add to the deal"}">
+      <span class="ai">${inDeal ? "✕" : "+"}</span>${posBadge(x.pos)} <span class="an">${esc(x.name)}${x.inj ? ` <span class="chip bad">${esc(x.inj)}</span>` : ""}</span>
+      <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span><b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>`;
+  const filt = { a: "", b: "" };
+  function sideHtml(side) {
+    const t = side === "a" ? A : Bt, other = side === "a" ? Bt : A, sends = side === "a" ? SA : SB;
+    return `<div class="card nocv calcside"><div class="chead"><h2>${avatar(t, "")}<select data-team="${side}" aria-label="Team ${side.toUpperCase()}">${teams.map((x) => `<option ${x === t ? "selected" : ""} ${x === other ? "disabled" : ""}>${esc(x)}</option>`).join("")}</select></h2><span class="muted small">sends</span></div>
+      <div class="sends">${sends.map((k) => row(info(k), side, true)).join("") || `<p class="muted small" style="margin:6px 0">Nothing yet — add players or picks below.</p>`}</div>
+      <p class="small" style="text-align:right;margin:4px 0 10px">Sends <b>${money(sum(sends))}</b></p>
+      <input class="f" data-filter="${side}" type="search" placeholder="Find a player or pick on ${esc(t)}" value="${esc(filt[side])}" aria-label="Find a player or pick" style="width:100%">
+      <div class="pool" data-pool="${side}"></div></div>`;
+  }
+  function poolHtml(side) {
+    const t = side === "a" ? A : Bt, sends = side === "a" ? SA : SB, q = filt[side].toLowerCase();
+    const xs = assetsOf(t).filter((k) => !sends.includes(k)).map(info).filter((x) => !q || x.name.toLowerCase().includes(q) || x.pos.toLowerCase() === q)
+      .sort((x, y) => (y.value || 0) - (x.value || 0));
+    return xs.map((x) => row(x, side, false)).join("") || `<p class="muted small">Nothing matches.</p>`;
+  }
+  function resultHtml() {
+    if (!SA.length && !SB.length) return `<div class="card empty"><div class="big">⚖️</div><p>Add what each team sends. Values are the league's FAAB board of ${esc(B.as_of)}; picks use the FAAB system's pick prices.</p></div>`;
+    const getA = sum(SB), getB = sum(SA), gap = getA - getB, big = Math.max(getA, getB, 1);
+    const even = Math.abs(gap) <= Math.max(25, big * 0.05);
+    const winner = gap > 0 ? A : Bt, loser = gap > 0 ? Bt : A;
+    const before = Object.fromEntries(teams.map((t) => [t, teamValue(t)]));
+    const after = { ...before, [A]: teamValue(A, SA, SB), [Bt]: teamValue(Bt, SB, SA) };
+    const rank = (tbl, t) => 1 + teams.filter((u) => tbl[u].total > tbl[t].total).length;
+    const d = (x, f = money, keep) => { const v = Math.round(x * 10) / 10; return v ? `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : "−"}${f(Math.abs(v))}</span>` : (keep ? '<span class="muted">±0</span>' : ""); };
+    const pts = (v) => fmt({ d: 1 }, v);
+    const line = (lab, f, fmtv, dv) => `<tr><td class="l">${lab}</td>${[A, Bt].map((t) => `<td>${fmtv(f(before[t], t))} → <b>${fmtv(f(after[t], t))}</b> ${dv(f(after[t], t) - f(before[t], t))}</td>`).join("")}</tr>`;
+    // what would even it up: the team getting more sends one more asset near the gap
+    let fix = "";
+    if (!even) {
+      // the team that comes out ahead sends one more asset near the gap
+      const giver = gap > 0 ? A : Bt, sends = gap > 0 ? SA : SB, need = Math.abs(gap);
+      const opts = assetsOf(giver).filter((k) => !sends.includes(k)).map(info).filter((x) => x.value > 0)
+        .sort((x, y) => Math.abs(x.value - need) - Math.abs(y.value - need)).slice(0, 5);
+      const side = giver === A ? "a" : "b";
+      fix = opts.length ? `<h3>To even it up, ${esc(giver)} could add</h3><div class="pool short">${opts.map((x) => row(x, side, false)).join("")}</div><p class="muted small">The ${esc(giver)} assets closest to the ${money(need)} gap. Or take something out of what ${esc(giver === A ? Bt : A)} sends.</p>` : "";
+    }
+    const mv = SA.filter((k) => k[0] === "p").map((k) => `${k.slice(1)}>${Bt}`).concat(SB.filter((k) => k[0] === "p").map((k) => `${k.slice(1)}>${A}`));
+    const pctA = getA + getB ? 100 * getA / (getA + getB) : 50;
+    return `<div class="card nocv"><h2>Verdict</h2>
+      <div class="meter" role="img" aria-label="${esc(A)} gets ${Math.round(pctA)}% of the value"><i style="width:${pctA.toFixed(1)}%;background:${teamColor(A)}"></i><i style="flex:1;background:${teamColor(Bt)}"></i><span style="left:50%"></span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px"><span>${avatar(A)}<b>${esc(A)}</b> gets ${money(getA)}</span><span>${esc(Bt)} gets ${money(getB)} ${avatar(Bt)}</span></div>
+      <p class="verdict">${even ? `<b>About even</b> — within ${money(Math.max(25, big * 0.05))}.` : `<b>${esc(winner)}</b> comes out ${money(Math.abs(gap))} ahead — ${esc(pickText(B, Math.abs(gap)))}. ${esc(loser)} gives up ${Math.round(100 * Math.abs(gap) / big)}% more than it gets.`}</p>
+      ${fix}</div>
+      <div class="card nocv"><h2>Before → after</h2><div class="scroll"><table><thead><tr><th class="l nosort"></th><th class="nosort">${teamLink(A)}</th><th class="nosort">${teamLink(Bt)}</th></tr></thead><tbody>
+        ${line("Roster value", (x) => x.total, money, (v) => d(v))}
+        ${line("Value rank", (x, t) => rank(before[t] === x ? before : after, t), (v) => ordinal(v), (v) => v ? `<span class="${v < 0 ? "pos" : "neg"}">${v < 0 ? "▲" : "▼"}${Math.abs(v)}</span>` : "")}
+        ${["QB", "RB", "WR", "TE"].map((p) => line(`${posBadge(p)} value`, (x) => x.by[p], money, (v) => d(v))).join("")}
+        ${line("Picks value", (x) => x.picks, money, (v) => d(v))}
+        ${slots.length ? line("Proj. points a week", (x) => x.wk, pts, (v) => d(v, (z) => pts(z))) : ""}
+        ${line("Players on roster", (x) => x.n, (v) => String(v), (v) => v ? `<span class="muted">${v > 0 ? "+" : ""}${v}</span>` : "")}
+      </tbody></table></div>
+      <p class="muted small">Values: the stats-only FAAB board of ${esc(B.as_of)} (league trades, cuts and calls; no news). Picks: next year's by the original team's projected slot, later years at the round average. Proj. points a week: the best lineup from the forecast's player rates (this season blended in), taxi and IR left out. Ownership is ${live ? "Sleeper's right now" : "the last build's (Sleeper didn't answer)"}. Roster limits aren't checked.</p>
+      <p>${mv.length ? `<a class="btn" href="#/predict?mv=${encodeURIComponent(mv.join(","))}">Title odds with this trade →</a> ` : ""}<button class="b" id="cswap">⇄ Swap sides</button> <button class="b" id="cclear">Clear</button> ${shareBtn()}</p></div>`;
+  }
+  function draw() {
+    sync();
+    $("#calcsides").innerHTML = sideHtml("a") + sideHtml("b");
+    $$("[data-pool]").forEach((el) => (el.innerHTML = poolHtml(el.dataset.pool)));
+    $("#calcres").innerHTML = resultHtml();
+    refreshAvatars();
+    const sw = $("#cswap"); if (sw) sw.onclick = () => { [A, Bt] = [Bt, A]; [SA, SB] = [SB, SA]; draw(); };
+    const cl = $("#cclear"); if (cl) cl.onclick = () => { SA = []; SB = []; draw(); };
+  }
+  $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick two teams and tap what each sends. Values are the league's own FAAB board ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
+    <div id="calc"><div class="grid2" id="calcsides"></div><div id="calcres"></div></div>`;
+  const root = $("#calc");
+  // one listener for both sides: add / remove assets, switch teams, filter
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest("button.asset"); if (!b) return;
+    const k = b.dataset.k, side = b.dataset.side, list = side === "a" ? SA : SB;
+    if (list.includes(k)) list.splice(list.indexOf(k), 1); else list.push(k);
+    draw();
+  });
+  root.addEventListener("change", (e) => {
+    const s = e.target.closest("select[data-team]"); if (!s) return;
+    if (s.dataset.team === "a") { A = s.value; SA = []; } else { Bt = s.value; SB = []; }
+    draw();
+  });
+  root.addEventListener("input", (e) => {
+    const f = e.target.closest("input[data-filter]"); if (!f) return;
+    filt[f.dataset.filter] = f.value;
+    const el = $(`[data-pool="${f.dataset.filter}"]`); if (el) el.innerHTML = poolHtml(f.dataset.filter);
+  });
+  draw();
+}
+
 // ---------- every week the league has played, by season (league_week)
 async function weeks(year) {
   const [ws, meta] = await Promise.all([loadWeeks(), load("meta.json")]);
@@ -2521,9 +2705,9 @@ async function compare(_a, query) {
 }
 
 // ---------- router
-const NAV_OF = { team: "teams", game: "weeks", week: "weeks", pick: "draft", player: "", nfl: "", search: "" };
+const NAV_OF = { team: "teams", calc: "calc", game: "weeks", week: "weeks", pick: "draft", player: "", nfl: "", search: "" };
 const TITLES = { "": "Home", teams: "All-time standings", records: "Record book", h2h: "Head to head", trades: "Trades", draft: "Draft history",
-  predict: "Predictions", faab: "FAAB values", data: "Data", weeks: "Weeks", compare: "Compare", search: "Search" };
+  predict: "Predictions", calc: "Trade calculator", faab: "FAAB values", data: "Data", weeks: "Weeks", compare: "Compare", search: "Search" };
 // scroll positions by history entry: back / forward lands where you were, a new page at the top
 const SCROLL = {};
 let navSeq = 0, routeSeq = 0;
@@ -2609,7 +2793,7 @@ const LIVE_PAGES = new Set([team, player, faab, nfl]);
 // arrows move, Enter opens, Esc closes; Enter with nothing picked opens the full results
 let SIX = [];
 const PAGES = [["Home", "#/"], ["All-time standings", "#/teams"], ["Weeks", "#/weeks"], ["Record book", "#/records"], ["Head to head", "#/h2h"],
-  ["Trades", "#/trades"], ["Draft history", "#/draft"], ["Predictions", "#/predict"], ["FAAB values", "#/faab"], ["Compare players or teams", "#/compare"], ["Data: every sheet", "#/data"], ["Rate players", "rate/"]];
+  ["Trades", "#/trades"], ["Trade calculator", "#/calc"], ["Draft history", "#/draft"], ["Predictions", "#/predict"], ["FAAB values", "#/faab"], ["Compare players or teams", "#/compare"], ["Data: every sheet", "#/data"], ["Rate players", "rate/"]];
 const NFL_TEAMS = "ARI ATL BAL BUF CAR CHI CIN CLE DAL DEN DET GB HOU IND JAX KC LAC LAR LV MIA MIN NE NO NYG NYJ PHI PIT SEA SF TB TEN WAS".split(" ");
 let suggAct = -1;
 const $q = document.getElementById("q"), $sugg = document.getElementById("sugg");
@@ -2663,22 +2847,29 @@ document.getElementById("searchForm").onsubmit = (e) => { e.preventDefault(); co
 // ---------- settings menu (☰): your team, theme, density, shortcuts, share
 const $menu = document.getElementById("menu"), $menuBtn = document.getElementById("menuBtn");
 function drawMenu() {
-  const theme = prefs.get("lotg:theme", "auto"), dens = prefs.get("lotg:density", "comfy");
+  const theme = prefs.get("lotg:theme", "dark"), dens = prefs.get("lotg:density", "comfy");
   $menu.innerHTML = `<div class="mh">Your team</div>${TEAMS.map((t) => `<button role="menuitemradio" aria-checked="${ME === t}" data-set-me="${esc(t)}">${avatar(t)}${esc(t)}</button>`).join("")}
     ${ME ? `<button role="menuitem" data-set-me="">Clear my team</button>` : ""}<hr>
-    <div class="mh">Theme</div>${[["auto", "Match the device"], ["light", "Light"], ["dark", "Dark"]].map(([k, n]) => `<button role="menuitemradio" aria-checked="${theme === k}" data-theme-set="${k}">${n}</button>`).join("")}<hr>
+    <div class="mh">Theme</div>${[["dark", "Sleeper dark"], ["light", "Light"], ["auto", "Match the device"]].map(([k, n]) => `<button role="menuitemradio" aria-checked="${theme === k}" data-theme-set="${k}">${n}</button>`).join("")}<hr>
     <div class="mh">Tables</div>${[["comfy", "Comfortable"], ["compact", "Compact"]].map(([k, n]) => `<button role="menuitemradio" aria-checked="${dens === k}" data-dens="${k}">${n}</button>`).join("")}<hr>
     <button role="menuitem" data-share-page>🔗 Copy a link to this page</button>
     <button role="menuitem" data-keys>⌨️ Keyboard shortcuts <kbd style="margin-left:auto">?</kbd></button>
     <a role="menuitem" href="rate/">⭐ Rate player values</a>`;
 }
+// dark (default) / light / follow the device, live when the device switches
+function applyTheme() {
+  const v = prefs.get("lotg:theme", "dark");
+  const light = v === "light" || (v === "auto" && matchMedia("(prefers-color-scheme: light)").matches);
+  if (light) document.documentElement.dataset.theme = "light"; else delete document.documentElement.dataset.theme;
+}
+matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
 function openMenu() { drawMenu(); $menu.classList.add("on"); $menuBtn.setAttribute("aria-expanded", "true"); const f = $("button", $menu); if (f) f.focus(); }
 function closeMenu() { $menu.classList.remove("on"); $menuBtn.setAttribute("aria-expanded", "false"); }
 $menuBtn.onclick = (e) => { e.stopPropagation(); $menu.classList.contains("on") ? closeMenu() : openMenu(); };
 $menu.addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.setMe !== undefined) { setMe(b.dataset.setMe); closeMenu(); route(); }
-  else if (b.dataset.themeSet) { const v = b.dataset.themeSet; prefs.set("lotg:theme", v === "auto" ? null : v); if (v === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v; drawMenu(); }
+  else if (b.dataset.themeSet) { const v = b.dataset.themeSet; prefs.set("lotg:theme", v === "dark" ? null : v); applyTheme(); drawMenu(); }
   else if (b.dataset.dens) { const v = b.dataset.dens; prefs.set("lotg:density", v === "comfy" ? null : v); if (v === "comfy") delete document.documentElement.dataset.density; else document.documentElement.dataset.density = v; drawMenu(); }
   else if (b.dataset.sharePage !== undefined) { closeMenu(); shareLink(); }
   else if (b.dataset.keys !== undefined) { closeMenu(); showKeys(); }
@@ -2696,8 +2887,8 @@ function openModal(html) { const m = document.getElementById("modal"); $("#modal
 function closeModal() { document.getElementById("modal").classList.remove("on"); }
 document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal" || e.target.closest("[data-close]")) closeModal(); });
 const KEYS = [["/ or Ctrl K", "Search"], ["g h", "Home"], ["g m", "My team"], ["g t", "All-time standings"], ["g w", "Weeks"], ["g r", "Record book"], ["g x", "Head to head"],
-  ["g d", "Draft"], ["g p", "Predictions"], ["g f", "FAAB values"], ["g c", "Compare"], ["g a", "Data"], ["[ / ]", "Previous / next week or pick"], ["s", "Copy a link to this page"], ["?", "This list"], ["Esc", "Close"]];
-const GO = { h: "#/", m: "#/mine", t: "#/teams", w: "#/weeks", r: "#/records", x: "#/h2h", d: "#/draft", p: "#/predict", f: "#/faab", c: "#/compare", a: "#/data", s: "#/trades" };
+  ["g d", "Draft"], ["g p", "Predictions"], ["g f", "FAAB values"], ["g c", "Compare"], ["g v", "Trade calculator"], ["g a", "Data"], ["[ / ]", "Previous / next week or pick"], ["s", "Copy a link to this page"], ["?", "This list"], ["Esc", "Close"]];
+const GO = { h: "#/", m: "#/mine", t: "#/teams", w: "#/weeks", r: "#/records", x: "#/h2h", d: "#/draft", p: "#/predict", f: "#/faab", c: "#/compare", a: "#/data", s: "#/trades", v: "#/calc" };
 function showKeys() {
   openModal(`<button class="b sm x" data-close aria-label="Close">✕</button><h2 id="modalTitle">Keyboard shortcuts</h2>
     <table class="rk"><tbody>${KEYS.map(([k, n]) => `<tr><td class="l" style="width:40%">${k.split(" ").map((x) => x === "or" || x === "/" ? ` ${x} ` : `<kbd>${esc(x)}</kbd>`).join(" ")}</td><td class="l">${esc(n)}</td></tr>`).join("")}</tbody></table>
@@ -2761,6 +2952,11 @@ load("sheets/index.json").then((ix) => {
   for (const m of ix.sheets) DEFS[m.sheet] = m.defs || {};
   DEFS._any = Object.assign({}, ...ix.sheets.map((m) => m.defs || {}));
 }).catch(() => {});
+// a shared link (?to=<route>) opens that page; the address bar shows the usual #/ form
+(() => {
+  const to = new URLSearchParams(location.search).get("to");
+  if (to !== null) history.replaceState(null, "", location.pathname + "#/" + to.replace(/^#?\/?/, ""));
+})();
 showLeague(prefs.get("lotg:league", null));
 Promise.all([load("search.json"), load("meta.json")]).then(([ix, meta]) => {
   SIX = ix;
