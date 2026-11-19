@@ -66,16 +66,16 @@ def _frame(rows):
                                        "Sleeper Projection", "Claude Projection", "Enhanced Projection"])
 
 
-def test_player_awards_one_winner_alphabetical():
+def test_player_awards_ties_all_win():
     pw = _frame([(2025, 1, "A", "Zed", "Starter", 30.0, 10.0, 10.0, 10.0),   # +20
-                 (2025, 1, "B", "Amy", "Starter", 25.0, 5.0, 5.0, 5.0),      # +20 (tie, alphabetical wins)
+                 (2025, 1, "B", "Amy", "Starter", 25.0, 5.0, 5.0, 5.0),      # +20 (tie: both win, user rule 2026-11-18)
                  (2025, 1, "B", "Bob", "Starter", 2.0, 15.0, 15.0, 15.0),    # −13
                  (2025, 1, "B", "Out", "Starter", 0.0, 0.0, 0.0, 0.0),       # known out: never Underachiever
                  (2025, 1, "A", "Ben", "Bench", 40.0, 5.0, 5.0, 5.0)])       # bench: not eligible
     out = pd.Series([False, False, False, True, False])
     aw = P.player_week_awards(pw, out)
     for x in P.NAMES:
-        assert aw[P.over_col(x)].tolist() == [0, 1, 0, 0, 0]
+        assert aw[P.over_col(x)].tolist() == [1, 1, 0, 0, 0]
         assert aw[P.under_col(x)].tolist() == [0, 0, 1, 0, 0]
 
 
