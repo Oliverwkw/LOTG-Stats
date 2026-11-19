@@ -303,7 +303,7 @@ browser.
 275. Headline tile: top score of the week (opens the matchup).
 276. Headline tile: closest game (opens it).
 277. Headline tile: biggest blowout (opens it).
-278. Headline tile: title favourite from the forecast.
+278. Headline tile: title favorite from the forecast.
 279. Standings: medals for the top three.
 280. Standings: avatars.
 281. Standings: "x" chip for a clinched playoff spot.
@@ -342,7 +342,7 @@ browser.
 ## K. All-time standings
 313. Breadcrumbs, title and share.
 314. Intro line (seasons, team count).
-315. New "Roll of honour": champion, runner-up and 3rd for every finished season.
+315. New "Champions" card: champion, runner-up and 3rd for every finished season.
 316. Trophies in the Titles column.
 317. Win % with a bar.
 318. New Finals column (championship appearances).
@@ -600,7 +600,7 @@ browser.
 542. Picked games: the loser greyed out as well as the winner filled.
 543. Pick buttons carry `aria-pressed`.
 544. New: "★ <your team> wins out".
-545. New: "Pick the favourites" (each game to the higher projected scorer).
+545. New: "Pick the favorites" (each game to the higher projected scorer).
 546. "Share this scenario" button.
 547. Clearing picks clears both states.
 
@@ -636,3 +636,14 @@ browser.
 574. Trade calculator: KTC superflex value beside each asset (from a KTC snapshot the site build now saves, `data/ktc.json`).
 575. Trade calculator: "Every angle" table — FAAB value, KTC value, KTC month trend, projected points a week, rest of the regular season, this season's points a week, starting-lineup change, age, picks — with the edge per row.
 576. Trade calculator: season odds before → after (playoffs, final, title, projected wins) from the Predictions simulation, for both teams and everyone else.
+577. Best / worst marks use an allow-list: only columns where more (or less) is clearly better; shares, counts, ages, tenure, swing, riskiness and projections stay plain.
+578. Category columns (position, lineup role) are never marked.
+579. Head to head: meetings are ordered oldest → newest before the streak and the strip (the file lists them newest first, which flipped the streak).
+580. Head to head: "Points for / against (all meetings)" instead of a mislabelled "Avg".
+581. "Roll of honour" renamed "Champions"; American spellings (favorite).
+582. Home headline tiles redone, one format each: your team, the playoff line (who holds the last spot and who's within a game), title favorite, hottest and coldest team over the last three weeks.
+583. Trade calculator: KTC totals use KTC's own value adjustment (ported from keeptradecut.com's live code, ALGOTOUSE=2), so a 2-for-1 gives the side with the best piece the bonus KTC's calculator gives, and the verdict says "add a player worth ~X" as KTC does.
+584. Trade calculator: choose the metric that drives the verdict and the suggestions (KTC, FAAB, projected points, rest of season, this season's points); remembered.
+585. Trade calculator: three- and four-team trades in the same layout ("+ Add a team"; each sent asset gets a destination).
+586. Trade calculator: "Or bring in a third team" — for each other team, the swap through it that leaves every team closest to even.
+587. Trade calculator: checks after every change — every team involved, active roster under the league limit, every starting spot still fillable.
