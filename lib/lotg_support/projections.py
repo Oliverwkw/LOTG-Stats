@@ -714,8 +714,8 @@ def _started(pw: pd.DataFrame) -> pd.Series:
 def player_week_awards(pw: pd.DataFrame, out: pd.Series) -> pd.DataFrame:
     """Overachiever / Underachiever per projection: the starter (not known out)
     with the week's highest / lowest Points above that projection, league-wide.
-    One winner a week, alphabetical by player on a tie (as Player of the week).
-    1 / 0 per row."""
+    Every tied starter wins, except a tie at 0 (2+ on 0): nobody (as Player of
+    the week, user rule 2026-11-18). 1 / 0 per row."""
     res = pd.DataFrame(0, index=pw.index, columns=list(AWARD_COLUMNS))
     elig = _started(pw) & ~out.astype(bool)
     pts = pd.to_numeric(pw["Points"], errors="coerce")
@@ -725,9 +725,13 @@ def player_week_awards(pw: pd.DataFrame, out: pd.Series) -> pd.DataFrame:
                           "v": diff})[elig & diff.notna()]
         if d.empty:
             continue
-        for col, asc in ((over_col(x), False), (under_col(x), True)):
-            win = d.sort_values(["Year", "Week", "v", "Player"], ascending=[True, True, asc, True]) \
-                   .groupby(["Year", "Week"]).head(1).index
+        v = d["v"].round(2)
+        g = v.groupby([d["Year"], d["Week"]])
+        for col, how in ((over_col(x), "max"), (under_col(x), "min")):
+            ext = g.transform(how)
+            hit = v == ext
+            n_hit = hit.groupby([d["Year"], d["Week"]]).transform("sum")
+            win = d.index[(hit & ~((ext == 0) & (n_hit >= 2))).to_numpy()]
             res.loc[win, col] = 1
     return res
 

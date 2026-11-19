@@ -722,7 +722,7 @@ EQUATIONS = {
     ('Times Most injured?', 'team_year / team_all_time'):
         'Σ_w ⟨Most injured?⟩(t,w)',
     ('Captain?', 'player_week'):
-        "[(p,t) = argmax_{(p',u) : p' ∈ S(u,w)} pts(p',w) / PF(u,w)]  (alphabetical tie-break)",
+        "[(p,t) = argmax_{(p',u) : p' ∈ S(u,w)} pts(p',w) / PF(u,w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Captain?', 'player_year / player_all_time'):
         'Σ_w ⟨Captain?⟩(p,w)',
     ('Highest score streak', 'team_week'):
@@ -768,7 +768,7 @@ EQUATIONS = {
     ('TE of the week streak', 'player_week'):
         "RUN_p over H weeks of [p = argmax_{p' ∈ ∪S(·,w), pos = TE} pts(p',w)]",
     ('Benchwarmer of the week streak', 'player_week'):
-        "RUN_p over H weeks of [p = argmin_{p' ∈ ∪S(·,w)} pts(p',w)]",
+        "RUN_p over H weeks of [p = argmax_{p' ∈ ∪(R∖S)(·,w)} pts(p',w)]",
     ('Bench QB of the week streak', 'player_week'):
         "RUN_p over H weeks of [p = argmax_{p' ∈ ∪(R∖S)(·,w), pos = QB} pts(p',w)]",
     ('Bench RB of the week streak', 'player_week'):
@@ -777,6 +777,10 @@ EQUATIONS = {
         "RUN_p over H weeks of [p = argmax_{p' ∈ ∪(R∖S)(·,w), pos = WR} pts(p',w)]",
     ('Bench TE of the week streak', 'player_week'):
         "RUN_p over H weeks of [p = argmax_{p' ∈ ∪(R∖S)(·,w), pos = TE} pts(p',w)]",
+    ('Dud of the week streak', 'player_week'):
+        "RUN_p over H weeks of [p = argmin_{p' ∈ ∪S(·,w)} pts(p',w)]",
+    ('Bench dud of the week streak', 'player_week'):
+        "RUN_p over H weeks of [p = argmin_{p' ∈ ∪(R∖S)(·,w)} pts(p',w)]",
     ('Highest starter on team streak', 'player_week'):
         "RUN_p over H weeks of [p = argmax_{p' ∈ S(t,w)} pts(p',w)]",
     ('Lowest starter on team streak', 'player_week'):
@@ -890,51 +894,59 @@ EQUATIONS = {
     ('- Activated Cuff? (Did he start while a teammate he is the handcuff for was injured?)', 'player_week'):
         'st(p,t,w) ∧ ∃ q ∈ R(t,w_kick): nfl(q)=nfl(p), pos(q)=pos(p), TEST(q,p,w) ∧ INJ(q,w)',
     ('Player of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t S(t,w)} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Player of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Player of the week?⟩(p,w)',
     ('QB of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = QB} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = QB} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as QB of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨QB of the week?⟩(p,w)',
     ('RB of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = RB} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = RB} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as RB of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨RB of the week?⟩(p,w)',
     ('WR of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = WR} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = WR} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as WR of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨WR of the week?⟩(p,w)',
     ('TE of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = TE} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t S(t,w), pos = TE} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as TE of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨TE of the week?⟩(p,w)',
     ('Benchwarmer of the week?', 'player_week'):
-        "[p = argmin_{p' ∈ ∪_t S(t,w)} pts(p',w)], none if ≥ 2 tie at 0",
+        "[p = argmax_{p' ∈ ∪_t R∖S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Benchwarmer of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Benchwarmer of the week?⟩(p,w)',
     ('Bench QB of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = QB} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = QB} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Bench QB of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Bench QB of the week?⟩(p,w)',
     ('Bench RB of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = RB} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = RB} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Bench RB of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Bench RB of the week?⟩(p,w)',
     ('Bench WR of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = WR} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = WR} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Bench WR of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Bench WR of the week?⟩(p,w)',
     ('Bench TE of the week?', 'player_week'):
-        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = TE} pts(p',w)]",
+        "[p = argmax_{p' ∈ ∪_t R∖S(t,w), pos = TE} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Bench TE of the week?', 'player_year / player_all_time'):
         'Σ_w ⟨Bench TE of the week?⟩(p,w)',
+    ('Dud of the week?', 'player_week'):
+        "[p = argmin_{p' ∈ ∪_t S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
+    ('Times as Dud of the week?', 'player_year / player_all_time'):
+        'Σ_w ⟨Dud of the week?⟩(p,w)',
+    ('Bench dud of the week?', 'player_week'):
+        "[p = argmin_{p' ∈ ∪_t R∖S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
+    ('Times as Bench dud of the week?', 'player_year / player_all_time'):
+        'Σ_w ⟨Bench dud of the week?⟩(p,w)',
     ('Highest starter on team?', 'player_week'):
-        "[p = argmax_{p' ∈ S(t,w)} pts(p',w)]",
+        "[p = argmax_{p' ∈ S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Highest starter on team?', 'player_year / player_all_time'):
         'Σ_w ⟨Highest starter on team?⟩(p,w)',
     ('Lowest starter on team?', 'player_week'):
-        "[p = argmin_{p' ∈ S(t,w)} pts(p',w)]",
+        "[p = argmin_{p' ∈ S(t,w)} pts(p',w)]; p' not injured/suspended at w; all ties win, none if ≥ 2 tie at 0",
     ('Times as Lowest starter on team?', 'player_year / player_all_time'):
         'Σ_w ⟨Lowest starter on team?⟩(p,w)',
     ('Number of Add/Drops', 'player_week / player_year / player_all_time / team_week / team_year / team_all_time / league_week / league_year / league_all_time'):

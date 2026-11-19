@@ -903,20 +903,33 @@ async function recordWatch(meta) {
       teams.forEach((t, i) => TSTK.forEach((x) => { const c = cond[x.streak]; if (c) stk.team[i][x.id] = c(i) ? stkPrev("team", t.team, x.id) + 1 : 0; }));
       // player awards over every lineup this week
       const all = []; teams.forEach((t, i) => t.players.forEach((p, k) => all.push({ i, k, p, v: pts[i][k] })));
-      const stv = all.filter((x) => x.p.st), mx = (a) => a.length ? Math.max(...a.map((x) => x.v)) : null;
-      const topSt = mx(stv), posSt = {}, posBn = {};
-      for (const P of POS) { posSt[P] = mx(stv.filter((y) => y.p.pos === P)); posBn[P] = mx(all.filter((y) => !y.p.st && y.p.pos === P)); }
-      const minSt = stv.length ? Math.min(...stv.map((x) => x.v)) : null, zeroTies = stv.filter((x) => x.v === 0).length;
-      const shareMax = Math.max(...stv.map((x) => team[x.i].pf ? x.v / team[x.i].pf : 0));
-      const pcond = {
-        "Player of the week streak": (x) => x.p.st && x.v === topSt,
-        "Benchwarmer of the week streak": (x) => x.p.st && x.v === minSt && !(minSt === 0 && zeroTies > 1),
-        "Highest starter on team streak": (x) => x.p.st && x.v === team[x.i].hist, "Lowest starter on team streak": (x) => x.p.st && x.v === team[x.i].lost,
-        "Captain streak": (x) => x.p.st && team[x.i].pf > 0 && x.v / team[x.i].pf === shareMax };
+      // award rules = the build's (src/lotg.py, 2026-11-18): an injured / suspended player
+      // (out and on 0 with a game this week; a bye stays eligible) can't win; every tie wins,
+      // except a tie at 0 (2+ on 0): nobody
+      const el = all.filter((x) => !(x.p.out && x.v === 0 && x.p.kt != null));
+      const win = (xs, val, how) => {
+        const v = xs.map((x) => r2(val(x)));
+        if (!v.length) return new Set();
+        const e = how === "max" ? Math.max(...v) : Math.min(...v), t = xs.filter((x, j) => v[j] === e);
+        return new Set(e === 0 && t.length > 1 ? [] : t);
+      };
+      const pv = (x) => x.v, est = el.filter((x) => x.p.st), ebn = el.filter((x) => !x.p.st);
+      const W = {
+        "Player of the week streak": win(est, pv, "max"), "Dud of the week streak": win(est, pv, "min"),
+        "Benchwarmer of the week streak": win(ebn, pv, "max"), "Bench dud of the week streak": win(ebn, pv, "min"),
+        "Captain streak": win(est.filter((x) => team[x.i].pf > 0), (x) => x.v / team[x.i].pf * 1e4, "max"),
+        "Highest starter on team streak": new Set(), "Lowest starter on team streak": new Set() };
       for (const P of POS) {
-        pcond[`${P} of the week streak`] = (x) => x.p.st && x.p.pos === P && x.v === posSt[P];
-        pcond[`Bench ${P} of the week streak`] = (x) => !x.p.st && x.p.pos === P && x.v === posBn[P];
+        W[`${P} of the week streak`] = win(est.filter((y) => y.p.pos === P), pv, "max");
+        W[`Bench ${P} of the week streak`] = win(ebn.filter((y) => y.p.pos === P), pv, "max");
       }
+      teams.forEach((t, i) => {
+        const ts = est.filter((x) => x.i === i);
+        win(ts, pv, "max").forEach((x) => W["Highest starter on team streak"].add(x));
+        win(ts, pv, "min").forEach((x) => W["Lowest starter on team streak"].add(x));
+      });
+      const pcond = {};
+      for (const k of Object.keys(W)) pcond[k] = (x) => W[k].has(x);
       for (const n of [10, 20, 30, 40, 50]) pcond[`${n}+ point streak`] = (x) => x.v >= n;
       for (const x of all) {
         if (x.p.out || x.p.kt == null) continue;          // a bye / injury week neither adds nor breaks

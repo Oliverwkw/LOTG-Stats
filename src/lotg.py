@@ -2055,6 +2055,81 @@ def _positional_percentile(pts, pos, sorted_scores) -> Optional[float]:
     return round(float(np.searchsorted(arr, p, side="right")) / len(arr) * 100.0, 1)
 
 
+# The weekly player award flags on player_week ("<award>?"), in sheet order.
+# Each gets a "<award> streak" (player_week) and a "Times as <award>?" count
+# (player_year / player_all_time).
+PLAYER_WEEK_AWARDS: Tuple[str, ...] = (
+    "Player of the week?", "QB of the week?", "RB of the week?", "WR of the week?", "TE of the week?",
+    "Benchwarmer of the week?", "Bench QB of the week?", "Bench RB of the week?", "Bench WR of the week?",
+    "Bench TE of the week?", "Dud of the week?", "Bench dud of the week?",
+    "Highest starter on team?", "Lowest starter on team?", "Captain?",
+)
+
+
+def _award(values: pd.Series, how: str, winners: List[int]) -> None:
+    """Append the row labels that win a max / min award over `values` (NaN
+    ignored). Every tied row wins, except a tie at 0 (2+ rows on 0): nobody."""
+    v = values.dropna()
+    if v.empty:
+        return
+    ext = v.max() if how == "max" else v.min()
+    tied = v.index[(v == ext).to_numpy()]
+    if float(ext) == 0.0 and len(tied) >= 2:
+        return
+    winners.extend(int(i) for i in tied)
+
+
+def player_week_award_flags(pw: pd.DataFrame) -> pd.DataFrame:
+    """1 / 0 per player_week row for every PLAYER_WEEK_AWARDS column.
+
+    User rules (2026-11-18):
+      - ELIGIBLE = not Injury? and not Suspension? that week (a bye is still
+        eligible; taxi / IR are not tracked historically, so ignored).
+      - TIES: every tied player wins, EXCEPT a tie at 0 (2+ players tied for an
+        award on 0) — then nobody wins it. One player alone on 0 still wins.
+      - Benchwarmer of the week = the league's highest-scoring BENCH player;
+        Dud of the week = its lowest-scoring starter; Bench dud of the week =
+        its lowest-scoring bench player (bench = every non-starter).
+    Points are compared at 2 decimals; Captain's share at 6.
+    """
+    res = pd.DataFrame(0, index=pw.index, columns=list(PLAYER_WEEK_AWARDS))
+    if pw.empty:
+        return res
+    starters = pw["Starter/Bench"].astype(str) == "Starter"
+    pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
+    pos_series = pw[pos_col].astype(str).str.upper()
+
+    def _flag(col):
+        c = pw[col] if col in pw.columns else pd.Series(False, index=pw.index)
+        return c.map(lambda v: str(v).strip().lower() in ("true", "1", "1.0", "yes"))
+
+    elig = ~(_flag("Injury?") | _flag("Suspension?"))
+    pts = pd.to_numeric(pw["Points"], errors="coerce").round(2)
+    share = (pd.to_numeric(pw["% of points (if starter)"], errors="coerce").round(6)
+             if "% of points (if starter)" in pw.columns else pd.Series(np.nan, index=pw.index))
+    wins: Dict[str, List[int]] = {c: [] for c in PLAYER_WEEK_AWARDS}
+    for _, g in pw[elig].groupby(["Year", "Week"]):
+        st = starters.loc[g.index].to_numpy()
+        si, bi = g.index[st], g.index[~st]
+        _award(pts.loc[si], "max", wins["Player of the week?"])
+        _award(pts.loc[si], "min", wins["Dud of the week?"])
+        _award(pts.loc[bi], "max", wins["Benchwarmer of the week?"])
+        _award(pts.loc[bi], "min", wins["Bench dud of the week?"])
+        for pos in ("QB", "RB", "WR", "TE"):
+            _award(pts.loc[si[(pos_series.loc[si] == pos).to_numpy()]], "max", wins[f"{pos} of the week?"])
+            _award(pts.loc[bi[(pos_series.loc[bi] == pos).to_numpy()]], "max", wins[f"Bench {pos} of the week?"])
+        # Captain: the starter, league-wide, who supplied the highest share of
+        # his team's PF (most indispensable single player).
+        _award(share.loc[si], "max", wins["Captain?"])
+        for _, tg in pw.loc[si].groupby("Team"):
+            _award(pts.loc[tg.index], "max", wins["Highest starter on team?"])
+            _award(pts.loc[tg.index], "min", wins["Lowest starter on team?"])
+    for c, idx in wins.items():
+        if idx:
+            res.loc[idx, c] = 1
+    return res
+
+
 def _encode_player_streaks(df: pd.DataFrame, group_col: str, order_cols: List[str],
                            played, specs: Dict[str, Any]) -> pd.DataFrame:
     """Compute terminal-encoded PLAYER streaks that SKIP non-played weeks.
@@ -7352,6 +7427,8 @@ def build_all(repo_root: Path) -> None:
                             "Bench RB of the week?": None,
                             "Bench WR of the week?": None,
                             "Bench TE of the week?": None,
+                            "Dud of the week?": None,
+                            "Bench dud of the week?": None,
                             "Highest starter on team?": None,
                             "Lowest starter on team?": None,
                         })
@@ -14233,109 +14310,11 @@ def build_all(repo_root: Path) -> None:
         except Exception as e:
             _log_exc(debug, "projection_awards", e)
 
-        award_cols = [
-            "Player of the week?",
-            "QB of the week?",
-            "RB of the week?",
-            "WR of the week?",
-            "TE of the week?",
-            "Benchwarmer of the week?",
-            "Bench QB of the week?",
-            "Bench RB of the week?",
-            "Bench WR of the week?",
-            "Bench TE of the week?",
-            "Highest starter on team?",
-            "Lowest starter on team?",
-            "Captain?",
-        ]
+        award_cols = list(PLAYER_WEEK_AWARDS)
 
-        def _set_flag(mask, col):
-            pw.loc[mask, col] = 1
-            pw.loc[~mask, col] = pw.loc[~mask, col].fillna(0)
-
-        # league-level player of week among starters.
-        # Pick exactly ONE winner per (Year, Week) per award. Tie-breaker rules:
-        #   - Player of the week (max score): on tie, alphabetical Player name first
-        #   - Benchwarmer (min score): if 2+ starters tie at 0 points, no winner
-        #     (it's not meaningful to call out one of many who all sat out). If 2+
-        #     tie at a non-zero low, alphabetical first wins.
-        starters = pw["Starter/Bench"] == "Starter"
-        pos_col = "Position" if "Position" in pw.columns else "Position started in (if starter)"
-        pos_series = pw[pos_col].astype(str).str.upper()
-
-        def _pick_one(sub_df: pd.DataFrame, by_max: bool) -> Optional[int]:
-            """Return the row index of the single award winner, or None."""
-            if sub_df.empty:
-                return None
-            extreme = sub_df["Points"].max() if by_max else sub_df["Points"].min()
-            tied = sub_df[sub_df["Points"] == extreme]
-            # Multi-way tie at 0 for min: don't award.
-            if (not by_max) and float(extreme) == 0.0 and len(tied) >= 2:
-                return None
-            tied_sorted = tied.assign(_p=tied["Player"].astype(str)).sort_values("_p", kind="stable")
-            return int(tied_sorted.index[0])
-
-        for (yr, wk), g in pw.groupby(["Year", "Week"]):
-            sg = g[starters.loc[g.index]]
-            if sg.empty:
-                continue
-            # Player of the week
-            idx = _pick_one(sg, by_max=True)
-            if idx is not None:
-                _set_flag(pw.index == idx, "Player of the week?")
-            # Captain of the week: the starter, league-wide, who supplied the
-            # highest share of his team's PF (most indispensable single player).
-            _sh = pd.to_numeric(sg.get("% of points (if starter)"), errors="coerce")
-            if _sh is not None and _sh.notna().any():
-                _mx = _sh.max()
-                _cand = sg.loc[_sh[_sh == _mx].index]
-                _cand = _cand.assign(_p=_cand["Player"].astype(str)).sort_values("_p", kind="stable")
-                _set_flag(pw.index == int(_cand.index[0]), "Captain?")
-            # Benchwarmer of the week
-            idx = _pick_one(sg, by_max=False)
-            if idx is not None:
-                _set_flag(pw.index == idx, "Benchwarmer of the week?")
-
-            for pos, col in [("QB", "QB of the week?"), ("RB", "RB of the week?"), ("WR", "WR of the week?"), ("TE", "TE of the week?")]:
-                pg = sg[pos_series.loc[sg.index] == pos]
-                idx = _pick_one(pg, by_max=True)
-                if idx is not None:
-                    _set_flag(pw.index == idx, col)
-
-            # bench position awards (bench only)
-            bg = g[~starters.loc[g.index]]
-            for pos, col in [
-                ("QB", "Bench QB of the week?"),
-                ("RB", "Bench RB of the week?"),
-                ("WR", "Bench WR of the week?"),
-                ("TE", "Bench TE of the week?"),
-            ]:
-                pg = bg[pos_series.loc[bg.index] == pos]
-                idx = _pick_one(pg, by_max=True)
-                if idx is not None:
-                    _set_flag(pw.index == idx, col)
-
-            # team-level awards: highest/lowest starter per team per week
-            for team, tg in sg.groupby("Team"):
-                mx_t = tg["Points"].max()
-                mn_t = tg["Points"].min()
-                _set_flag(
-                    (pw["Year"] == yr)
-                    & (pw["Week"] == wk)
-                    & (pw["Team"] == team)
-                    & starters
-                    & (pw["Points"] == mx_t),
-                    "Highest starter on team?",
-                )
-                _set_flag(
-                    (pw["Year"] == yr)
-                    & (pw["Week"] == wk)
-                    & (pw["Team"] == team)
-                    & starters
-                    & (pw["Points"] == mn_t),
-                    "Lowest starter on team?",
-                )
-
+        _flags = player_week_award_flags(pw)
+        for _c in award_cols:
+            pw[_c] = _flags[_c]
         pw[award_cols] = pw[award_cols].fillna(0)
 
         # ------------------------------------------------------------------
@@ -16672,21 +16651,7 @@ def build_all(repo_root: Path) -> None:
         _champ_start_all = _champ_py.groupby("Player ID")["_champ_start"].sum().astype(int).to_dict()
         _champ_final_all = _champ_py.groupby("Player ID")["_champ_final"].sum().astype(int).to_dict()
 
-        award_cols = [
-            "Player of the week?",
-            "QB of the week?",
-            "RB of the week?",
-            "WR of the week?",
-            "TE of the week?",
-            "Benchwarmer of the week?",
-            "Bench QB of the week?",
-            "Bench RB of the week?",
-            "Bench WR of the week?",
-            "Bench TE of the week?",
-            "Highest starter on team?",
-            "Lowest starter on team?",
-            "Captain?",
-        ]
+        award_cols = list(PLAYER_WEEK_AWARDS)
 
         pw_work[award_cols] = pw_work[award_cols].fillna(0)
 
@@ -17158,6 +17123,8 @@ def build_all(repo_root: Path) -> None:
                 "Bench RB of the week?": "Times as Bench RB of the week?",
                 "Bench WR of the week?": "Times as Bench WR of the week?",
                 "Bench TE of the week?": "Times as Bench TE of the week?",
+                "Dud of the week?": "Times as Dud of the week?",
+                "Bench dud of the week?": "Times as Bench dud of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
                 "Captain?": "Times as Captain?",
@@ -17794,6 +17761,8 @@ def build_all(repo_root: Path) -> None:
                 "Bench RB of the week?": "Times as Bench RB of the week?",
                 "Bench WR of the week?": "Times as Bench WR of the week?",
                 "Bench TE of the week?": "Times as Bench TE of the week?",
+                "Dud of the week?": "Times as Dud of the week?",
+                "Bench dud of the week?": "Times as Bench dud of the week?",
                 "Highest starter on team?": "Times as Highest starter on team?",
                 "Lowest starter on team?": "Times as Lowest starter on team?",
                 "Captain?": "Times as Captain?",

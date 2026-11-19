@@ -915,6 +915,7 @@ def build_snapshot(
         # stopped being negated (see `migrate_snapshot_signs`).
         _DROPPED_SIGN_KEY: _DROPPED_SIGN_RAW,
         _BENCH_SPLIT_KEY: _BENCH_SPLIT_DONE,
+        _AWARD_SPLIT_KEY: _AWARD_SPLIT_DONE,
         # The gate rules this snapshot was ranked under, so next week can tell a
         # line a change to them let go from one new data brought
         # (`mark_rule_releases`).
@@ -4934,6 +4935,39 @@ _BENCH_SPLIT_DONE = "2026-10-25"
 _BENCH_SPLIT_RENAMES = {("team_week", "Combined bench points"): "Combined points left on bench"}
 
 
+# player_week "Benchwarmer of the week?" was the league's lowest-scoring STARTER
+# until 2026-11-18; that award is now "Dud of the week?" and Benchwarmer is the
+# highest-scoring BENCH player [per user]. A snapshot written before stored the
+# lowest-starter boards / all-time ranks under the Benchwarmer names: they belong
+# to Dud, so they move there on READ, once (stamped). The new Benchwarmer starts
+# with no history, so its first digest re-baselines in silence.
+_AWARD_SPLIT_KEY = "benchwarmer_split"
+_AWARD_SPLIT_DONE = "2026-11-18"
+_AWARD_SPLIT_RENAMES = {
+    "Benchwarmer of the week?": "Dud of the week?",
+    "Times as Benchwarmer of the week?": "Times as Dud of the week?",
+    "Benchwarmer of the week streak": "Dud of the week streak",
+}
+
+
+def migrate_snapshot_award_split(snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with its pre-2026-11-18 Benchwarmer (lowest starter) boards and
+    player ranks moved to the Dud of the week names (idempotent: a stamped
+    snapshot is returned as is)."""
+    if not isinstance(snapshot, dict):
+        return snapshot
+    meta = snapshot.setdefault("meta", {})
+    if not isinstance(meta, dict) or meta.get(_AWARD_SPLIT_KEY) == _AWARD_SPLIT_DONE:
+        return snapshot
+    for e in _snapshot_board_entries(snapshot):
+        if isinstance(e, dict) and str(e.get("sheet", "")).startswith("player_"):
+            e["column"] = _AWARD_SPLIT_RENAMES.get(e.get("column"), e.get("column"))
+    if isinstance(snapshot.get("players"), dict):
+        snapshot["players"] = {_AWARD_SPLIT_RENAMES.get(k, k): v for k, v in snapshot["players"].items()}
+    meta[_AWARD_SPLIT_KEY] = _AWARD_SPLIT_DONE
+    return snapshot
+
+
 def migrate_snapshot_bench_split(snapshot: Optional[dict]) -> Optional[dict]:
     """`snapshot` with its pre-split "Combined bench points" boards moved to
     "Combined points left on bench" (idempotent: a stamped snapshot is returned
@@ -4971,8 +5005,8 @@ def migrate_snapshot_signs(snapshot: Optional[dict]) -> Optional[dict]:
 
 def load_snapshot(path: Path) -> Optional[dict]:
     try:
-        return migrate_snapshot_bench_split(
-            migrate_snapshot_signs(migrate_snapshot_columns(json.loads(Path(path).read_text()))))
+        return migrate_snapshot_award_split(migrate_snapshot_bench_split(
+            migrate_snapshot_signs(migrate_snapshot_columns(json.loads(Path(path).read_text())))))
     except (OSError, ValueError):
         return None
 
