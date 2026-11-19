@@ -647,3 +647,4 @@ browser.
 585. Trade calculator: three- and four-team trades in the same layout ("+ Add a team"; each sent asset gets a destination).
 586. Trade calculator: "Or bring in a third team" — for each other team, the swap through it that leaves every team closest to even.
 587. Trade calculator: checks after every change — every team involved, active roster under the league limit, every starting spot still fillable.
+588. Trade calculator: projected wins added, playoff odds and title odds as verdict / suggestion measures — each team's simulated change (Predictions model); even-it-up candidates (ten most-projected players) and third-team ideas (screened on projected points) are each simulated, and teams outside the deal that move are listed.
