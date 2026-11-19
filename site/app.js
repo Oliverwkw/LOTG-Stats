@@ -172,7 +172,7 @@ const tslug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace
 // its Sleeper avatar and team name once Sleeper has answered (kept in localStorage, so
 // the next visit shows them at once)
 const PALETTE = ["#2d5bd7", "#d4483b", "#16936a", "#8a4fd1", "#c97a12", "#0f8a9a", "#c43c86", "#5b6b7a", "#7a8f1c", "#a0522d"];
-let TEAMS = [];
+let TEAMS = [], CUR_SEASON = null, SEASON_DONE = false;
 let TINFO = prefs.get("lotg:teaminfo", {});    // team -> {av: url, name: fantasy team name}
 const teamColor = (t) => { const i = TEAMS.findIndex((x) => x.toLowerCase() === String(t).toLowerCase()); return PALETTE[(i < 0 ? [...String(t)].reduce((a, c) => a + c.charCodeAt(0), 0) : i) % PALETTE.length]; };
 const avatar = (t, cls = "") => {
@@ -265,6 +265,29 @@ function downloadText(name, text, type = "text/csv") {
   a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
+// best / worst in each numeric column of a table (opts.extremes === false turns it off).
+// Lower is better where the name says so (points against, busts, left on the bench, …);
+// identifiers and neutral counts (year, week, age, trades, roster counts…) are left alone.
+const X_SKIP = /^(#|year|week|season|age|number|rank|round|pick|draft|from|to|place|weeks|weeks rostered|weeks as starter|games|n)$|\b(year|week number|number of (trades|add\/drops|teams|players|picks)|trades|add\/drop|transactions|faab spent|rostered|on roster|# players|# picks|players|picks held|id)\b/i;
+const X_LOW = /\b(against|pa|bust|lowest|left on (the )?bench|bench points left|donuts?|under 10|loss(es)?|hardship|injur(y|ies)|empty|turnover|choke|last place|adp|riskiness|age)\b/i;
+function extremesOf(cols, rows, val) {
+  const out = cols.map(() => null);
+  if (rows.length < 3) return out;
+  cols.forEach((c, i) => {
+    if (i === 0 || c.noext || c.extremes === false) return;
+    const name = `${c.label} ${c.col || ""}`.trim();
+    if (X_SKIP.test(c.label) || X_SKIP.test(c.col || "")) return;
+    const vs = rows.map((r) => val(c, r)).filter((v) => typeof v === "number" && isFinite(v));
+    if (vs.length < 3) return;
+    const hi = Math.max(...vs), lo = Math.min(...vs);
+    if (hi === lo) return;
+    // a value most rows share is not a "best" (e.g. a column of zeros with one 1)
+    const nHi = vs.filter((v) => v === hi).length, nLo = vs.filter((v) => v === lo).length;
+    const low = X_LOW.test(name);
+    out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) <= Math.max(1, vs.length / 3), okW: (low ? nHi : nLo) <= Math.max(1, vs.length / 3) };
+  });
+  return out;
+}
 function table(cols, rows, opts = {}) {
   const id = "t" + (++tableSeq);
   const state = { by: opts.sort ?? null, asc: !!opts.asc, q: "", all: false };
@@ -272,6 +295,9 @@ function table(cols, rows, opts = {}) {
   const val = (c, r) => (typeof c.k === "function" ? c.k(r) : r[c.k]);
   const tools = opts.tools ?? rows.length > 15;
   const limit = opts.limit ?? 150;
+  const EXT = opts.extremes === false ? cols.map(() => null) : extremesOf(cols, opts.xskip ? rows.filter((r) => !opts.xskip(r)) : rows, (c, r) => (typeof c.k === "function" ? c.k(r) : r[c.k]));
+  const hasExt = EXT.some(Boolean);
+  const extCls = (i, v) => { const e = EXT[i]; if (!e || typeof v !== "number") return ""; return v === e.best && e.okB ? " xbest" : v === e.worst && e.okW ? " xworst" : ""; };
   const text = (r) => cols.map((c) => { const v = val(c, r); return typeof v === "string" ? v : ""; }).join(" ").toLowerCase()
     + " " + (opts.teamOf ? String(opts.teamOf(r) || "").toLowerCase() : "");
   function current() {
@@ -302,7 +328,7 @@ function table(cols, rows, opts = {}) {
     const body = shown.map((r, ri) => {
       const cls = [opts.rowClass ? opts.rowClass(r) : "", opts.teamOf && ME && opts.teamOf(r) === ME ? "me" : "", isDefault && opts.cut && ri === opts.cut - 1 ? "cut" : "", opts.rowLink && opts.rowLink(r) ? "go" : ""].filter(Boolean).join(" ");
       return "<tr" + (cls ? ` class="${cls}"` : "") + (opts.rowLink ? ` data-go="${esc(opts.rowLink(r) || "")}"` : "") + ">" + cols.map((c, i) =>
-        `<td class="${c.left ? "l" : ""}${i < (opts.pin || 1) ? " pin pin" + i : ""}">${c.html ? c.html(r) : fmt(c.spec, val(c, r))}</td>`).join("") + "</tr>";
+        `<td class="${c.left ? "l" : ""}${i < (opts.pin || 1) ? " pin pin" + i : ""}${opts.xskip && opts.xskip(r) ? "" : extCls(i, val(c, r))}">${c.html ? c.html(r) : fmt(c.spec, val(c, r))}</td>`).join("") + "</tr>";
     }).join("") || `<tr><td colspan="${cols.length}" class="l muted">No rows match.</td></tr>`;
     const el = document.getElementById(id);
     if (!el) return;
@@ -311,7 +337,8 @@ function table(cols, rows, opts = {}) {
     el.querySelector(".tb") && (el.querySelector(".tcount").textContent = state.q ? `${rs.length} of ${rows.length}` : plural(rows.length, "row"));
     el.querySelector(".scroll").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     el.querySelector(".scroll").scrollLeft = x;
-    el.querySelector(".tmorew").innerHTML = shown.length < rs.length ? `<button class="b sm tmore" data-all>Show all ${rs.length.toLocaleString()} rows</button>` : "";
+    el.querySelector(".tmorew").innerHTML = (shown.length < rs.length ? `<button class="b sm tmore" data-all>Show all ${rs.length.toLocaleString()} rows</button>` : "")
+      + (hasExt ? `<div class="xlegend"><span class="xbest">best</span><span class="xworst">worst</span> in each column of this table${opts.xnote ? " · " + esc(opts.xnote) : ""}</div>` : "");
     pinColumns(el.querySelector(".scroll"));
     if (ME) refreshAvatars();
   }
@@ -380,7 +407,11 @@ function dataTable(t, opts = {}) {
     cols.push(col);
   });
   const ti = t.cols.indexOf("Team");
-  return table(cols, t.rows, { teamOf: ti >= 0 ? (r) => r[ti] : undefined, ...opts });
+  // one row per season: the season still being played is left out of best / worst
+  const yi = t.cols.indexOf("Year"), ys = yi >= 0 ? t.rows.map((r) => r[yi]) : [];
+  const perYear = yi >= 0 && new Set(ys).size === ys.length && ys.includes(CUR_SEASON) && !SEASON_DONE;
+  const xs = perYear ? { xskip: (r) => r[yi] === CUR_SEASON, xnote: `${CUR_SEASON} is still being played, so it's left out` } : {};
+  return table(cols, t.rows, { teamOf: ti >= 0 ? (r) => r[ti] : undefined, ...xs, ...opts });
 }
 const idx = (t, c) => t.cols.indexOf(c);
 
@@ -2156,14 +2187,17 @@ function espnCard(F, nfl, live) {
 // season then runs through the league's rules: standings by wins (ties half) then PF,
 // top 4 to the playoffs, 1v4 / 2v3 with +5 to the higher seed, the final over its
 // weeks (two from 2026, summed). Everything runs in the browser.
-async function predict(_a, query, live) {
-  setTitle("Predictions");
-  $app.innerHTML = `${crumbs(["Predictions"])}<h1>Predictions</h1><p class="muted">Loading the schedule, rosters and the forecast's simulated seasons…</p><div class="skel blk"></div>`;
+// opt.headless: build the season simulation and return it without drawing the page
+// (the trade calculator uses it to price a trade in title / playoff odds)
+async function predict(_a, query, live, opt = {}) {
+  if (!opt.headless) setTitle("Predictions");
+  if (!opt.headless) $app.innerHTML = `${crumbs(["Predictions"])}<h1>Predictions</h1><p class="muted">Loading the schedule, rosters and the forecast's simulated seasons…</p><div class="skel blk"></div>`;
   const [meta, LW, nfl, H] = await Promise.all([load("meta.json"), load("live_watch.json"), loadNfl(), load("home.json")]);
   // the home page's forecast seasons, replayed here (lotg_support.league_site.forecast_odds)
   const SIM = H.forecast && H.forecast.sim;
   const SB = SIM ? await fetch(withBuild("data/" + SIM.file)).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null) : null;
   live = live || await loadLive();
+  if (!live && opt.headless) return null;
   if (!live) { $app.innerHTML = `${crumbs(["Predictions"])}<h1>Predictions</h1><div class="card empty"><div class="big">📡</div><p>Needs Sleeper's rosters and schedule, and Sleeper is unreachable right now.</p><p><button class="b pri" data-relive>Try again</button></p></div>`; return; }
   // the season's calendar (live_watch.json); the 2026 layout if an older file lacks it
   const P = LW.playoff || { teams: 4, regular_weeks: 14, semifinal_week: 15, final_weeks: [16, 17], semifinal_bonus: 5 }, teams = meta.teams;
@@ -2411,6 +2445,7 @@ async function predict(_a, query, live) {
   }
   const runSim = (withChanges) => (FULL ? simulateFull(withChanges) : { ...simulate(withChanges), n: N });
   let base = null;
+  if (opt.headless) return { runSim, teams, games, FULL, n: FULL ? NS : N, setMoves: (m) => { moves = m; }, setPicks: (p) => { picks = p; } };
   // clinched / out with the picked games counted as played
   const status = () => {
     const w = Object.fromEntries(teams.map((t) => [t, (base0[t] || {}).w || 0])), left = Object.fromEntries(teams.map((t) => [t, 0]));
@@ -2503,8 +2538,23 @@ const weekNav = (y, w, toHref) => loadWeeks().then((ws) => {
 async function calc(_a, query, live) {
   setTitle("Trade calculator");
   $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="skel blk"></div>`;
-  const [meta, B, PK, nfl, LW] = await Promise.all([load("meta.json"), loadBoard(), load("picks.json"), loadNfl(), load("live_watch.json").catch(() => ({ rates: {}, roster_positions: [] }))]);
+  const [meta, B, PK, nfl, LW, KT, SP, H] = await Promise.all([load("meta.json"), loadBoard(), load("picks.json"), loadNfl(), load("live_watch.json").catch(() => ({ rates: {}, roster_positions: [] })),
+    load("ktc.json").catch(() => null), load("season_players.json").catch(() => null), load("home.json").catch(() => ({ standings: [] }))]);
   live = live || await loadLive();
+  // KTC for a pick: dynasty-daddy prices 12-team Early / Mid / Late quarters, so a pick's
+  // overall place in this league's draft is mapped onto them (the build's ktc.pick_label_candidates
+  // rule). Next year's slot comes from the standings (worst record picks first); a later year
+  // averages every quarter its round spans.
+  const rankNow = Object.fromEntries((H.standings || []).map((r) => [r.team, r.rank]));
+  const ktcPick = (y, r, o, idx = 0) => {
+    if (!KT || !KT.picks) return null;
+    const n = meta.teams.length;
+    const ovs = y === PK.years[0] && rankNow[o] ? [(r - 1) * n + (n + 1 - rankNow[o])] : Array.from({ length: n }, (_, i) => (r - 1) * n + i + 1);
+    const vs = ovs.map((ov) => { const rn = Math.floor((ov - 1) / 12) + 1, ps = (ov - 1) % 12 + 1; const e = KT.picks[`${y} ${ps <= 4 ? "Early" : ps <= 8 ? "Mid" : "Late"} ${ORD[rn] || rn + "th"}`]; return e ? e[idx] : null; }).filter((v) => typeof v === "number");
+    return vs.length ? vs.reduce((a, v) => a + v, 0) / vs.length : null;
+  };
+  const spCol = SP ? SP.cols.indexOf("Avg points") : -1;
+  const weeksLeft = Math.max(0, ((LW.playoff || {}).regular_weeks || 14) - meta.week);
   if (!B) { $app.innerHTML = `${crumbs(["Trade calculator"])}<h1>Trade calculator</h1><div class="card empty"><div class="big">💲</div><p>The FAAB board isn't published yet, so there are no values to compare.</p></div>`; return; }
   const teams = meta.teams;
   const params = new URLSearchParams(query || "");
@@ -2521,10 +2571,13 @@ async function calc(_a, query, live) {
   const info = (k) => {
     if (k[0] === "k") {
       const [y, r, ...o] = k.slice(1).split("-"), orig = o.join("-");
-      return { k, pick: true, name: `${y} ${ORD[+r] || r + "th"}${orig ? ` (${orig})` : ""}`, pos: "PICK", value: pickValue(PK, B, +y, +r, orig) || 0, y: +y, r: +r };
+      return { k, pick: true, name: `${y} ${ORD[+r] || r + "th"}${orig ? ` (${orig})` : ""}`, pos: "PICK", value: pickValue(PK, B, +y, +r, orig) || 0, y: +y, r: +r,
+               ktc: ktcPick(+y, +r, orig), ktcAgo: ktcPick(+y, +r, orig, 1) };
     }
     const pid = k.slice(1), b = board[pid], n = nfl[pid] || [];
-    return { k, pid, name: (b && b.name) || n[0] || NAMES_BY_ID[pid] || pid, pos: (b && b.pos) || n[1] || "", nfl: (b && b.team) || n[2] || "", age: b ? b.age : n[3], inj: (b && b.injury) || n[4] || "", value: b ? b.value : 0, rate: LW.rates[pid] };
+    const kt = KT && KT.players ? KT.players[pid] : null, sp = SP && spCol >= 0 ? (SP.rows[pid] || [])[spCol] : null;
+    return { k, pid, name: (b && b.name) || n[0] || NAMES_BY_ID[pid] || pid, pos: (b && b.pos) || n[1] || "", nfl: (b && b.team) || n[2] || "", age: b ? b.age : n[3], inj: (b && b.injury) || n[4] || "", value: b ? b.value : 0, rate: LW.rates[pid],
+             ktc: kt ? kt[0] : null, ktcAgo: kt ? kt[1] : null, ktcRank: kt ? kt[2] : null, ppg: typeof sp === "number" ? sp : null };
   };
   const assetsOf = (t) => rosterOf(t).map((pid) => "p" + pid).concat(picksOf(t));
   // keep only assets the team still has (a link can outlive a roster move)
@@ -2552,7 +2605,7 @@ async function calc(_a, query, live) {
   const sync = () => setQuery({ a: A, b: Bt, sa: SA.join(","), sb: SB.join(",") });
   const row = (x, side, inDeal) => `<button class="asset${inDeal ? " in" : ""}" data-side="${side}" data-k="${esc(x.k)}" title="${inDeal ? "Take out of the deal" : "Add to the deal"}">
       <span class="ai">${inDeal ? "✕" : "+"}</span>${posBadge(x.pos)} <span class="an">${esc(x.name)}${x.inj ? ` <span class="chip bad">${esc(x.inj)}</span>` : ""}</span>
-      <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span><b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>`;
+      <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span>${x.ktc != null ? `<span class="ktcv" title="KTC superflex value">${Math.round(x.ktc).toLocaleString()}</span>` : ""}<b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>`;
   const filt = { a: "", b: "" };
   function sideHtml(side) {
     const t = side === "a" ? A : Bt, other = side === "a" ? Bt : A, sends = side === "a" ? SA : SB;
@@ -2568,6 +2621,68 @@ async function calc(_a, query, live) {
       .sort((x, y) => (y.value || 0) - (x.value || 0));
     return xs.map((x) => row(x, side, false)).join("") || `<p class="muted small">Nothing matches.</p>`;
   }
+  // the deal through every lens the site has: each row = what each team receives
+  function lensesHtml(before, after) {
+    const getA = SB.map(info), getB = SA.map(info);
+    const tot = (xs, f) => { let s = 0, n = 0; for (const x of xs) { const v = f(x); if (typeof v === "number" && isFinite(v)) { s += v; n++; } } return { s, n, all: n === xs.length }; };
+    const wAge = (xs) => { const ps = xs.filter((x) => !x.pick && typeof x.age === "number"); const w = ps.reduce((a, x) => a + Math.max(1, x.value || 0), 0); return ps.length ? ps.reduce((a, x) => a + x.age * Math.max(1, x.value || 0), 0) / w : null; };
+    const rows = [];
+    const add = (lab, why, a, b, f, low) => {
+      const has = typeof a === "number" && typeof b === "number";
+      const edge = !has || Math.abs(a - b) < 1e-9 ? '<span class="muted">even</span>'
+        : `<span class="chip ${((a > b) !== !!low) ? "acc" : "gold"}">${esc((a > b) !== !!low ? A : Bt)} +${stripHtml(f(Math.abs(a - b)))}</span>`;
+      rows.push(`<tr><td class="l"><b>${lab}</b><div class="muted small">${why}</div></td><td>${typeof a === "number" ? f(a) : "—"}</td><td>${typeof b === "number" ? f(b) : "—"}</td><td class="l">${edge}</td></tr>`);
+    };
+    const n0 = (v) => Math.round(v).toLocaleString(), p1 = (v) => fmt({ d: 1 }, v);
+    add("FAAB value", `the league's stats-only board, ${esc(B.as_of)}`, tot(getA, (x) => x.value).s, tot(getB, (x) => x.value).s, money);
+    if (KT) {
+      const ka = tot(getA, (x) => x.ktc), kb = tot(getB, (x) => x.ktc);
+      add("KTC value", `KeepTradeCut superflex, ${esc(KT.as_of)}${ka.all && kb.all ? "" : " · some assets not on KTC"}`, ka.s, kb.s, n0);
+      const ta = tot(getA, (x) => x.ktc != null && x.ktcAgo != null ? x.ktc - x.ktcAgo : null), tb = tot(getB, (x) => x.ktc != null && x.ktcAgo != null ? x.ktc - x.ktcAgo : null);
+      add("KTC trend", "change in KTC value over the last month (rising assets score higher)", ta.s, tb.s, (v) => (v >= 0 ? "" : "−") + n0(Math.abs(v)));
+    }
+    add("Projected points a week", "the forecast's rate for each player received, this season blended in", tot(getA, (x) => x.rate).s, tot(getB, (x) => x.rate).s, p1);
+    if (weeksLeft) add(`Rest of the regular season`, `projected points over the ${plural(weeksLeft, "week")} left`, tot(getA, (x) => x.rate).s * weeksLeft, tot(getB, (x) => x.rate).s * weeksLeft, p1);
+    if (SP) add(`${SP.season} points a week`, "what the players have scored a week this season while rostered in the league", tot(getA, (x) => x.ppg).s, tot(getB, (x) => x.ppg).s, p1);
+    if (slots.length) add("Starting lineup", "change in each team's best projected lineup a week (fills its holes, or doesn't)", after[A].wk - before[A].wk, after[Bt].wk - before[Bt].wk, (v) => (v >= 0 ? "+" : "−") + p1(Math.abs(v)));
+    add("Age", "value-weighted average age of the players received (younger wins)", wAge(getA), wAge(getB), (v) => fmt({ d: 1 }, v), true);
+    add("Picks", "FAAB value of the draft picks received", tot(getA.filter((x) => x.pick), (x) => x.value).s, tot(getB.filter((x) => x.pick), (x) => x.value).s, money);
+    return `<div class="card nocv"><h2>Every angle</h2><div class="scroll"><table class="lens"><thead><tr><th class="l nosort">What each team receives</th><th class="nosort">${teamLink(A)}</th><th class="nosort">${teamLink(Bt)}</th><th class="l nosort">Edge</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
+      <p class="muted small">Different scales can disagree: FAAB is this league's own model (no news), KTC is the dynasty market, points are this season's production. ${KT ? "" : "KTC values aren't in this build."}</p></div>`;
+  }
+  // title / final / playoff odds before and after, from the Predictions page's simulation
+  let oddsState = { key: "", html: "" };
+  const playerMoves = () => SA.filter((k) => k[0] === "p").map((k) => ({ pid: k.slice(1), to: Bt })).concat(SB.filter((k) => k[0] === "p").map((k) => ({ pid: k.slice(1), to: A })));
+  function oddsHtml() {
+    const key = JSON.stringify(playerMoves());
+    if (oddsState.key === key && oddsState.html) return oddsState.html;
+    return `<h2>Season odds</h2><p class="muted small">${playerMoves().length ? "Simulating the rest of the season with and without the trade…" : "Add a player to see how the trade moves each team's playoff and title odds (picks don't play this season)."}</p>${playerMoves().length ? '<div class="skel ln"></div><div class="skel ln" style="width:60%"></div>' : ""}`;
+  }
+  const runOdds = debounce(async () => {
+    const mv = playerMoves(), key = JSON.stringify(mv);
+    if (!mv.length || oddsState.key === key) return;
+    try {
+      calc.E = calc.E || predict(null, "", live, { headless: true });
+      const E = await calc.E;
+      if (!E) throw new Error("Sleeper is unreachable");
+      E.setPicks({}); E.setMoves([]);
+      calc.base = calc.base || E.runSim(false);
+      E.setMoves(mv);
+      const res = E.runSim(true), N = res.n, b = calc.base;
+      E.setMoves([]);
+      const pc = (x) => x == null ? "—" : (100 * x).toFixed(1) + "%";
+      const dl = (x) => { const v = Math.round(1000 * x) / 10; return v ? `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : ""}${v.toFixed(1)}</span>` : '<span class="muted">±0</span>'; };
+      const rowFor = (t) => { const a = b.tally[t], z = res.tally[t]; return `<tr class="${t === A || t === Bt ? "" : "muted"}"><td class="l">${teamLink(t)}</td>${["playoffs", "final", "title"].map((k) => `<td>${pc(a[k] / b.n)} → <b>${pc(z[k] / N)}</b> ${dl(z[k] / N - a[k] / b.n)}</td>`).join("")}<td>${fmt({ d: 1 }, a.wins / b.n)} → <b>${fmt({ d: 1 }, z.wins / N)}</b></td></tr>`; };
+      const others = E.teams.filter((t) => t !== A && t !== Bt).sort((x, y) => Math.abs(res.tally[y].title / N - b.tally[y].title / b.n) - Math.abs(res.tally[x].title / N - b.tally[x].title / b.n));
+      oddsState = { key, html: `<h2>Season odds</h2><div class="scroll"><table><thead><tr><th class="l nosort">Team</th><th class="nosort">Playoffs</th><th class="nosort">Final</th><th class="nosort">Title</th><th class="nosort">Proj. wins</th></tr></thead><tbody>${rowFor(A)}${rowFor(Bt)}</tbody></table></div>
+        <details><summary class="small">Everyone else</summary><div class="scroll"><table><tbody>${others.map(rowFor).join("")}</tbody></table></div></details>
+        <p class="muted small">${E.FULL ? `The home page's ${N.toLocaleString()} forecast seasons replayed with the players moved` : `${N.toLocaleString()} simulated seasons`} (the Predictions page's model: each team's best fielded lineup, injuries and the league's playoff rules). Small moves are noise. <a href="#/predict?mv=${encodeURIComponent(mv.map((m) => m.pid + ">" + m.to).join(","))}">Open in Predictions →</a></p>` };
+    } catch (e) {
+      oddsState = { key, html: `<h2>Season odds</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}.</p>` };
+    }
+    const el = $("#calcodds"); if (el && JSON.stringify(playerMoves()) === key) { el.innerHTML = oddsState.html; refreshAvatars(); }
+  }, 350);
+
   function resultHtml() {
     if (!SA.length && !SB.length) return `<div class="card empty"><div class="big">⚖️</div><p>Add what each team sends. Values are the league's FAAB board of ${esc(B.as_of)}; picks use the FAAB system's pick prices.</p></div>`;
     const getA = sum(SB), getB = sum(SA), gap = getA - getB, big = Math.max(getA, getB, 1);
@@ -2596,6 +2711,8 @@ async function calc(_a, query, live) {
       <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px"><span>${avatar(A)}<b>${esc(A)}</b> gets ${money(getA)}</span><span>${esc(Bt)} gets ${money(getB)} ${avatar(Bt)}</span></div>
       <p class="verdict">${even ? `<b>About even</b> — within ${money(Math.max(25, big * 0.05))}.` : `<b>${esc(winner)}</b> comes out ${money(Math.abs(gap))} ahead — ${esc(pickText(B, Math.abs(gap)))}. ${esc(loser)} gives up ${Math.round(100 * Math.abs(gap) / big)}% more than it gets.`}</p>
       ${fix}</div>
+      ${lensesHtml(before, after)}
+      <div class="card nocv" id="calcodds">${oddsHtml()}</div>
       <div class="card nocv"><h2>Before → after</h2><div class="scroll"><table><thead><tr><th class="l nosort"></th><th class="nosort">${teamLink(A)}</th><th class="nosort">${teamLink(Bt)}</th></tr></thead><tbody>
         ${line("Roster value", (x) => x.total, money, (v) => d(v))}
         ${line("Value rank", (x, t) => rank(before[t] === x ? before : after, t), (v) => ordinal(v), (v) => v ? `<span class="${v < 0 ? "pos" : "neg"}">${v < 0 ? "▲" : "▼"}${Math.abs(v)}</span>` : "")}
@@ -2613,10 +2730,11 @@ async function calc(_a, query, live) {
     $$("[data-pool]").forEach((el) => (el.innerHTML = poolHtml(el.dataset.pool)));
     $("#calcres").innerHTML = resultHtml();
     refreshAvatars();
+    runOdds();
     const sw = $("#cswap"); if (sw) sw.onclick = () => { [A, Bt] = [Bt, A]; [SA, SB] = [SB, SA]; draw(); };
     const cl = $("#cclear"); if (cl) cl.onclick = () => { SA = []; SB = []; draw(); };
   }
-  $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick two teams and tap what each sends. Values are the league's own FAAB board ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
+  $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick two teams and tap what each sends: see it in FAAB value, KTC, points and title odds ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
     <div id="calc"><div class="grid2" id="calcsides"></div><div id="calcres"></div></div>`;
   const root = $("#calc");
   // one listener for both sides: add / remove assets, switch teams, filter
@@ -2974,6 +3092,7 @@ showLeague(prefs.get("lotg:league", null));
 Promise.all([load("search.json"), load("meta.json")]).then(([ix, meta]) => {
   SIX = ix;
   TEAMS = meta.teams.slice();
+  CUR_SEASON = meta.season; SEASON_DONE = /final/i.test(String(meta.week_name || "")) && !/toilet|semi/i.test(String(meta.week_name || ""));
   ix.forEach((r) => { if (r[0] === "p") { NAMES[r[2]] = r[1]; NAMES_BY_ID[r[1]] = r[2]; POS_OF[r[1]] = String(r[3] || "").split(" ")[0]; } });
   if (ME && !TEAMS.includes(ME)) ME = null;
   const a = document.getElementById("navMine"); if (a && ME) { a.hidden = false; a.title = ME; }
