@@ -1878,6 +1878,11 @@ class Site:
         put("trades_full.json", full)
         put("draft.json", self.draft())
         put("picks.json", self.held_picks())
+        # today's KTC (dynasty-daddy's directory) for the trade calculator; the browser can't
+        # read dynasty-daddy itself (no CORS), and a build without network just leaves it out
+        k = ktc_snapshot()
+        if k:
+            put("ktc.json", k)
         rostered = []
         for r in json.loads((EXPORTS / "snapshot" / f"season_{self.season}" / "rosters.json").read_text()) \
                 if (EXPORTS / "snapshot" / f"season_{self.season}" / "rosters.json").exists() else []:
@@ -1909,6 +1914,37 @@ class Site:
         timings["total"] = round(time.time() - t0, 1)
         return {"timings": timings, "bytes": sum(sizes.values()), "files": len(sizes),
                 "largest": sorted(sizes.items(), key=lambda kv: -kv[1])[:5]}
+
+
+def ktc_snapshot_from(rows: Iterable[dict]) -> Optional[Dict[str, object]]:
+    """dynasty-daddy's directory rows -> the trade calculator's KTC file: superflex value,
+    the value a month ago and the superflex position rank, by Sleeper id; picks by their
+    dynasty-daddy name ('2027 Early 1st'). Only QB/RB/WR/TE and generic picks."""
+    players, picks, as_of = {}, {}, ""
+    for r in rows or []:
+        sf = r.get("sf_trade_value")
+        if not isinstance(sf, (int, float)):
+            continue
+        as_of = max(as_of, str(r.get("date") or "")[:10])
+        ago = r.get("last_month_value_sf")
+        ago = ago if isinstance(ago, (int, float)) else None
+        if r.get("position") == "PI":
+            name = str(r.get("full_name") or "")
+            if re.fullmatch(r"\d{4} (Early|Mid|Late) (1st|2nd|3rd|4th)", name):
+                picks[name] = [sf, ago]
+        elif r.get("position") in ("QB", "RB", "WR", "TE") and r.get("sleeper_id"):
+            players[str(r["sleeper_id"])] = [sf, ago, r.get("sf_position_rank")]
+    if not players:
+        return None
+    return {"as_of": as_of, "source": "KeepTradeCut superflex values, via dynasty-daddy", "players": players, "picks": picks}
+
+
+def ktc_snapshot() -> Optional[Dict[str, object]]:
+    try:
+        from . import ktc
+        return ktc_snapshot_from(ktc.load_directory(ROOT))
+    except Exception:
+        return None
 
 
 def copy_shell(out: Path, shell: Path = SHELL, stamp: Optional[str] = None) -> None:

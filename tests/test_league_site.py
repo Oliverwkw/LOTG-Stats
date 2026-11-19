@@ -553,6 +553,24 @@ def test_shell_assets_are_versioned():
     assert re.search(r'window\.SITE_BUILD="\d{14}"</script>\s*<script src="app\.js', html_text)
 
 
+def test_ktc_snapshot_keeps_players_and_generic_picks():
+    """The trade calculator's KTC file: superflex value, month-ago value and position rank
+    by Sleeper id; only the Early / Mid / Late round picks (not slot or 'pickNNNpi' rows)."""
+    rows = [
+        {"sleeper_id": "9221", "position": "RB", "sf_trade_value": 9998, "last_month_value_sf": 9999, "sf_position_rank": 1, "date": "2026-11-18T08:01:53Z"},
+        {"sleeper_id": None, "position": "QB", "sf_trade_value": 500},
+        {"full_name": "2027 Early 1st", "position": "PI", "sf_trade_value": 6648, "last_month_value_sf": 6891},
+        {"full_name": "2026 Pick 1.01", "position": "PI", "sf_trade_value": 7000},
+        {"full_name": "2026 pick101pi", "position": "PI", "sf_trade_value": 7000},
+        {"sleeper_id": "1", "position": "K", "sf_trade_value": 1},
+    ]
+    k = S.ktc_snapshot_from(rows)
+    assert k["players"] == {"9221": [9998, 9999, 1]}
+    assert k["picks"] == {"2027 Early 1st": [6648, 6891]}
+    assert k["as_of"] == "2026-11-18"
+    assert S.ktc_snapshot_from([]) is None
+
+
 def test_shell_keeps_its_basics():
     """The 2026-11 UX pass: the shell carries a skip link, a labelled search, the
     web-app manifest (copied with the shell), and every route the menu links to

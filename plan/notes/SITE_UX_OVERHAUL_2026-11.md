@@ -630,3 +630,9 @@ browser.
 568. "Link copied" only when the copy really happened; otherwise the link is selected to copy by hand.
 569. Copy fallback works on iOS in-app browsers (selection range on a read-only field).
 570. Shared links use `?to=<route>` instead of `#/…`, so Sleeper chat (and others) make them tappable.
+571. Every table marks the best and worst value in each numeric column (green / coral), with a legend.
+572. Lower-is-better columns (points against, busts, left on the bench, age…) are judged the right way round; identifiers and neutral counts are skipped.
+573. On season-by-season tables the season still being played is left out of best / worst.
+574. Trade calculator: KTC superflex value beside each asset (from a KTC snapshot the site build now saves, `data/ktc.json`).
+575. Trade calculator: "Every angle" table — FAAB value, KTC value, KTC month trend, projected points a week, rest of the regular season, this season's points a week, starting-lineup change, age, picks — with the edge per row.
+576. Trade calculator: season odds before → after (playoffs, final, title, projected wins) from the Predictions simulation, for both teams and everyone else.
