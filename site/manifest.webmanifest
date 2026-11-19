@@ -5,8 +5,8 @@
   "start_url": "./#/",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f6f8",
-  "theme_color": "#2d5bd7",
+  "background_color": "#0e1320",
+  "theme_color": "#121a2b",
   "icons": [
     { "src": "https://sleepercdn.com/avatars/bacf626c72ab39f35077ce4a4f99a149", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
