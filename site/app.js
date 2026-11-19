@@ -2616,6 +2616,10 @@ const CALC_METRICS = {
   proj: { name: "Projected points a week", short: "proj. pts/wk", fmt: (v) => fmt({ d: 1 }, v) },
   ros: { name: "Rest-of-season points", short: "rest-of-season pts", fmt: (v) => fmt({ d: 1 }, v) },
   ppg: { name: "This season's points a week", short: "pts/wk this season", fmt: (v) => fmt({ d: 1 }, v) },
+  // from the Predictions simulation: each team's change (after the trade − before)
+  wins: { name: "Projected wins added", short: "proj. wins", fmt: (v) => fmt({ d: 2 }, v), sim: true },
+  playoffs: { name: "Playoff odds", short: "playoff odds", fmt: (v) => (100 * v).toFixed(1) + " pts", sim: true },
+  title: { name: "Title odds", short: "title odds", fmt: (v) => (100 * v).toFixed(1) + " pts", sim: true },
 };
 async function calc(_a, query, live) {
   setTitle("Trade calculator");
@@ -2683,7 +2687,7 @@ async function calc(_a, query, live) {
   const getsOf = (t, mv = MV) => Object.keys(mv).filter((k) => mv[k] === t);
   const sendsOf = (t, mv = MV) => Object.keys(mv).filter((k) => ownerOf[k] === t);
   // one asset on a metric (KTC raw; the adjustment is applied to whole packages)
-  const mval = (k, m = metric) => { const x = info(k); return m === "faab" ? x.value || 0 : m === "ktc" ? x.ktc || 0 : m === "proj" ? x.rate || 0 : m === "ros" ? (x.rate || 0) * weeksLeft : x.ppg || 0; };
+  const mval = (k, m = metric) => { const x = info(k); if (CALC_METRICS[m] && CALC_METRICS[m].sim) m = "proj"; return m === "faab" ? x.value || 0 : m === "ktc" ? x.ktc || 0 : m === "proj" ? x.rate || 0 : m === "ros" ? (x.rate || 0) * weeksLeft : x.ppg || 0; };
   // a team's side of the deal on a metric: what it gets, what it sends, net (KTC: KTC's adjusted totals)
   const side = (t, mv = MV, m = metric) => {
     const g = getsOf(t, mv), s = sendsOf(t, mv);
@@ -2725,7 +2729,7 @@ async function calc(_a, query, live) {
     return `<div class="asset${inDeal ? " in" : ""}"><button class="arow" data-ti="${ti}" data-k="${esc(x.k)}" title="${inDeal ? "Take out of the deal" : "Add to the deal"}">
       <span class="ai">${inDeal ? "✕" : "+"}</span>${posBadge(x.pos)} <span class="an">${esc(x.name)}${x.inj ? ` <span class="chip bad">${esc(x.inj)}</span>` : ""}</span>
       <span class="muted small">${x.pick ? "" : esc([x.nfl, x.age ? Math.floor(x.age) : ""].filter(Boolean).join(" · "))}</span>
-      ${metric !== "faab" && metric !== "ktc" ? `<span class="ktcv" title="${esc(M().name)}">${M().fmt(mval(x.k))}</span>` : ""}${x.ktc != null ? `<span class="ktcv" title="KTC superflex value">${Math.round(x.ktc).toLocaleString()}</span>` : ""}<b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>${dest}</div>`;
+      ${metric !== "faab" && metric !== "ktc" && !M().sim ? `<span class="ktcv" title="${esc(M().name)}">${M().fmt(mval(x.k))}</span>` : ""}${x.ktc != null ? `<span class="ktcv" title="KTC superflex value">${Math.round(x.ktc).toLocaleString()}</span>` : ""}<b>${x.value ? money(x.value) : '<span class="muted">—</span>'}</b></button>${dest}</div>`;
   };
   const filt = {}, sendTo = {};
   function cardHtml(ti) {
@@ -2735,7 +2739,8 @@ async function calc(_a, query, live) {
         ${T.length > 2 ? `<button class="b sm ghost" data-drop="${ti}" title="Take ${esc(t)} out of the deal">✕</button>` : ""}</div>
       ${gets.length ? `<div class="gl">Gets</div><div class="gets">${gets.map((k) => { const y = info(k); return `<div class="small">${posBadge(y.pos)} ${esc(y.name)} <span class="muted">from ${esc(ownerOf[k])}</span></div>`; }).join("")}</div>` : ""}
       <div class="gl">Sends</div><div class="sends">${sends.map((k) => row(info(k), ti, true)).join("") || `<p class="muted small" style="margin:6px 0">Nothing yet — add players or picks below.</p>`}</div>
-      <p class="small" style="text-align:right;margin:4px 0 10px">${x.short}: gets <b>${x.fmt(s.gets)}</b> · sends <b>${x.fmt(s.sends)}</b> · net <b class="${s.net > 0 ? "pos" : s.net < 0 ? "neg" : ""}">${s.net > 0 ? "+" : s.net < 0 ? "−" : ""}${x.fmt(Math.abs(s.net))}</b></p>
+      ${x.sim ? (() => { const D = simCached(MV); const v = D && D[t] ? D[t][metric] : null; return `<p class="small" style="text-align:right;margin:4px 0 10px">${x.short}: ${v == null ? '<span class="muted">simulating…</span>' : `<b class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : v < 0 ? "−" : ""}${x.fmt(Math.abs(v))}</b>`}</p>`; })()
+        : `<p class="small" style="text-align:right;margin:4px 0 10px">${x.short}: gets <b>${x.fmt(s.gets)}</b> · sends <b>${x.fmt(s.sends)}</b> · net <b class="${s.net > 0 ? "pos" : s.net < 0 ? "neg" : ""}">${s.net > 0 ? "+" : s.net < 0 ? "−" : ""}${x.fmt(Math.abs(s.net))}</b></p>`}
       ${T.length > 2 ? `<label class="small muted">New picks go to <select data-sendto="${ti}">${others.map((u) => `<option ${u === (sendTo[t] || others[0]) ? "selected" : ""}>${esc(u)}</option>`).join("")}</select></label>` : ""}
       <input class="f" data-filter="${ti}" type="search" placeholder="Find a player or pick on ${esc(t)}" value="${esc(filt[t] || "")}" aria-label="Find a player or pick" style="width:100%;margin-top:6px">
       <div class="pool" data-pool="${ti}"></div></div>`;
@@ -2781,30 +2786,114 @@ async function calc(_a, query, live) {
   }
   // a third team that evens it up: the team ahead sends one more asset to it, and it sends
   // one to the team behind; ranked by the largest net left for any of the three teams
-  function thirdHtml() {
-    if (T.length !== 2 || T.length >= 4) return "";
-    const [A, Bt] = T, sa = side(A), sb = side(Bt), gap = sa.gets - sb.gets;
-    if (Math.abs(gap) <= evenTol(sa.gets, sb.gets)) return "";
-    const W = gap > 0 ? A : Bt, L = W === A ? Bt : A;
-    const top = (t, n) => assetsOf(t).filter((k) => !(k in MV) && mval(k) > 0).sort((p, q) => mval(q) - mval(p)).slice(0, n);
+  // for each team not in the deal, the swap through it (W sends it X, it sends Y to L) that
+  // leaves the three teams' nets on metric m closest to even
+  function thirdIdeas(W, L, m, players) {
+    const top = (t, n) => assetsOf(t).filter((k) => !(k in MV) && mval(k, m) > 0 && (!players || k[0] === "p")).sort((p, q) => mval(q, m) - mval(p, m)).slice(0, n);
     const wx = top(W, 30), ideas = [];
     for (const C of teams.filter((t) => !T.includes(t))) {
       let best = null;
       for (const X of wx) for (const Y of top(C, 30)) {
         const mv = { ...MV, [X]: C, [Y]: L };
-        const nets = [W, L, C].map((t) => side(t, mv).net);
+        const nets = [W, L, C].map((t) => side(t, mv, m).net);
         const score = Math.max(...nets.map(Math.abs));
         if (!best || score < best.score) best = { C, X, Y, score, nets };
       }
       if (best) ideas.push(best);
     }
-    ideas.sort((p, q) => p.score - q.score);
+    return ideas.sort((p, q) => p.score - q.score);
+  }
+  function thirdHtml() {
+    if (T.length !== 2) return "";
+    const [A, Bt] = T, sa = side(A), sb = side(Bt), gap = sa.gets - sb.gets;
+    if (Math.abs(gap) <= evenTol(sa.gets, sb.gets)) return "";
+    const W = gap > 0 ? A : Bt, L = W === A ? Bt : A;
     const now = Math.max(Math.abs(side(W).net), Math.abs(side(L).net));
-    const good = ideas.filter((i) => i.score < now).slice(0, 4);
+    const good = thirdIdeas(W, L, metric).filter((i) => i.score < now).slice(0, 4);
+    return thirdRender(W, L, good);
+  }
+  function thirdRender(W, L, good) {
     if (!good.length) return "";
     return `<h3>Or bring in a third team</h3><div class="ideas">${good.map((i) => { const x = info(i.X), y = info(i.Y); return `<div class="idea"><div>${avatar(i.C)}<b>${esc(i.C)}</b> joins: ${esc(W)} sends ${posBadge(x.pos)} ${esc(x.name)} to ${esc(i.C)}; ${esc(i.C)} sends ${posBadge(y.pos)} ${esc(y.name)} to ${esc(L)}.</div>
-      <div class="muted small">Nets on ${esc(M().short)} after: ${[W, L, i.C].map((t, j) => `${esc(t)} ${i.nets[j] >= 0 ? "+" : "−"}${M().fmt(Math.abs(i.nets[j]))}`).join(" · ")}</div><button class="b sm" data-third="${esc(JSON.stringify([i.C, i.X, i.Y, L]))}">Add ${esc(i.C)} to the deal</button></div>`; }).join("")}</div>
+      <div class="muted small">${M().sim ? "Change in" : "Nets on"} ${esc(M().short)} after: ${[W, L, i.C].map((t, j) => `${esc(t)} ${i.nets[j] >= 0 ? "+" : "−"}${M().fmt(Math.abs(i.nets[j]))}`).join(" · ")}</div><button class="b sm" data-third="${esc(JSON.stringify([i.C, i.X, i.Y, L]))}">Add ${esc(i.C)} to the deal</button></div>`; }).join("")}</div>
       <p class="muted small">Each idea moves one asset from ${esc(W)} to the new team and one from it to ${esc(L)}, picked so no one's net on ${esc(M().short)} is far from even.</p>`;
+  }
+  // each team's change in projected wins, playoff odds and title odds for a set of moves
+  // (after − before, the Predictions simulation; picks don't play this season). Cached.
+  const SIMC = {};
+  const simKey = (mv) => JSON.stringify(Object.entries(mv).filter(([k]) => k[0] === "p").sort());
+  const simCached = (mv) => SIMC[simKey(mv)] || null;
+  async function simDeltas(mv) {
+    const key = simKey(mv);
+    if (SIMC[key]) return SIMC[key];
+    calc.E = calc.E || predict(null, "", live, { headless: true });
+    const E = await calc.E;
+    if (!E) throw new Error("Sleeper is unreachable");
+    E.setPicks({}); E.setMoves([]);
+    calc.base = calc.base || E.runSim(false);
+    const b = calc.base, moves = Object.entries(mv).filter(([k]) => k[0] === "p").map(([k, to]) => ({ pid: k.slice(1), to }));
+    let res = b;
+    if (moves.length) { E.setMoves(moves); res = E.runSim(true); E.setMoves([]); }
+    const out = {};
+    for (const t of teams) {
+      const x = b.tally[t], y = res.tally[t];
+      out[t] = { wins: y.wins / res.n - x.wins / b.n, playoffs: y.playoffs / res.n - x.playoffs / b.n, title: y.title / res.n - x.title / b.n };
+    }
+    return (SIMC[key] = out);
+  }
+  // even on a sim metric: within 0.1 wins, or 1 percentage point of odds
+  const simTol = () => (metric === "wins" ? 0.1 : 0.01);
+  const signedM = (v) => `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : v < 0 ? "−" : ""}${M().fmt(Math.abs(v))}</span>`;
+  let simRun = 0;
+  async function simVerdict() {
+    const run = ++simRun, key = simKey(MV), el = () => $("#calcverdict");
+    try {
+      const D = await simDeltas(MV);
+      if (run !== simRun || !el()) return;
+      const x = M(), v = (t) => D[t][metric];
+      let head;
+      if (T.length === 2) {
+        const [A, Bt] = T, gap = v(A) - v(Bt);
+        head = `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span>${avatar(A)}<b>${esc(A)}</b> ${signedM(v(A))}</span><span>${esc(Bt)} ${signedM(v(Bt))} ${avatar(Bt)}</span></div>
+          <p class="verdict">${Math.abs(gap) <= simTol() ? `<b>About even</b> on ${esc(x.short)}.` : `<b>${esc(gap > 0 ? A : Bt)}</b> comes out ${x.fmt(Math.abs(gap))} better on ${esc(x.short)} than ${esc(gap > 0 ? Bt : A)}.`}</p>`;
+      } else {
+        const rows = T.map((t) => [t, v(t)]).sort((p, q) => q[1] - p[1]);
+        head = `<table class="rk"><tbody>${rows.map(([t, d]) => `<tr><td class="l">${teamLink(t)}</td><td class="v">${signedM(d)}</td></tr>`).join("")}</tbody></table>
+          <p class="verdict"><b>${esc(rows[0][0])}</b> comes out best on ${esc(x.short)}; <b>${esc(rows[rows.length - 1][0])}</b> worst.</p>`;
+      }
+      const others = teams.filter((t) => !T.includes(t)).map((t) => [t, v(t)]).filter(([, d]) => Math.abs(d) >= simTol()).sort((p, q) => Math.abs(q[1]) - Math.abs(p[1]));
+      head += others.length ? `<p class="muted small">Also moves: ${others.map(([t, d]) => `${esc(t)} ${stripHtml(signedM(d))}`).join(" · ")}.</p>` : "";
+      el().innerHTML = `<h2>Verdict <span class="muted small" style="font-weight:500">on ${esc(x.name)}</span></h2>${head}${el().dataset.checks || ""}<p class="muted small" id="simsug">Looking for ways to even it up…</p>`;
+      refreshAvatars();
+      // suggestions (two teams): the team that gains more sends one more player; or a third team
+      if (T.length !== 2) { $("#simsug").remove(); return; }
+      const [A, Bt] = T, gap = v(A) - v(Bt);
+      if (Math.abs(gap) <= simTol()) { $("#simsug").remove(); return; }
+      const W = gap > 0 ? A : Bt, L = W === A ? Bt : A, wi = T.indexOf(W);
+      const cands = assetsOf(W).filter((k) => k[0] === "p" && !(k in MV) && mval(k, "proj") > 0).sort((p, q) => mval(q, "proj") - mval(p, "proj")).slice(0, 10);
+      const fixes = [];
+      for (const k of cands) {
+        const d = await simDeltas({ ...MV, [k]: L });
+        if (run !== simRun) return;
+        const g = Math.abs(d[W][metric] - d[L][metric]);
+        if (g < Math.abs(gap)) fixes.push([g, k]);
+      }
+      fixes.sort((p, q) => p[0] - q[0]);
+      const ideas = [];
+      for (const i of thirdIdeas(W, L, "proj", true).slice(0, 6)) {
+        const d = await simDeltas({ ...MV, [i.X]: i.C, [i.Y]: L });
+        if (run !== simRun) return;
+        const nets = [W, L, i.C].map((t) => d[t][metric]);
+        ideas.push({ ...i, nets, score: Math.max(...nets) - Math.min(...nets) });
+      }
+      const good = ideas.filter((i) => i.score < Math.abs(gap)).sort((p, q) => p.score - q.score).slice(0, 4);
+      if (run !== simRun || !$("#simsug")) return;
+      $("#simsug").outerHTML = (fixes.length ? `<h3>To even it up, ${esc(W)} could add</h3><div class="pool short">${fixes.slice(0, 5).map(([, k]) => row(info(k), wi, false)).join("")}</div><p class="muted small">The ${esc(W)} players (of the ten with the most projected points) that leave the smallest gap in ${esc(x.short)}, each simulated. Picks don't play this season, so they can't even it up on this measure.</p>` : "")
+        + thirdRender(W, L, good) + (!fixes.length && !good.length ? `<p class="muted small">No single extra player or third team narrows the gap in ${esc(x.short)}.</p>` : "");
+      refreshAvatars();
+    } catch (e) {
+      if (el()) el().innerHTML = `<h2>Verdict</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}. Pick another measure above.</p>`;
+    }
   }
   function checksHtml(after) {
     const notes = [];
@@ -2881,7 +2970,10 @@ async function calc(_a, query, live) {
     const pts = (v) => fmt({ d: 1 }, v);
     const line = (lab, f, fmtv, dv) => `<tr><td class="l">${lab}</td>${T.map((t) => `<td>${fmtv(f(before[t], t, before))} → <b>${fmtv(f(after[t], t, after))}</b> ${dv(f(after[t], t, after) - f(before[t], t, before))}</td>`).join("")}</tr>`;
     const mv = playerMoves().map((m) => `${m.pid}>${m.to}`);
-    return `<div class="card nocv"><h2>Verdict <span class="muted small" style="font-weight:500">on ${esc(M().name)}</span></h2>${verdictHtml()}${checksHtml(after)}${fixHtml()}${thirdHtml()}</div>
+    const verdictCard = M().sim
+      ? `<div class="card nocv" id="calcverdict" data-checks="${esc(checksHtml(after))}"><h2>Verdict <span class="muted small" style="font-weight:500">on ${esc(M().name)}</span></h2><p class="muted small">Simulating the rest of the season with and without the trade…</p><div class="skel ln"></div><div class="skel ln" style="width:60%"></div></div>`
+      : `<div class="card nocv"><h2>Verdict <span class="muted small" style="font-weight:500">on ${esc(M().name)}</span></h2>${verdictHtml()}${checksHtml(after)}${fixHtml()}${thirdHtml()}</div>`;
+    return `${verdictCard}
       ${lensesHtml(before, after)}
       <div class="card nocv" id="calcodds">${oddsHtml()}</div>
       <div class="card nocv"><h2>Before → after</h2><div class="scroll"><table><thead><tr><th class="l nosort"></th>${T.map((t) => `<th class="nosort">${teamLink(t)}</th>`).join("")}</tr></thead><tbody>
@@ -2903,6 +2995,7 @@ async function calc(_a, query, live) {
     $("#cmetric").value = metric;
     refreshAvatars();
     runOdds();
+    if (M().sim && Object.keys(MV).length) setTimeout(simVerdict, 30);
   }
   $app.innerHTML = `${crumbs(["Trades", "trades"], ["Trade calculator"])}<div class="page-head"><div><h1>Trade calculator</h1><p class="lede">Pick the teams and tap what each sends ${liveNote(live)}</p></div><div class="actions">${shareBtn()}</div></div>
     <div class="controls"><label class="small muted" for="cmetric">Verdict and suggestions use</label><select id="cmetric">${Object.entries(CALC_METRICS).filter(([k]) => k !== "ktc" || KT).filter(([k]) => k !== "ppg" || SP).filter(([k]) => k !== "ros" || weeksLeft).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("")}</select></div>
