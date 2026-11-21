@@ -211,6 +211,8 @@ const loadPickRows = () => PICKROWS ? Promise.resolve(PICKROWS) : load("draft.js
 });
 function assetHtml(a) {
   if (NAMES[a]) return playerLink(a);
+  // a portion of a pick (pick swap / protection removed): a labelled chip, not a player or pick link
+  if (/^Pick (swap|protection removed|better of): /.test(a)) return `<span class="chip" title="Part of a pick changed hands: see Pick swaps and protections">${esc(a)}</span>`;
   const m = /^(\d{4}) (\d+\.\d+)(?:\((.+)\))?$/.exec(a);
   if (m && PICKROWS && PICKROWS[`${m[1]} ${m[2]}`]) { const [sh, row] = PICKROWS[`${m[1]} ${m[2]}`]; return `<a href="#/pick/${sh}/${row}">${esc(a)}</a>`; }
   const f = /^(\d{4}) (\d)\((.+)\)$/.exec(a);
@@ -1223,6 +1225,7 @@ function tradeCard(t, meta, full) {
     return `<div class="side${k && k[1] > 0 ? " win" : ""}"><h4>${teamLink(s.team)} ${k ? `<span class="grade ${k[1] >= 0 ? "pos" : "neg"}" title="KTC value difference, latest available (${esc(k[0])})">${signed(F["KTC value difference at deal time"], k[1])} KTC</span>` : ""}</h4>
       <div class="gl">Got</div><ul>${s.got.map((a) => `<li>${assetLink(a)}</li>`).join("") || '<li class="muted">nothing</li>'}</ul>
       ${t.sides.length > 2 || full ? `<div class="gl">Sent</div><ul>${s.sent.map((a) => `<li>${assetLink(a)}</li>`).join("") || '<li class="muted">nothing</li>'}</ul>` : ""}
+      ${(s.conds || []).length ? `<div class="small" title="${esc(L["Pick swaps and protections"] || "Pick swaps and protections")}">${s.conds.map((c) => `<p class="muted">🔁 ${esc(c)}</p>`).join("")}</div>` : ""}
       <div class="ktc" title="KeepTradeCut value received minus sent, at each checkpoint"><span class="muted">KTC</span>${vals(meta.ktc, s)}</div>
       ${meta.faab ? `<div class="ktc" title="FAAB Value difference: the same received − sent gap in the league's FAAB dollars (FAAB value system)"><span class="muted">FAAB $</span>${vals(meta.faab, s)}</div>` : ""}
       <div class="ktc">${["Trade impact score", "Wins added", "Net points", "O-Score"].map((c) => `<span title="${esc(L[c])}">${esc(L[c])}: <b>${fmt(F[c], s[c])}</b></span>`).join("")}</div>
@@ -1296,7 +1299,8 @@ async function team(slug, _q, live) {
         { k: (r) => r.ps.map((p) => p.o === t.team ? "" : `${ORD[p.r]} from ${p.o}`).filter(Boolean).join(", "), label: "Acquired", left: true },
         { k: (r) => r.ps.reduce((a, p) => a + (p.v || 0), 0), label: "Value", html: (r) => B ? money(r.ps.reduce((a, p) => a + (p.v || 0), 0)) : "—" }],
         PK.years.map((y) => ({ y, ps: mine.filter((p) => p.y === y) })), { tools: false })}
-      ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB board →</a></p>` : ""}`)}
+      ${B ? `<p class="small">Worth <b>${money(mine.reduce((a, p) => a + (p.v || 0), 0))}</b> on the FAAB board's pick scale. <a href="#/faab?owner=${encodeURIComponent(t.team)}">FAAB board →</a></p>` : ""}
+      ${(PK.conditions || []).filter((c) => c.to === t.team || c.from === t.team).map((c) => `<p class="small">🔁 <b>${esc(c.to === t.team ? "Gets the better pick" : "Gave a swap")}</b> · ${esc(c.text)}</p>`).join("")}`)}
     ${sec("h2h", "Head to head", `${table([
         { k: "opp", label: "Opponent", left: true, html: (r) => teamLink(r.opp) },
         { k: (r) => r.w / Math.max(1, r.w + r.l), label: "W-L", html: (r) => `<b class="${r.w > r.l ? "pos" : r.w < r.l ? "neg" : ""}">${r.w}-${r.l}</b>` },

@@ -1239,6 +1239,9 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     # The trade sides' player ids sit beside "Assets received / sent".
     if n.startswith("player ids "):
         return "Activity"
+    # ... and so do the pick swaps / protections those sides carried.
+    if n == "pick swaps and protections":
+        return "Activity"
     # The game-time families, each one band whatever its members' keywords:
     # win odds (pre-week and live win %, per projection), comebacks / chokes
     # (margins entering a stage, what was overcome, comeback / choke sizes),
@@ -5096,6 +5099,22 @@ def build_all(repo_root: Path) -> None:
     except Exception as e:
         _log_exc(debug, "commish_pick_overlay_load", e)
 
+    # Pick swaps and protections (data/pick_conditions.csv): a PORTION of a
+    # pick changing hands in a recorded trade (a top-4 protected pick, the
+    # payment that lifted the protection, a 4th-round swap right). Matched to
+    # its trade by completion time (UTC) like the overlay above; valued by
+    # lotg_support.pick_conditions in the KTC / FAAB passes.
+    from lotg_support import pick_conditions as _pcond
+    try:
+        _pick_conds: List[Any] = _pcond.load(repo_root / "data" / "pick_conditions.csv")
+    except Exception as e:
+        _log_exc(debug, "pick_conditions_load", e)
+        _pick_conds = []
+    _pick_conds_by_ts: Dict[str, List[Any]] = _pcond.by_trade(_pick_conds)
+    _pick_conds_matched: Set[str] = set()
+    if _pick_conds:
+        _log(debug, f"[{_now_iso()}] INFO pick swaps/protections: {len(_pick_conds)} loaded")
+
     # Boldness inputs, captured per season from the build's OWN data (the
     # committed snapshot can be a week stale on a build-only run). Consumed
     # after the team sheets exist — see "Boldness / Lineup Boldness".
@@ -6246,6 +6265,39 @@ def build_all(repo_root: Path) -> None:
                             })
             except Exception as e:
                 _log_exc(debug, f"commish_pick_inject_{season}", e)
+
+        # A protection_removal names the trade where the protection came off.
+        # When Sleeper recorded the protected pick moving only THEN, that leg
+        # is dropped here: the pick really moved in the earlier trade (its
+        # protected_pick row + a commissioner_pick_trades.csv hop put it there).
+        if _pick_conds_by_ts:
+            try:
+                _t2r_pc = season_team_to_roster.get(int(season), {}) or {}
+                for _wk_txs in tx_by_week.values():
+                    for _t in _wk_txs:
+                        if _t.get("type") != "trade":
+                            continue
+                        _cdt = _epoch_ms_to_dt(_tx_effective_ms(_t))
+                        if _cdt is None:
+                            continue
+                        for _c in _pick_conds_by_ts.get(_cdt.strftime("%Y-%m-%d %H:%M:%S"), []):
+                            if _c.kind != "protection_removal":
+                                continue
+                            _orig = _t2r_pc.get(_norm_team_name(_c.orig))
+                            _to = _t2r_pc.get(_norm_team_name(_c.to))
+                            _dps = _t.get("draft_picks") if isinstance(_t.get("draft_picks"), list) else []
+                            _keep = [_e for _e in _dps if not (
+                                isinstance(_e, dict)
+                                and _to_int(_e.get("season"), None) == int(_c.year)
+                                and _to_int(_e.get("round"), None) == int(_c.rnd)
+                                and _to_int(_e.get("roster_id"), None) == _orig
+                                and _to_int(_e.get("owner_id"), None) == _to)]
+                            if len(_keep) != len(_dps):
+                                _t["draft_picks"] = _keep
+                                _log(debug, f"[{_now_iso()}] INFO pick protection: dropped the {_c.year} R{_c.rnd} "
+                                            f"({_c.orig}) leg from the {_c.ts} trade — it moved in the protected trade")
+            except Exception as e:
+                _log_exc(debug, f"pick_conditions_leg_drop_{season}", e)
 
         # ------------- Commissioner "wash" detection (Phase 6B) -------------
         # A single-day commissioner action that ends with the roster exactly
@@ -7713,6 +7765,26 @@ def build_all(repo_root: Path) -> None:
                             for _rid in roster_ids_int
                         )
 
+                        # Pick swaps / protections on this trade (data/pick_conditions.csv):
+                        # the receiver's row gets the portion as an asset, the giver's row
+                        # sends it; a protected_pick rides on its own pick leg (no extra asset).
+                        _tconds = _pick_conds_by_ts.get(created_dt.strftime("%Y-%m-%d %H:%M:%S"), [])
+                        _cond_recv: Dict[int, List[Any]] = defaultdict(list)
+                        _cond_sent: Dict[int, List[Any]] = defaultdict(list)
+                        _rid_by_team = {_norm_team_name(roster_to_team.get(_r, "")): _r for _r in roster_ids_int}
+                        for _c in _tconds:
+                            _rt = _rid_by_team.get(_norm_team_name(_c.to))
+                            _rf = _rid_by_team.get(_norm_team_name(_c.frm))
+                            if _rt is None or _rf is None:
+                                _log(debug, f"[{_now_iso()}] WARN pick condition {_c.cid}: "
+                                            f"{_c.frm}->{_c.to} not both in the {_c.ts} trade")
+                                continue
+                            _cond_recv[_rt].append(_c)
+                            _cond_sent[_rf].append(_c)
+                            _pick_conds_matched.add(_c.cid)
+                        _total_assets_in_trade += sum(1 for _c in _tconds if _c.cid in _pick_conds_matched
+                                                      and _c.has_asset)
+
                         # Build row per roster in roster_ids_int
                         for rid in roster_ids_int:
                             tm = roster_to_team.get(rid, f"Roster {rid}")
@@ -7728,6 +7800,8 @@ def build_all(repo_root: Path) -> None:
                             dropped.extend(drop_players.get(rid, []))
                             dropped.extend(drop_picks.get(rid, []))
                             dropped.extend(drop_faab.get(rid, []))
+                            received.extend(_pcond.label(_c) for _c in _cond_recv.get(rid, []) if _c.has_asset)
+                            dropped.extend(_pcond.label(_c) for _c in _cond_sent.get(rid, []) if _c.has_asset)
                             dropped_ids: List[str] = list(drop_player_ids.get(rid, []))
                             dropped_picks: List[str] = list(drop_picks.get(rid, []))
                             dropped_pick_meta: List[Tuple[int, int, str]] = list(drop_pick_meta.get(rid, []))
@@ -7770,6 +7844,10 @@ def build_all(repo_root: Path) -> None:
                                 "_drop_pick_meta": dropped_pick_meta,
                                 # FAAB $ moved (numeric) — valued in KTC via the
                                 # avg KTC-per-$ implied by FAAB-for-asset trades.
+                                # Pick swaps / protections (lotg_support.pick_conditions):
+                                # condition ids received / given up on this row.
+                                "_recv_conds": [_c.cid for _c in _cond_recv.get(rid, [])],
+                                "_drop_conds": [_c.cid for _c in _cond_sent.get(rid, [])],
                                 "_recv_faab": float(sum(_faab_rcv_by_snd.get(rid, {}).values())),
                                 "_drop_faab": float(_faab_by_snd.get(rid, 0)),
                                 # Shared id for all rows of the SAME trade event
@@ -7796,6 +7874,7 @@ def build_all(repo_root: Path) -> None:
                                 "Tanking": None,
                                 "Link to next transaction": None,
                                 "Link to previous transaction": None,
+                                "Pick swaps and protections": None,
                             })
                             # Split counterparties into numbered columns (one team
                             # each) so the writer can hyperlink each to the other
@@ -8090,6 +8169,10 @@ def build_all(repo_root: Path) -> None:
     elif _commish_overlay_rows:
         _log(debug, f"[{_now_iso()}] INFO commissioner pick-trade overlay: "
                     f"all {len(_commish_overlay_rows)} pick-hops injected")
+    _pc_unmatched = [_c.cid for _c in _pick_conds if _c.cid not in _pick_conds_matched]
+    if _pc_unmatched:
+        _log(debug, f"[{_now_iso()}] WARN pick swaps/protections UNMATCHED (no trade at that completion time "
+                    f"with both teams): {', '.join(_pc_unmatched)}")
 
     # Authoritative commissioner-move detection — RERUN now that every
     # trade transaction across all seasons has been folded into
@@ -11790,6 +11873,64 @@ def build_all(repo_root: Path) -> None:
                 out.append(float(faab) * _ktc_per_faab)
             return out
 
+        # --- Pick swaps and protections (lotg_support.pick_conditions) ---
+        # A portion of a pick on a date: the expectation over every assignment
+        # of distinct slots of each pick priced at that slot the way a pick leg
+        # is priced here (the slot's KTC quote; once drafted, the drafted
+        # player when the slot is unquoted; else the later-class estimate).
+        # A pick's slot counts as known from its draft (season start) on.
+        _pc_by_id = {_c.cid: _c for _c in _pick_conds}
+        _pc_slot: Dict[Tuple[int, int, str], int] = {
+            (int(_k[0]), int(_k[1]), _norm_team_name(_k[2])): int(_v)
+            for _k, _v in _pick_slot_lookup.items() if str(_v).isdigit()}
+
+        def _pc_known(c, target):
+            def _known(o, y):
+                if target < _season_start(int(y)):
+                    return None
+                return _pc_slot.get((int(y), int(c.rnd), _norm_team_name(o)))
+            return _known
+
+        def _pc_ktc_pv(c, target):
+            _known = _pc_known(c, target)
+
+            def _pv(o, slot, y):
+                _lbl = f"{int(y)} {int(c.rnd)}.{int(slot):02d}"
+                _v = asset_value_at(_lbl, None, target, _ktc_idx)
+                if _v is None and _known(o, y) == slot:
+                    _v = _pick_drafted_value((int(y), int(c.rnd), str(o)), target)
+                if _v is None:
+                    _v = _pick_ktc_estimate(_lbl, target)
+                return _v
+            return _pv, _known
+
+        def _pc_ktc(c, target) -> Optional[float]:
+            try:
+                return _pcond.value(c, _pick_conds, *_pc_ktc_pv(c, target))
+            except Exception as e:
+                _log_exc(debug, f"pick_condition_value_{c.cid}", e)
+                return None
+
+        def _pc_ktc_whole(c, target) -> Optional[float]:
+            return _pcond.whole_pick(c, *_pc_ktc_pv(c, target))
+
+        def _pc_strip_protected(conds, picks, metas):
+            """drop a protected pick's leg from a side's valuation lists (its
+            protected_pick condition values it instead); the lists stay parallel"""
+            picks, metas = list(picks), list(metas)
+            for c in conds:
+                if c.kind != "protected_pick":
+                    continue
+                for _i, _m in enumerate(metas):
+                    try:
+                        if (int(_m[0]), int(_m[1])) == (int(c.year), int(c.rnd)) \
+                                and _norm_team_name(str(_m[2])) == _norm_team_name(c.orig):
+                            del picks[_i], metas[_i]
+                            break
+                    except Exception:
+                        continue
+            return picks, metas
+
         # --- Fix 3: average KTC value of $1 FAAB ---
         # From "similar trades": a side that is PURE FAAB exchanged for a side of
         # KTC-valued assets implies KTC-per-$ = (asset-side KTC) / FAAB$. Median
@@ -11869,11 +12010,19 @@ def build_all(repo_root: Path) -> None:
             drop_faab: float = 0.0,
             recv_pick_metas: Optional[List[Any]] = None,
             drop_pick_metas: Optional[List[Any]] = None,
+            recv_conds: Optional[List[Any]] = None,
+            drop_conds: Optional[List[Any]] = None,
         ) -> Optional[float]:
             if target > today:
                 return None
             recv_vals = _side_values(target, recv_ids, recv_picks, recv_faab, recv_pick_metas)
             sent_vals = _side_values(target, drop_ids, drop_picks, drop_faab, drop_pick_metas)
+            # Pick swaps / protections: each one an asset on its side.
+            for _cs, _vals in ((recv_conds or [], recv_vals), (drop_conds or [], sent_vals)):
+                for _c in _cs:
+                    _v = _pc_ktc(_c, target)
+                    if _v is not None:
+                        _vals.append(float(_v))
             # An EMPTY side is not the same as an UNVALUED one. A side that
             # carried no assets at all (a pure FAAB gift, or a one-way move where
             # the counterparty row holds the other half) is genuinely worth 0 and
@@ -11883,8 +12032,8 @@ def build_all(repo_root: Path) -> None:
             def _n_assets(_ids, _picks, _faab) -> int:
                 return len(_ids or []) + len(_picks or []) + (1 if (_faab or 0) > 0 else 0)
 
-            recv_n = _n_assets(recv_ids, recv_picks, recv_faab)
-            sent_n = _n_assets(drop_ids, drop_picks, drop_faab)
+            recv_n = _n_assets(recv_ids, recv_picks, recv_faab) + len(recv_conds or [])
+            sent_n = _n_assets(drop_ids, drop_picks, drop_faab) + len(drop_conds or [])
             if recv_n == 0 and sent_n == 0:
                 return None                      # nothing on either side
             if (recv_n and not recv_vals) or (sent_n and not sent_vals):
@@ -11929,11 +12078,17 @@ def build_all(repo_root: Path) -> None:
             drop_pick_metas = [m for (m, lbl) in _drop_pl]
             recv_faab = float(row.get("_recv_faab") or 0.0)
             drop_faab = float(row.get("_drop_faab") or 0.0)
+            # Pick swaps / protections on this row (a protected pick's own leg is
+            # valued by its condition, so it leaves the plain pick lists).
+            recv_conds = [_pc_by_id[_x] for _x in (row.get("_recv_conds") or []) if _x in _pc_by_id]
+            drop_conds = [_pc_by_id[_x] for _x in (row.get("_drop_conds") or []) if _x in _pc_by_id]
+            recv_picks, recv_pick_metas = _pc_strip_protected(recv_conds, recv_picks, recv_pick_metas)
+            drop_picks, drop_pick_metas = _pc_strip_protected(drop_conds, drop_picks, drop_pick_metas)
 
             # Deal time
             if trade_date <= today:
                 diff = _diff_at(trade_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
-                                recv_pick_metas, drop_pick_metas)
+                                recv_pick_metas, drop_pick_metas, recv_conds, drop_conds)
                 if diff is not None:
                     row["KTC value difference at deal time"] = diff
 
@@ -11960,6 +12115,9 @@ def build_all(repo_root: Path) -> None:
 
                     _pae_r = _pae_side(recv_ids, recv_picks, recv_pick_metas, recv_faab)
                     _pae_s = _pae_side(drop_ids, drop_picks, drop_pick_metas, drop_faab)
+                    # pick swaps / protections: priced like a player asset (KTC -> FAAB)
+                    _pae_r += [(("c", _c.cid), _pc_ktc(_c, trade_date)) for _c in recv_conds]
+                    _pae_s += [(("c", _c.cid), _pc_ktc(_c, trade_date)) for _c in drop_conds]
                     row["_pae_recv"] = _pae_r
                     # The exported margin rebuilt from these values (depth tax
                     # included), for the build-log check.
@@ -11986,6 +12144,11 @@ def build_all(repo_root: Path) -> None:
                     v = asset_value_at(str(plabel), None, _pv_date, idx)
                     if v is None:
                         v = _pick_ktc_estimate(str(plabel), trade_date)
+                    if v is not None:
+                        pick_recv_total += v
+                        pick_recv_hits += 1
+                for _c in recv_conds:
+                    v = _pc_ktc(_c, _pv_date)
                     if v is not None:
                         pick_recv_total += v
                         pick_recv_hits += 1
@@ -12021,6 +12184,15 @@ def build_all(repo_root: Path) -> None:
                     continue
                 pick_change_total += (v_after - v_before)
                 pick_change_hits += 1
+            for _c in recv_conds:
+                _post = _season_start(int(_c.year))
+                if _post > today:
+                    continue
+                _vb, _va = _pc_ktc(_c, trade_date), _pc_ktc(_c, _post)
+                if _vb is None or _va is None:
+                    continue
+                pick_change_total += (_va - _vb)
+                pick_change_hits += 1
             if pick_change_hits:
                 row["Change in pick value at draft time"] = round(pick_change_total, 1)
 
@@ -12037,9 +12209,44 @@ def build_all(repo_root: Path) -> None:
                 if ref_date < trade_date:
                     ref_date = trade_date
                 diff = _diff_at(ref_date, recv_ids, drop_ids, recv_picks, drop_picks, recv_faab, drop_faab,
-                                recv_pick_metas, drop_pick_metas)
+                                recv_pick_metas, drop_pick_metas, recv_conds, drop_conds)
                 if diff is not None:
                     row[col_name] = diff
+
+        # --- 'Pick swaps and protections': what portion of a pick this side moved ---
+        # Each condition on the row, described with its value as a fraction of a
+        # whole pick at the deal; a protection names the trade where it was
+        # granted / removed (the other half of the same deal).
+        try:
+            _pc_row_date: Dict[str, str] = {}
+            for row in trades_rows:
+                for _x in list(row.get("_recv_conds") or []) + list(row.get("_drop_conds") or []):
+                    _pc_row_date.setdefault(_x, str(row.get("Date") or "")[:10])
+            for row in trades_rows:
+                _ids = list(dict.fromkeys(list(row.get("_recv_conds") or []) + list(row.get("_drop_conds") or [])))
+                _cs = [_pc_by_id[_x] for _x in _ids if _x in _pc_by_id]
+                if not _cs:
+                    continue
+                try:
+                    _td = datetime.fromisoformat(str(row.get("Date")).replace("Z", "+00:00")).date()
+                except Exception:
+                    continue
+                _parts = []
+                for _c in _cs:
+                    _v, _w = _pc_ktc(_c, _td), _pc_ktc_whole(_c, _td)
+                    _txt = _pcond.describe(_c, (_v / _w) if (_v is not None and _w) else None)
+                    for _o in _pick_conds:
+                        if (_o is not _c and (_o.year, _o.rnd, _norm_team_name(_o.orig))
+                                == (_c.year, _c.rnd, _norm_team_name(_c.orig))
+                                and {_o.kind, _c.kind} == {"protected_pick", "protection_removal"}
+                                and _o.cid in _pc_row_date):
+                            _txt += (f" (protection removed in the {_pc_row_date[_o.cid]} trade)"
+                                     if _c.kind == "protected_pick"
+                                     else f" (protection granted in the {_pc_row_date[_o.cid]} trade)")
+                    _parts.append(_txt)
+                row["Pick swaps and protections"] = "; ".join(_parts)
+        except Exception as e:
+            _log_exc(debug, "pick_swaps_protections_column", e)
 
         # --- Transactions pass: 4 reference points × 3 columns each ---
         # For each transaction we look up the added and dropped players'
@@ -12111,6 +12318,11 @@ def build_all(repo_root: Path) -> None:
         # --- FAAB Value twins of the trades / add_drops KTC columns ---
         try:
             if _fidx is not None:
+                # pick swaps / protections in FAAB values: the same expectation,
+                # each slot at its FAAB pick price (drafted player once drafted)
+                _pcond.set_faab_context(_fidx, _pick_conds, {
+                    _k: (_v, _pick_drafted_ktc.get(_k)) for _k, _v in _pc_slot.items()},
+                    lambda _y: _season_start(int(_y)))
                 def _fv_picks(_metas, _on):
                     """[(label, drafted)] for a side's picks: the KTC pass's
                     valuation label (future-pick rule) + the drafted player."""
@@ -12138,8 +12350,17 @@ def build_all(repo_root: Path) -> None:
                         season_i = None
                     r_ids = list(row.get("_recv_player_ids") or [])
                     s_ids = list(row.get("_drop_player_ids") or [])
-                    r_pk = _fv_picks(row.get("_recv_pick_meta"), trade_date)
-                    s_pk = _fv_picks(row.get("_drop_pick_meta"), trade_date)
+                    _rc = [_pc_by_id[_x] for _x in (row.get("_recv_conds") or []) if _x in _pc_by_id]
+                    _sc = [_pc_by_id[_x] for _x in (row.get("_drop_conds") or []) if _x in _pc_by_id]
+                    _rm = _pc_strip_protected(_rc, row.get("_recv_pick_meta") or [], row.get("_recv_pick_meta") or [])[1]
+                    _sm = _pc_strip_protected(_sc, row.get("_drop_pick_meta") or [], row.get("_drop_pick_meta") or [])[1]
+                    r_pk = _fv_picks(_rm, trade_date)
+                    s_pk = _fv_picks(_sm, trade_date)
+                    # pick swaps / protections ride in the pick lists as
+                    # "YYYY cond:<id>" entries (faab_history.pick_value values them
+                    # through lotg_support.pick_conditions, here and in faab_derived)
+                    r_pk += [(_pcond.spec_label(_c), None) for _c in _rc]
+                    s_pk += [(_pcond.spec_label(_c), None) for _c in _sc]
                     r_f = float(row.get("_recv_faab") or 0.0)
                     s_f = float(row.get("_drop_faab") or 0.0)
                     _refs = [("FAAB Value difference at deal time", trade_date)]
