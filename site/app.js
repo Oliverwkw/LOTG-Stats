@@ -622,28 +622,7 @@ async function home() {
   );
   // this week's headlines
   const res = h.results || [];
-  // headline tiles: the playoff race and form, each a short label, a big value and one line
-  const byRank = h.standings.slice().sort((x, y) => x.rank - y.rank);
-  const cutT = byRank[spots - 1], outT = byRank[spots];
-  const near = cutT ? byRank.filter((r) => r.rank > spots && (cutT.w - r.w) <= 1).length : 0;
-  const fav = hasOdds ? h.forecast.odds.slice().sort((x, y) => (y.champion ?? 0) - (x.champion ?? 0))[0] : null;
-  const meRow = ME && h.standings.find((r) => r.team === ME);
   const gLink = (g) => `#/game/${meta.season}/${meta.week}/${tslug(g.a)}`;
-  const heroT = (lab, val, sub, href) => `<div class="tile">${href ? `<a href="${href}">` : ""}<span>${lab}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ""}${href ? "</a>" : ""}</div>`;
-  // form: average points over the last three weeks played (week files), best and worst
-  const lastN = Math.min(3, meta.week);
-  const recent = lastN ? await Promise.all(Array.from({ length: lastN }, (_, i) => load(`week/${meta.season}-${meta.week - i}.json`).catch(() => null))) : [];
-  const form = Object.fromEntries(h.standings.map((r) => [r.team, []]));
-  for (const wk of recent) if (wk) for (const [t, sd] of Object.entries(wk.teams)) if (form[t]) form[t].push(sd.pf);
-  const avgF = Object.entries(form).filter(([, v]) => v.length).map(([t, v]) => [t, v.reduce((a, x) => a + x, 0) / v.length]).sort((x, y) => y[1] - x[1]);
-  const hot = avgF[0], cold = avgF[avgF.length - 1];
-  const hero = [
-    meRow ? heroT("★ Your team", `${meRow.w}-${meRow.l} · ${ordinal(meRow.rank)}`, odds[ME] ? `${oddsCell(ME, odds[ME].playoffs)} to make the playoffs` : esc(ME), `#/team/${tslug(ME)}`) : "",
-    cutT ? heroT("Playoff line", `${esc(cutT.team)} ${cutT.w}-${cutT.l}`, `holds the last spot${near ? ` · ${plural(near, "team")} within a game` : ""}${outT ? ` · next: ${esc(outT.team)} ${outT.w}-${outT.l}` : ""}`, `#/team/${tslug(cutT.team)}`) : "",
-    fav ? heroT("Title favorite", esc(fav.team), `${oddsCell(fav.team, fav.champion, true)} to win it all`, `#/team/${tslug(fav.team)}`) : "",
-    hot ? heroT("Hottest team", esc(hot[0]), `${fmt({ d: 1 }, hot[1])} pts a week over the last ${plural(lastN, "week")}`, `#/team/${tslug(hot[0])}`) : "",
-    cold && cold !== hot ? heroT("Coldest team", esc(cold[0]), `${fmt({ d: 1 }, cold[1])} pts a week over the last ${plural(lastN, "week")}`, `#/team/${tslug(cold[0])}`) : "",
-  ].join("");
   const games = res.map((g) => {
     const aw = g.pa > g.pb, m = Math.abs(g.pa - g.pb);
     return `<a class="game${ME && (g.a === ME || g.b === ME) ? " mine" : ""}" href="${gLink(g)}" title="Open the matchup">
@@ -673,7 +652,6 @@ async function home() {
     <div class="page-head"><div><h1>${meta.season} season</h1>
       <p class="lede">Through ${esc(meta.week_name)} · rebuilt ${esc(meta.built)}${regW > meta.week ? ` · ${plural(regW - meta.week, "regular-season week")} left` : ""}</p></div>
       <div class="actions">${ME ? "" : '<a class="btn sec" href="#/mine">★ Pick your team</a>'}${shareBtn()}</div></div>
-    <div class="hero">${hero}</div>
     <div class="card nocv"><div class="chead"><h2>Standings${hasOdds ? " &amp; odds" : ""}</h2><a class="small" href="#/teams">All-time standings →</a></div>${table(cols, h.standings, { sort: 0, asc: true, cut: spots, teamOf: (r) => r.team, rowLink: (r) => `team/${tslug(r.team)}`, tools: false, name: `standings_${meta.season}` })}${fcNote}</div>
     <div class="card" id="watch"><h2>Record watch</h2><p class="muted small">Checking this week's games on Sleeper…</p><div class="skel ln"></div><div class="skel ln" style="width:70%"></div></div>
     <div class="card"><div class="chead"><h2>${esc(meta.week_name)} results</h2><span class="small"><a href="#/week/${meta.season}/${meta.week}">Week page</a> · <a href="#/weeks/${meta.season}">every ${meta.season} week</a></span></div><div class="games">${games}</div></div>
