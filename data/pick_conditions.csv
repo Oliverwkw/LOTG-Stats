@@ -13,8 +13,8 @@
 #                              and other_orig_owner picks. No pick hop moves (which one is unknown until the slots
 #                              are set); the ledger keeps both picks where they are.
 #        swap                : to_owner gets the better (earlier slot) of the orig_owner pick he holds and the
-#                              other_orig_owner pick from_owner holds; from_owner gets the worse. `after` instead of
-#                              other_orig_owner = the pick from_owner is left with after that earlier swap.
+#                              other_orig_owner pick from_owner holds; from_owner gets the worse. `after` stands in
+#                              for whichever of the two is blank: what that earlier swap left the side.
 # Value = the expectation over every assignment of distinct slots (1..8, equally likely) of each pick priced at
 # that slot on the date; resolves once the picks are drafted. trade_completed_utc = the target trade's completion
 # time, UTC (the key data/commissioner_pick_trades.csv uses). Source: the commissioner's "Missing Pick Trades"
@@ -29,9 +29,10 @@ DOBBINS-2025-2ND,protected_pick,2025,2,stevenb123,,1-4,2026,,stevenb123,shmuel25
 DOBBINS-2025-2ND-UNPROTECT,protection_removal,2025,2,stevenb123,,1-4,2026,,stevenb123,shmuel256,2023-01-14 07:11:02,2025 4th to unprotect the Dobbins 2nd,Steve made the 2024 playoffs: the pick landed 2.08 so the protection never triggered
 # --- 4th-round swaps ---
 # Ekeler trade: Jacob gets the better of his 4th and Oliver's, in any year up to 2028 (year open; valued as 2027
-# for now — Oliver's 2027 4th in hand is LWebs53's original). Then Luke paid Oliver $9 for a 2027 4th swap run
-# after it: Luke (holding Oliver's original 2027 4th) gets the better of that and what Oliver keeps.
+# for now — Oliver's 2027 4th in hand is LWebs53's original). Then Luke GAVE Oliver a 2027 4th swap (with $9) for
+# the release of a separate untracked agreement, run after the Ekeler swap: Oliver gets the better of what he keeps
+# after it and his own original 2027 4th that Luke holds; Luke the worse (Oliver, 2026-11-21).
 SWAP-EKELER,swap,2027,4,JacobRosenzweig,LWebs53,,,,Oliverwkw,JacobRosenzweig,2024-07-13 22:02:35,Ekeler trade,Any year up to 2028; valued as the 2027 4ths until the year is chosen
-SWAP-LUKE-9,swap,2027,4,Oliverwkw,,,,SWAP-EKELER,Oliverwkw,LWebs53,2026-10-22 22:01:09,$9 FAAB swap,2027 only and runs after the Ekeler swap
+SWAP-LUKE-9,swap,2027,4,,Oliverwkw,,,SWAP-EKELER,LWebs53,Oliverwkw,2026-10-22 22:01:09,$9 FAAB swap,2027 only and runs after the Ekeler swap. Luke gave Oliver the swap and $9 for the release of a separate untracked agreement
 # --- Kamara trade (2025-11-02): Sam also gets the better of Steve's and Luke's 2029 4ths ("gets highest") ---
 KAMARA-2029-4TH,better_of,2029,4,stevenb123,LWebs53,,,,stevenb123,shmuel256,2025-11-02 16:37:36,Kamara trade,Sam gets the better of Steve's and Luke's 2029 4ths
