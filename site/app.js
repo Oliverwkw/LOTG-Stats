@@ -274,21 +274,22 @@ function downloadText(name, text, type = "text/csv") {
 // marked; shares, counts, ages, tenure, swing, riskiness, projections and the like aren't
 // good or bad, so they stay plain.
 const X_LOW = /^(pa|avg pa|points against|avg points against|points left on bench|avg points left on bench|bust week %|times lowest score|times least efficient|times underachiever.*|number of last place finishes|losses from hardship.*|hardship.*|starter-adjusted hardship.*|donuts.*|empty slots|weeks of (starter )?injuries)$/i;
-const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts)$/i;
+const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts|avg snap %|snap %|targets|carries|avg target share|target share|red-zone opportunities|air yards|draft value|all-time draft capital|toilet bowl win %|playoff win %|3rd place game win %|times player of the week\??|points per game|ppg|avg ppg|avg points added|career ppg|pts|points for|max points)$/i;
 function extremesOf(cols, rows, val) {
   const out = cols.map(() => null);
-  if (rows.length < 4) return out;
+  if (rows.length < 3) return out;
   cols.forEach((c, i) => {
     if (i === 0 || c.left || c.noext || c.extremes === false) return;
     const low = X_LOW.test(c.label) || X_LOW.test(c.col || "");
     if (!low && !X_GOOD.test(c.label) && !X_GOOD.test(c.col || "")) return;
     const vs = rows.map((r) => val(c, r)).filter((v) => typeof v === "number" && isFinite(v));
-    if (vs.length < 4) return;
+    if (vs.length < 3) return;
     const hi = Math.max(...vs), lo = Math.min(...vs);
     if (hi === lo) return;
     // a value most rows share is not a "best" (e.g. a column of zeros with one 1)
     const nHi = vs.filter((v) => v === hi).length, nLo = vs.filter((v) => v === lo).length;
-    out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) === 1, okW: (low ? nHi : nLo) === 1 };
+    // ties at either end are all marked, unless most of the column shares that value
+    out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) <= Math.max(2, vs.length / 2), okW: (low ? nHi : nLo) <= Math.max(2, vs.length / 2) };
   });
   return out;
 }
