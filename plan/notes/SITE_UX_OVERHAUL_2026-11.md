@@ -650,3 +650,5 @@ browser.
 588. Trade calculator: projected wins added, playoff odds and title odds as verdict / suggestion measures — each team's simulated change (Predictions model); even-it-up candidates (ten most-projected players) and third-team ideas (screened on projected points) are each simulated, and teams outside the deal that move are listed.
 589. Every Sleeper and forecast request has a timeout; the calculator's simulation is dropped if it fails or takes over 30 s, errors aren't cached, and Season odds / Verdict show Try again instead of a spinner that never ends.
 590. Best / worst marks are quiet: colored number with a small ▲ / ▼, no filled box. Ties at either end are all marked (unless most of the column shares the value); usage, draft value and playoff / toilet-bowl win % columns are marked too.
+591. Best / worst marks drop the ▲ / ▼ (confusing): just green (best) or red (worst) numbers, with a legend.
+592. Links get their own soft blue (--link), apart from the mint accent on buttons and tabs and the green of good numbers.
