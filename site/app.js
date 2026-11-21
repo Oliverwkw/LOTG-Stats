@@ -343,7 +343,7 @@ function table(cols, rows, opts = {}) {
     el.querySelector(".scroll").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     el.querySelector(".scroll").scrollLeft = x;
     el.querySelector(".tmorew").innerHTML = (shown.length < rs.length ? `<button class="b sm tmore" data-all>Show all ${rs.length.toLocaleString()} rows</button>` : "")
-      + (hasExt ? `<div class="xlegend"><span class="xbest">▲ best</span><span class="xworst">▼ worst</span> in each column where higher or lower is clearly better${opts.xnote ? " · " + esc(opts.xnote) : ""}</div>` : "");
+      + (hasExt ? `<div class="xlegend"><span class="xbest">green = best</span><span class="xworst">red = worst</span> in each column where higher or lower is clearly better${opts.xnote ? " · " + esc(opts.xnote) : ""}</div>` : "");
     pinColumns(el.querySelector(".scroll"));
     if (ME) refreshAvatars();
   }
