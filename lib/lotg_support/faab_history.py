@@ -241,7 +241,11 @@ def depth_adjusted(vals) -> float:
 
 def pick_value(fidx: FaabIndex, label, drafted, target) -> Optional[float]:
     """a traded pick on a date: its FAAB pick price until its draft, then the drafted player's value.
-    drafted = (Sleeper id of the player taken with it, the day from which he stands in for it) or None"""
+    drafted = (Sleeper id of the player taken with it, the day from which he stands in for it) or None.
+    A "YYYY cond:<id>" label is a pick swap / protection (lotg_support.pick_conditions)."""
+    if " cond:" in str(label):
+        from . import pick_conditions as PC
+        return PC.faab_value(label, target)
     v = fidx.pick(label, target, pid=drafted[0] if drafted else None)    # the drafted player names its original team
     if v is not None:
         return v

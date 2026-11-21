@@ -36,6 +36,15 @@ import numpy as np
 import pandas as pd
 
 from . import faab_history as FH
+from . import pick_conditions as PC
+
+_CONDS: list = []
+
+
+def _conds() -> list:
+    if not _CONDS:
+        _CONDS.extend(PC.load())
+    return _CONDS
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPORTS = ROOT / "exports"
@@ -196,6 +205,11 @@ class Assets:
             if m:
                 self.faab += float(m.group(1))
                 continue
+            if PC.is_label(a):                       # a pick swap / protection (lotg_support.pick_conditions)
+                c = PC.from_label(a, _conds())
+                if c is not None:
+                    self.picks.append((PC.spec_label(c), None))
+                    continue
             m = PICK_RE.match(a)
             if m:
                 y, rn, sl = int(m.group(1)), int(m.group(2)), m.group(3)
@@ -238,6 +252,22 @@ def trade_sides(tr: pd.DataFrame, rp: pd.DataFrame, pa: pd.DataFrame):
         out.append((Assets(rd.get("Assets received"), rd.get("Player IDs received"), drafted, days, on),
                     Assets(rd.get("Assets sent"), rd.get("Player IDs sent"), drafted, days, on)))
     return out
+
+
+def set_condition_context(fidx, rp: pd.DataFrame) -> None:
+    """pick swaps / protections ('YYYY cond:<id>' pick entries, lotg_support.pick_conditions) priced from the
+    rookie picks' slots and drafted players — the build's own rule (drafted player stands in from season start)"""
+    from . import pick_conditions as PC
+    slots = {}
+    for r in rp.to_dict("records"):
+        y = re.match(r"\s*(\d{4})", str(r.get("Year")))
+        n = re.match(r"\s*(\d+)\.(\d+)", str(r.get("Number")))
+        pid = (_ids(r.get("Player Picked ID")) or [None])[0]
+        if not y or not n or not pid:
+            continue
+        yy = int(y.group(1))
+        slots[(yy, int(n.group(1)), PC.norm(r.get("Original Team")))] = (int(n.group(2)), (pid, season_start(yy)))
+    PC.set_faab_context(fidx, PC.load(), slots, season_start)
 
 
 def _spec(cell) -> Optional[list]:
@@ -711,6 +741,7 @@ class Search:
         X = self.X
         self.sides = trade_sides(X["trades"], X["rookie_picks"], X["player_additions"])
         use_pick_specs(self.sides, X["trades"], self.side.get("trades"))
+        set_condition_context(self.f, X["rookie_picks"])
         self.days = draft_days(X["player_additions"])
         self.early = None
         pae = Path(exports) / "raw" / "pae_additions.json.gz"

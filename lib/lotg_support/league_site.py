@@ -1570,7 +1570,10 @@ class Site:
                                           "season": _clean(r.Season), "sides": []})
             side = {"team": r.Team, "got": _split_assets(r["Assets received"]),
                     "sent": _split_assets(r["Assets sent"]),
-                    "kept": _split_assets(r.get("Assets retained now"))}
+                    "kept": _split_assets(r.get("Assets retained now")),
+                    # a pick swap / protection this side moved (lotg_support.pick_conditions)
+                    "conds": [x for x in str(r.get("Pick swaps and protections") or "").split("; ")
+                              if x and x.lower() != "nan"]}
             for c in TRADE_SIDE_COLUMNS:
                 if c in t.columns:
                     side[c] = _clean(pd.to_numeric(r[c], errors="coerce"),
@@ -1671,7 +1674,21 @@ class Site:
                         values[f"{y}|{r}|{o}"] = round(float(v), 2)
         except Exception:                               # pragma: no cover - the FAAB data may be absent
             values = {}
+        # pick swaps / protections still open on these drafts (data/pick_conditions.csv): who gets the better
+        # pick, valued only on the trades sheet; listed so the team pages can show them beside the picks
+        conds = []
+        try:
+            from . import pick_conditions as PC
+            for c in PC.load():
+                if c.year in years:
+                    conds.append({"id": c.cid, "kind": c.kind, "year": c.year, "round": c.rnd,
+                                  "to": canon.get(c.to.lower(), c.to), "from": canon.get(c.frm.lower(), c.frm),
+                                  "picks": [canon.get(o.lower(), o) for o in PC.picks_of(c, PC.load())],
+                                  "text": PC.describe(c, None)})
+        except Exception:                               # pragma: no cover - a malformed ledger fails the build tests
+            conds = []
         return {"season": self.season, "years": years, "rounds": PICK_ROUNDS, "held": held, "values": values,
+                "conditions": conds,
                 "sleeper_at_build": snap,
                 "weights": FUTURE_PICK_WEIGHTS}
 

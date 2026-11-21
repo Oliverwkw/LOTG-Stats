@@ -499,6 +499,8 @@ EQUATIONS = {
         'DT(A, d0+1y) − DT(B, d0+1y)',
     ('KTC value difference 2 years later', 'trades'):
         'DT(A, d0+2y) − DT(B, d0+2y)',
+    ('Pick swaps and protections', 'trades'):
+        'for c ∈ C(x, t): E_σ[g_c(σ)] / E_σ[v(pick)],  σ = distinct slots 1..8 (fixed once drafted); g = v·1[σ∉S] + v_roll·1[σ∈S] (protected), (v − v_roll)·1[σ∈S] (removed), v(better) − v(own) (swap), v(better) (better of two)',
     ('Pick value received', 'trades'):
         'Σ_{pick ∈ dp(x), owner_id = t} K(pick, d0)',
     ('Change in pick value at draft time', 'trades'):
