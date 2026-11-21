@@ -652,3 +652,4 @@ browser.
 590. Best / worst marks are quiet: colored number with a small ▲ / ▼, no filled box. Ties at either end are all marked (unless most of the column shares the value); usage, draft value and playoff / toilet-bowl win % columns are marked too.
 591. Best / worst marks drop the ▲ / ▼ (confusing): just green (best) or red (worst) numbers, with a legend.
 592. Links get their own soft blue (--link), apart from the mint accent on buttons and tabs and the green of good numbers.
+593. Home: the headline tiles above the standings are removed (user: they didn't add anything); the page opens on Standings & odds.
