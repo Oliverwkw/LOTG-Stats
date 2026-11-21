@@ -110,15 +110,33 @@ def test_better_of_two_picks():
     assert PC.label(b).startswith("Pick better of: ") and PC.is_label(PC.label(b))
 
 
+def test_slot_curve_keeps_the_round_average():
+    for rnd in (1, 2, 3, 4):
+        shares = [PC.slot_share(rnd, s) for s in range(1, 9)]
+        assert abs(sum(shares) / 8 - 1.0) < 1e-9 and shares == sorted(shares, reverse=True), (rnd, shares)
+    pv = PC.unit_pick_value(4, lambda o, y: 100.0, lambda o, s, y: 7.0, lambda o, y: 3 if o == "A" else None)
+    assert pv("A", 3, 2027) == 7.0                                    # settled: priced exactly
+    assert abs(pv("B", 1, 2027) - 100.0 * PC.slot_share(4, 1)) < 1e-9
+    conds = PC.load()
+    flat = PC.unit_pick_value(4, lambda o, y: 100.0, lambda o, s, y: None, lambda o, y: None)
+    for cid in ("SWAP-EKELER", "SWAP-LUKE-9"):
+        c = next(x for x in conds if x.cid == cid)
+        assert 0.05 < PC.portion(c, conds, flat) < 0.5, cid           # a real price, not KTC's flat quarters
+    txt = PC.describe(conds[0], 0.5, ktc=1234.4, faab=56.78)
+    assert "1,234 KTC" in txt and "$56.8 FAAB" in txt
+
+
 def test_faab_value_goes_through_faab_history_pick_value():
     from lotg_support import faab_history as FH
     conds = PC.load()
     PC.set_faab_context(None, conds, {}, lambda y: __import__("datetime").date(int(y), 9, 8))
     try:
         sw = next(c for c in conds if c.cid == "SWAP-EKELER")
-        price = lambda lbl, dk, d: float(EARLY_MID[int(lbl.split(".")[1])])
+        price = lambda lbl, dk, d: 80.0          # the round-average FAAB price
         v = PC.faab_value(PC.spec_label(sw), "2025-01-01", price=price)
-        assert abs(v - (2 / 7) * 40) < 1e-9
+        w = [80.0 * PC.slot_share(4, s) for s in range(1, 9)]
+        want = sum(max(w[a], w[b]) - w[a] for a in range(8) for b in range(8) if a != b) / 56
+        assert abs(v - want) < 1e-9, (v, want)
         assert FH.pick_value(None, "2027 cond:NOPE", None, "2025-01-01") is None
     finally:
         PC._FAAB_CTX.clear()
@@ -157,6 +175,8 @@ def test_dobbins_and_trade_68_restated():
     dob = t[t.Date.str.startswith("2022-06-08") & (t.Team == "shmuel256")]
     assert len(dob) == 1 and "2025 2.08" in dob["Assets received"].iloc[0], dob["Assets received"].tolist()
     assert "top-4 protected" in dob["Pick swaps and protections"].iloc[0]
+    for txt in t["Pick swaps and protections"].dropna():
+        assert re.search(r"[\d,]+ KTC", txt) and re.search(r"\$[\d,.]+ FAAB", txt), txt   # both prices, every one
     t68 = t[t.Date.str.startswith("2023-01-14 02:11:02")]
     sam = t68[t68.Team == "shmuel256"].iloc[0]
     steve = t68[t68.Team == "stevenb123"].iloc[0]

@@ -11,8 +11,8 @@ Until a pick's slot is set it is equally likely to be any of the league's
 `TEAMS` slots, and two different teams' picks never share a slot. Each
 condition is a function of the slots of the picks it names, so its value on a
 date is the EXPECTED value over every assignment of distinct slots, each slot
-priced the way the build prices a pick at that slot on that date (KTC, or the
-FAAB board). Once a pick has been drafted its slot is known and the condition
+priced at the pick's round-average price that day (KTC, or the FAAB board)
+shaped by the league's draft-day slot curve (see "the slot curve" below). Once a pick has been drafted its slot is known and the condition
 resolves to what actually happened (a protection on a pick that landed 2.08 is
 worth 0; the pick itself is worth all of it).
 
@@ -180,6 +180,50 @@ def from_label(text, conds: Sequence[Condition]) -> Optional[Condition]:
     return None
 
 
+# ------------------------------------------------------------------------------------------- the slot curve
+# KTC quotes picks only by 12-team quarter (an 8-team round spans two: 4.01-4.04 all read "Early 3rd") and the
+# FAAB board prices a future pick at its round average, so neither tells one slot from the next within a quarter.
+# The SHAPE across a round's slots comes from the league's own draft-day slot prices
+# (data/faab_value/pick_schedule_base.csv: the median price of each slot over every rookie draft held); the LEVEL
+# from the unit being priced. An unsettled pick at slot s is worth  whole(unit, date) * w(s) / mean(w over the round),
+# where whole is the round-average price of that pick in KTC or FAAB on the date — so the expectation of a single
+# pick over its slots is exactly its round-average price, and a portion is the same fraction of a pick in both units.
+
+SLOT_CURVE_CSV = ROOT / "data" / "faab_value" / "pick_schedule_base.csv"
+_CURVE: Dict[int, Dict[int, float]] = {}
+
+
+def slot_curve(rnd: int) -> Dict[int, float]:
+    """slot -> the round's draft-day price at that slot (rounds 1-4; 2.09 and the 5.0X buys are not swapped)"""
+    if not _CURVE:
+        with Path(SLOT_CURVE_CSV).open(newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                m = re.match(r"^(\d)\.(\d\d)$", r["slot"].strip())
+                if m and 1 <= int(m.group(2)) <= TEAMS:
+                    _CURVE.setdefault(int(m.group(1)), {})[int(m.group(2))] = float(r["price"])
+    return _CURVE.get(int(rnd), {})
+
+
+def slot_share(rnd: int, slot: int) -> float:
+    """w(slot) / mean(w) over the round: 1.0 for every slot when the curve is missing"""
+    c = slot_curve(rnd)
+    if len(c) < TEAMS or int(slot) not in c:
+        return 1.0
+    return c[int(slot)] / (sum(c.values()) / len(c))
+
+
+def unit_pick_value(rnd: int, whole: Callable[[str, int], Optional[float]],
+                    settled: Callable[[str, int, int], Optional[float]], known: KnownSlot) -> PickValue:
+    """the PickValue used for one unit: a settled (drafted) pick at its own slot is priced exactly (`settled`);
+    otherwise the round-average price (`whole(orig, year)`) shaped by the slot curve"""
+    def _pv(o, slot, y):
+        if known(o, y) == slot:
+            return settled(o, slot, y)
+        w = whole(o, y)
+        return None if w is None else float(w) * slot_share(rnd, slot)
+    return _pv
+
+
 # ------------------------------------------------------------------------------------------- the value system
 
 def _by_id(conds: Sequence[Condition]) -> Dict[str, Condition]:
@@ -284,15 +328,18 @@ def portion(c: Condition, conds: Sequence[Condition], pick_value: PickValue,
     return v / w
 
 
-def describe(c: Condition, frac: Optional[float]) -> str:
-    """one line for the trades sheet's 'Pick swaps and protections' column"""
-    p = f" — {frac:.2f} of a pick at the deal" if frac is not None else ""
+def describe(c: Condition, frac: Optional[float], ktc: Optional[float] = None, faab: Optional[float] = None) -> str:
+    """one line for the trades sheet's 'Pick swaps and protections' column: what moved, its portion of a pick and
+    its KTC / FAAB price at the deal"""
+    price = ", ".join(x for x in (f"{ktc:,.0f} KTC" if ktc is not None else "",
+                                  f"${faab:,.1f} FAAB" if faab is not None else "") if x)
+    p = (f" — {frac:.2f} of a pick at the deal" if frac is not None else "") + (f" ({price})" if price else "")
     top = _slot_text(c.slots)
     alt = (f"{c.to} gets {c.orig}'s {c.rollover} {_round(c)} instead" if c.rollover
            else f"{c.orig} keeps it")
     if c.kind == "protected_pick":
         return (f"{c.year} {_round(c)}({c.orig}) is top-{top} protected: if it lands in slots 1-{top} {alt}"
-                f"{p.replace('a pick', 'the pick')}" + (f". {c.notes}" if c.notes else ""))
+                f"{p.replace('of a pick', 'of the pick')}" + (f". {c.notes}" if c.notes else ""))
     if c.kind == "protection_removal":
         return (f"Removes the top-{top} protection on the {c.year} {_round(c)}({c.orig}) {c.to} already held "
                 f"(it was: {alt} if it landed in slots 1-{top}){p}" + (f". {c.notes}" if c.notes else ""))
@@ -366,9 +413,11 @@ def faab_value(label, target, price: Optional[Callable] = None) -> Optional[floa
         got = slots.get((int(y), int(c.rnd), norm(o)))
         return got[0] if got else None
 
-    def _pv(o, slot, y):
+    def _settled(o, slot, y):
         got = slots.get((int(y), int(c.rnd), norm(o)))
-        dk = got[1] if (got and _known(o, y) == slot) else None
-        return price(f"{int(y)} {int(c.rnd)}.{int(slot):02d}", dk, t)
+        return price(f"{int(y)} {int(c.rnd)}.{int(slot):02d}", got[1] if got else None, t)
 
-    return value(c, conds, _pv, _known)
+    def _whole(o, y):
+        return price(f"{int(y)} {int(c.rnd)}.??", None, t)
+
+    return value(c, conds, unit_pick_value(c.rnd, _whole, _settled, _known), _known)

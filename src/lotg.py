@@ -11894,15 +11894,24 @@ def build_all(repo_root: Path) -> None:
         def _pc_ktc_pv(c, target):
             _known = _pc_known(c, target)
 
-            def _pv(o, slot, y):
+            def _settled(o, slot, y):
+                # a drafted pick at its own slot: priced like a pick leg
                 _lbl = f"{int(y)} {int(c.rnd)}.{int(slot):02d}"
                 _v = asset_value_at(_lbl, None, target, _ktc_idx)
-                if _v is None and _known(o, y) == slot:
+                if _v is None:
                     _v = _pick_drafted_value((int(y), int(c.rnd), str(o)), target)
                 if _v is None:
                     _v = _pick_ktc_estimate(_lbl, target)
                 return _v
-            return _pv, _known
+
+            def _whole(o, y):
+                # the round-average price, as a pick traded before its order is set
+                _lbl = f"{int(y)} {int(c.rnd)}.??"
+                _v = asset_value_at(_lbl, None, target, _ktc_idx)
+                if _v is None:
+                    _v = _pick_ktc_estimate(_lbl, target)
+                return _v
+            return _pcond.unit_pick_value(c.rnd, _whole, _settled, _known), _known
 
         def _pc_ktc(c, target) -> Optional[float]:
             try:
@@ -12218,6 +12227,11 @@ def build_all(repo_root: Path) -> None:
         # whole pick at the deal; a protection names the trade where it was
         # granted / removed (the other half of the same deal).
         try:
+            if _fidx is not None:
+                # the FAAB price of each condition (also set again for the FAAB pass)
+                _pcond.set_faab_context(_fidx, _pick_conds, {
+                    _k: (_v, _pick_drafted_ktc.get(_k)) for _k, _v in _pc_slot.items()},
+                    lambda _y: _season_start(int(_y)))
             _pc_row_date: Dict[str, str] = {}
             for row in trades_rows:
                 for _x in list(row.get("_recv_conds") or []) + list(row.get("_drop_conds") or []):
@@ -12234,7 +12248,8 @@ def build_all(repo_root: Path) -> None:
                 _parts = []
                 for _c in _cs:
                     _v, _w = _pc_ktc(_c, _td), _pc_ktc_whole(_c, _td)
-                    _txt = _pcond.describe(_c, (_v / _w) if (_v is not None and _w) else None)
+                    _fv = _fh.pick_value(_fidx, _pcond.spec_label(_c), None, _td) if _fidx is not None else None
+                    _txt = _pcond.describe(_c, (_v / _w) if (_v is not None and _w) else None, ktc=_v, faab=_fv)
                     for _o in _pick_conds:
                         if (_o is not _c and (_o.year, _o.rnd, _norm_team_name(_o.orig))
                                 == (_c.year, _c.rnd, _norm_team_name(_c.orig))
@@ -21564,8 +21579,10 @@ def build_all(repo_root: Path) -> None:
 
             def _is_player_asset(_a):
                 _s = str(_a).strip()
-                # Exclude pick labels (YYYY ...) and FAAB ("$N FAAB").
-                return _real_player(_a) and not re.match(r"^\d{4}\b", _s) and not _s.endswith("FAAB")
+                # Exclude pick labels (YYYY ...), FAAB ("$N FAAB") and pick swaps /
+                # protections ("Pick swap: …", lotg_support.pick_conditions).
+                return (_real_player(_a) and not re.match(r"^\d{4}\b", _s) and not _s.endswith("FAAB")
+                        and not _pcond.is_label(_s))
 
             chains: Dict[str, List[Tuple[Any, str]]] = defaultdict(list)
             for _i in add_drops_df.index:
@@ -23244,6 +23261,9 @@ def build_all(repo_root: Path) -> None:
             if not _n or _n.upper() in ("FAAB", "N/A") or _n.lower() in ("nan", "none", "unknown"):
                 return False
             if "faab" in _n.lower():
+                return False
+            # a pick swap / protection (lotg_support.pick_conditions) is no player
+            if _pcond.is_label(_n):
                 return False
             return not bool(_pick_re.match(_n))
 

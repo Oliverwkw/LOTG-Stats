@@ -954,6 +954,11 @@ ACQUISITION_EVENTS: Tuple[str, ...] = ("draft", "add", "trade")
 EXPORT_TIMEZONE = "America/New_York"
 
 
+def _pick_condition_label(asset: str) -> bool:
+    from .pick_conditions import is_label
+    return is_label(asset)
+
+
 def split_assets(cell: object) -> Tuple[List[str], List[str], List[str]]:
     """One `trades` sheet asset cell -> (player names, pick labels, FAAB).
 
@@ -970,7 +975,9 @@ def split_assets(cell: object) -> Tuple[List[str], List[str], List[str]]:
         asset = raw.strip()
         if not asset or asset.lower() == "nan" or is_placeholder(asset):
             continue
-        if PICK_ASSET.match(asset):
+        # a pick swap / protection ("Pick swap: …", lotg_support.pick_conditions) is a
+        # portion of a pick, never a player: it goes with the picks
+        if PICK_ASSET.match(asset) or _pick_condition_label(asset):
             picks.append(asset)
         elif FAAB_ASSET.match(asset):
             faab.append(asset)

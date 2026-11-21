@@ -47,7 +47,8 @@ def _sheets_with_ids():
 
 
 def _is_player_asset(a):
-    return not _PICK.match(a) and "faab" not in a.lower()
+    from lotg_support.pick_conditions import is_label     # a pick swap / protection is not a player
+    return not _PICK.match(a) and "faab" not in a.lower() and not is_label(a)
 
 
 # --------------------------------------------------------------------- unit
