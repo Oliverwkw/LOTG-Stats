@@ -136,7 +136,8 @@ use only what was known that day, the way the league values players. A 1.05 rook
      Trade-note rules round 3, 2026-11-08 (Oliver's 16 items; one-rule strength scans, no other refit):
      the 2025 2.09 toilet-reward hop 2 moved from the 2025-04-15 Adams trade to the 2025-06-25 Roschon Johnson /
      Jerry Jeudy trade (data/commissioner_pick_trades.csv, a build change). Calls are dated (`faab_calls.CALL_DATES`:
-     first review 2026-10-24, second 2026-10-25, chat consensus 2026-10-26) and each group is scored on the latest
+     first review 2026-10-24, second 2026-10-25, chat consensus 2026-10-26, chat 2026-11-03 (TLaw >= Lamar), the
+     unanimous 3-team votes of 2026-11-18, chat 2026-11-20 (top-WR order, Ladd's tier)) and each group is scored on the latest
      board on or before its date; the Michael Wilson call is now >= $400. Kept:
      `overtaken` (lower only, -1.5): a player 29+ outscored last season by a same-team, same-position rookie
      (`faab_features.overtaken_by_rookie`, by PPR/game gap over 4), fading over 8 games of this season (Kupp 2024

@@ -15,7 +15,8 @@ from __future__ import annotations
 import numpy as np
 
 CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
-CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26")   # first review, second review, league chat consensus
+CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20")
+# first review, second review, league chat consensus (10-26), chat (TLaw/Lamar, 11-03), votes (11-18), chat (top WRs / Ladd, 11-20)
 # Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
 # in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
 LOW_FIRST = ["Dak Prescott", "Justin Herbert", "Jordan Love", "Omarion Hampton", "Denzel Boston",
@@ -40,7 +41,11 @@ VOTE_CALLS = (
     ("2026-10-24", "down", "Chuba Hubbard", 972), ("2026-10-24", "over", "Michael Pittman Jr.", "Isaac TeSlaa"),
     ("2026-10-24", "over", "Jaxson Dart", "DJ Moore"),
     ("2026-10-26", "right", "Jalen Coker", 367), ("2026-10-26", "right", "Tyler Warren", 909),
-    ("2026-10-26", "over", "Isaiah Likely", "TreVeyon Henderson"),
+    ("2026-10-26", "over", "Isaiah Likely", "TreVeyon Henderson"), ("2026-10-26", "right", "Garrett Wilson", 1037),
+    ("2026-11-18", "over", "Garrett Wilson", "Elijah Sarratt"), ("2026-11-18", "over", "Omar Cooper Jr.", "George Kittle"),
+    ("2026-11-18", "over", "Tucker Kraft", "Brian Thomas Jr."), ("2026-11-18", "up", "Garrett Wilson", 123),
+    ("2026-11-18", "down", "Elijah Sarratt", 146), ("2026-11-18", "down", "Jordyn Tyson", 1667),
+    ("2026-11-18", "down", "Javonte Williams", 1332),
 )
 RANGE_TOL = float(np.log(1.05))
 PAIR_TOL = float(np.log(1.01))
@@ -119,7 +124,20 @@ def calls(v, ref=None, qbs=()):
     # Hampton at least Bucky, Henderson at least a high second
     B = on(CALL_DATES[2])
     t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-340)", rng("Kyle Monangai", 180, 340)),
-          ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999))]
+          ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999)),
+          ("Bucky a 1.06-1.07 ($783-875)", rng("Bucky Irving", 783, 875))]                  # Shmuel 1.07, Oliver 1.06, Ben 1.07
+    # league chat 2026-11-03 (the TLaw trade-block thread): Lawrence at least Lamar (Ben, Peter, Sam's offer, Oliver)
+    B = on(CALL_DATES[3])
+    t += [("TLaw >= Lamar (chat 2026-11-03)", gt("Trevor Lawrence", "Lamar Jackson", 0.0))]
+    # league chat 2026-11-20 (Ben, Sam, Oliver; Steve on Ladd): JSN, Chase, Puka in that order, a tier above CeeDee,
+    # Jefferson and Nabers, Puka above ARSB; Ladd about WR20-25 in dynasty, below Parker Washington, Nico, Pickens, Watson
+    B = on(CALL_DATES[5])
+    t += [("JSN > Chase (chat 2026-11-20)", gt("Jaxon Smith-Njigba", "Ja'Marr Chase")), ("Chase > Puka (chat 2026-11-20)", gt("Ja'Marr Chase", "Puka Nacua")),
+          ("Puka > ARSB (chat 2026-11-20)", gt("Puka Nacua", "Amon-Ra St. Brown"))]
+    nxt = max(g(n) for n in ["CeeDee Lamb", "Justin Jefferson", "Malik Nabers"])
+    t += [(f"{n} above CeeDee/Jefferson/Nabers (chat 2026-11-20)", h(np.log(nxt) - np.log(g(n)) + 0.03, PAIR_TOL))
+          for n in ["Jaxon Smith-Njigba", "Ja'Marr Chase", "Puka Nacua"]]
+    t += [(f"Ladd below {n} (chat 2026-11-20)", gt(n, "Ladd McConkey")) for n in ["Parker Washington", "Nico Collins", "George Pickens", "Christian Watson"]]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)
