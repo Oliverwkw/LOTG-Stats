@@ -101,6 +101,23 @@ def test_chained_swap_matches_brute_force():
     assert got > 0
 
 
+def test_chained_swap_on_the_receivers_side():
+    """Luke GIVES Oliver a swap run after the Ekeler one: Oliver takes the better of what the first swap left
+    him (the worse of J's / L's) and the O pick Luke holds"""
+    first = _c(cid="J", orig="J", other="L", frm="O", to="J")
+    luke = _c(cid="K", orig="", other="O", after="J", frm="K", to="O")
+    got = PC.value(luke, [first, luke], _price(LINEAR))
+    tot = n = 0
+    for sj, sl, so in itertools.permutations(range(1, 9), 3):
+        own = max(sj, sl)                     # Oliver keeps the worse after the first swap
+        tot += LINEAR[min(own, so)] - LINEAR[own]
+        n += 1
+    assert abs(got - tot / n) < 1e-9 and got > 0, (got, tot / n)
+    real = {c.cid: c for c in PC.load()}["SWAP-LUKE-9"]
+    assert (real.frm, real.to, real.orig, real.other, real.after) == ("LWebs53", "Oliverwkw", "", "Oliverwkw",
+                                                                         "SWAP-EKELER")
+
+
 def test_better_of_two_picks():
     b = _c(kind="better_of", orig="S", other="L", frm="S", to="M")
     v = PC.value(b, [b], _price(EARLY_MID))
@@ -201,8 +218,8 @@ def test_fourth_round_swaps_on_their_trades():
     assert any("Pick swap: 2027 4ths" in str(x) for x in ek[ek.Team == "Oliverwkw"]["Assets sent"])
     km = t[t.Date.str.startswith("2025-11-02 11:37:36") & (t.Team == "shmuel256")]
     assert any("Pick better of: 2029 4th(stevenb123) or 2029 4th(LWebs53)" in str(x) for x in km["Assets received"])
-    lk = t[t.Date.str.startswith("2026-10-22") & (t.Team == "LWebs53")]
-    assert any("Pick swap: 2027 4ths, LWebs53 gets the better" in str(x) for x in lk["Assets received"])
+    lk = t[t.Date.str.startswith("2026-10-22") & (t.Team == "Oliverwkw")]
+    assert any("Pick swap: 2027 4ths, Oliverwkw gets the better" in str(x) for x in lk["Assets received"])
 
 
 if __name__ == "__main__":

@@ -28,8 +28,9 @@ worth 0; the pick itself is worth all of it).
   swap                the receiver gets the better (earlier slot) of his own
                       pick `orig` and the giver's pick `other`, giving up the
                       worse: E[v(better) - v(own)] >= 0. `after` names a swap
-                      that runs first; the giver's pick is then whatever he is
-                      left with after it (the worse of that swap's two).
+                      that runs first and stands in for whichever of the two is
+                      blank: what that swap left the side (its receiver the
+                      better of its two, its giver the worse).
 
 The "portion" printed in the trades sheet is that value over the value of one
 whole pick of the same round on the same date (for a swap: over the receiver's
@@ -127,8 +128,9 @@ def validate(conds: Sequence[Condition]) -> None:
         if c.kind == "better_of" and (not c.other or c.after):
             raise ValueError(f"pick_conditions: better_of {c.cid} needs other_orig_owner (and no after)")
         if c.kind == "swap":
-            if bool(c.other) == bool(c.after):
-                raise ValueError(f"pick_conditions: swap {c.cid} needs exactly one of other_orig_owner / after")
+            if [bool(c.orig), bool(c.other), bool(c.after)].count(True) != 2:
+                raise ValueError(f"pick_conditions: swap {c.cid} needs two of orig_owner (the receiver's pick) / "
+                                 f"other_orig_owner (the giver's) / after (an earlier swap supplies the missing one)")
             if c.after and c.after not in ids:
                 raise ValueError(f"pick_conditions: swap {c.cid} runs after unknown {c.after}")
         if c.frm == c.to:
@@ -232,24 +234,32 @@ def _by_id(conds: Sequence[Condition]) -> Dict[str, Condition]:
 
 def picks_of(c: Condition, conds: Sequence[Condition]) -> List[str]:
     """every original owner whose pick's slot this condition depends on"""
-    out = [c.orig]
-    if c.kind == "better_of":
-        return out + [c.other]
-    if c.kind == "swap":
-        if c.after:
-            out += [x for x in picks_of(_by_id(conds)[c.after], conds) if x not in out]
-        elif c.other not in out:
-            out.append(c.other)
+    out = [x for x in (c.orig, c.other) if x]
+    if c.kind == "swap" and c.after:
+        out += [x for x in picks_of(_by_id(conds)[c.after], conds) if x not in out]
     return out
 
 
-def _giver_pick(c: Condition, conds, slot: Dict[str, int]) -> str:
-    """the pick (original owner) the swap's giver holds when this swap runs"""
-    if not c.after:
-        return c.other
+def _held(c: Condition, conds, slot: Dict[str, int], who: str) -> str:
+    """the pick (original owner) `who` holds when swap `c` runs: the named one, or — with `after` — what the
+    earlier swap left him (its receiver the better slot, its giver the worse)"""
+    fixed = c.orig if who == c.to else c.other
+    if fixed:
+        return fixed
     prev = _by_id(conds)[c.after]
-    a, b = prev.orig, _giver_pick(prev, conds, slot)
-    return a if slot[a] > slot[b] else b        # the earlier swap's giver keeps the worse (later) slot
+    a, b = _held(prev, conds, slot, prev.to), _held(prev, conds, slot, prev.frm)
+    better, worse = (a, b) if slot[a] < slot[b] else (b, a)
+    if who == prev.to:
+        return better
+    if who == prev.frm:
+        return worse
+    raise ValueError(f"pick_conditions: {c.cid} runs after {prev.cid}, which {who} is not part of")
+
+
+def own_pick(c: Condition) -> str:
+    """the original owner of the pick a portion is measured against (a swap's named pick when the receiver's
+    own comes from an earlier swap)"""
+    return c.orig or c.other
 
 
 def _outcome(c: Condition, conds, slot: Dict[str, int], v: Dict[str, float], roll: float = 0.0) -> float:
@@ -260,9 +270,9 @@ def _outcome(c: Condition, conds, slot: Dict[str, int], v: Dict[str, float], rol
         return v[c.orig] - roll if slot[c.orig] in c.slots else 0.0
     if c.kind == "better_of":
         return v[c.orig] if slot[c.orig] < slot[c.other] else v[c.other]
-    other = _giver_pick(c, conds, slot)
-    better = c.orig if slot[c.orig] < slot[other] else other
-    return v[better] - v[c.orig]
+    own, other = _held(c, conds, slot, c.to), _held(c, conds, slot, c.frm)
+    better = own if slot[own] < slot[other] else other
+    return v[better] - v[own]
 
 
 def _rollover_value(c: Condition, pick_value: PickValue, known_slot: KnownSlot, teams: int) -> Optional[float]:
@@ -312,8 +322,9 @@ def value(c: Condition, conds: Sequence[Condition], pick_value: PickValue,
 def whole_pick(c: Condition, pick_value: PickValue, known_slot: KnownSlot = lambda _o, _y: None,
                teams: int = TEAMS) -> Optional[float]:
     """the expected value of the whole pick the portion is measured against (the receiver's own for a swap)"""
-    s = known_slot(c.orig, c.year)
-    vals = [pick_value(c.orig, x, c.year) for x in ([s] if s is not None else range(1, teams + 1))]
+    o = own_pick(c)
+    s = known_slot(o, c.year)
+    vals = [pick_value(o, x, c.year) for x in ([s] if s is not None else range(1, teams + 1))]
     if any(x is None for x in vals):
         return None
     return sum(vals) / len(vals)
@@ -346,9 +357,11 @@ def describe(c: Condition, frac: Optional[float], ktc: Optional[float] = None, f
     if c.kind == "better_of":
         return (f"{c.to} gets the better (earlier slot) of the {c.year} {_round(c)}s of {c.orig} and {c.other}{p}"
                 + (f". {c.notes}" if c.notes else ""))
+    mine = (f"the {c.orig} pick he holds" if c.orig
+            else f"the one he keeps after the earlier swap ({c.after})")
     giver = (f"the {c.other} pick {c.frm} holds" if c.other
              else f"the one {c.frm} keeps after the earlier swap ({c.after})")
-    return (f"Pick swap: {c.to} takes the better of two {c.year} {_round(c)}s — the {c.orig} pick he holds or {giver} — "
+    return (f"Pick swap: {c.to} takes the better of two {c.year} {_round(c)}s — {mine} or {giver} — "
             f"and {c.frm} the worse{p}" + (f". {c.notes}" if c.notes else ""))
 
 
