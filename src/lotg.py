@@ -24154,10 +24154,33 @@ def build_all(repo_root: Path) -> None:
                     return _d
                 return _d * _acq.PICK_YEAR_DISCOUNT ** max(_yr - _pae_next_draft(_on), 0)
 
+            def _pae_condition_faab(_cid, _on=None):
+                """A pick swap / protection (lotg_support.pick_conditions) priced on
+                the board like a pick: the same expectation over distinct slots,
+                each slot at its board price that day x PICK_YEAR_DISCOUNT per draft
+                beyond the next one (the slots are unsettled at every deal)."""
+                _c = _pc_by_id.get(str(_cid))
+                if _c is None or _on is None:
+                    return None
+
+                def _pv(_o, _slot, _y):
+                    _d = _pae_rookie_slot_faab(int(_y), int(_c.rnd), int(_slot), _on)
+                    if _d is None:
+                        return None
+                    return _d * _acq.PICK_YEAR_DISCOUNT ** max(int(_y) - _pae_next_draft(_on), 0)
+                try:
+                    return _pcond.value(_c, _pick_conds, _pv)
+                except Exception:
+                    return None
+
             def _pae_asset_faab(_key, _v, _on=None, _season=None):
-                """One traded asset in FAAB $: FAAB is its dollars, a pick is
-                priced on the board, a player by his KTC that day, above
-                replacement."""
+                """One traded asset in FAAB $: FAAB is its dollars, a pick (or a
+                pick swap / protection) is priced on the board, a player by his KTC
+                that day, above replacement."""
+                if _key[0] == "c":
+                    _d = _pae_condition_faab(_key[1], _on)
+                    if _d is not None:
+                        return _d
                 if _key[0] == "k":
                     _d = _pae_traded_pick_faab(_key[1], _on, _key[2] if len(_key) > 2 else "")
                     if _d is not None:
