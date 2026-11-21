@@ -28,6 +28,10 @@ const getJSON = (url, tries = 2) => fetch(url).then((r) => {
   if (!r.ok) throw new Error(url.replace(/\?.*/, "").replace(/^data\//, "") + " (" + r.status + ")");
   return r.json();
 }).catch((e) => (tries > 1 && !/\(\d+\)/.test(e.message) ? new Promise((ok) => setTimeout(ok, 400)).then(() => getJSON(url, tries - 1)) : Promise.reject(e)));
+const fetchT = (url, opts = {}, ms = 10000) => {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  return fetch(url, { ...opts, signal: c.signal }).finally(() => clearTimeout(t));
+};
 const load = (p) => {
   if (cache[p]) return cache[p];
   progress(1);
@@ -273,18 +277,18 @@ const X_LOW = /^(pa|avg pa|points against|avg points against|points left on benc
 const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts)$/i;
 function extremesOf(cols, rows, val) {
   const out = cols.map(() => null);
-  if (rows.length < 3) return out;
+  if (rows.length < 4) return out;
   cols.forEach((c, i) => {
     if (i === 0 || c.left || c.noext || c.extremes === false) return;
     const low = X_LOW.test(c.label) || X_LOW.test(c.col || "");
     if (!low && !X_GOOD.test(c.label) && !X_GOOD.test(c.col || "")) return;
     const vs = rows.map((r) => val(c, r)).filter((v) => typeof v === "number" && isFinite(v));
-    if (vs.length < 3) return;
+    if (vs.length < 4) return;
     const hi = Math.max(...vs), lo = Math.min(...vs);
     if (hi === lo) return;
     // a value most rows share is not a "best" (e.g. a column of zeros with one 1)
     const nHi = vs.filter((v) => v === hi).length, nLo = vs.filter((v) => v === lo).length;
-    out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) <= Math.max(1, vs.length / 3), okW: (low ? nHi : nLo) <= Math.max(1, vs.length / 3) };
+    out[i] = { best: low ? lo : hi, worst: low ? hi : lo, okB: (low ? nLo : nHi) === 1, okW: (low ? nHi : nLo) === 1 };
   });
   return out;
 }
@@ -338,7 +342,7 @@ function table(cols, rows, opts = {}) {
     el.querySelector(".scroll").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
     el.querySelector(".scroll").scrollLeft = x;
     el.querySelector(".tmorew").innerHTML = (shown.length < rs.length ? `<button class="b sm tmore" data-all>Show all ${rs.length.toLocaleString()} rows</button>` : "")
-      + (hasExt ? `<div class="xlegend"><span class="xbest">best</span><span class="xworst">worst</span> in each column of this table${opts.xnote ? " · " + esc(opts.xnote) : ""}</div>` : "");
+      + (hasExt ? `<div class="xlegend"><span class="xbest">▲ best</span><span class="xworst">▼ worst</span> in each column where higher or lower is clearly better${opts.xnote ? " · " + esc(opts.xnote) : ""}</div>` : "");
     pinColumns(el.querySelector(".scroll"));
     if (ME) refreshAvatars();
   }
@@ -785,17 +789,17 @@ async function recordWatch(meta) {
   const el = () => document.getElementById("watch");
   const [LW, live, nfl] = await Promise.all([load("live_watch.json"), loadLive(), loadNfl()]);
   if (!live || !meta.league_id || !LW.stats) throw new Error("offline");
-  const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json());
+  const state = await fetchT("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json());
   const wk = state.week;
-  const mus = await fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${wk}`, { cache: "no-store" }).then((r) => r.json());
+  const mus = await fetchT(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${wk}`, { cache: "no-store" }).then((r) => r.json());
   // Sleeper's projections for the week, in this league's scoring (lotg_support.projections):
   // they move until kickoff, so every projection stat counts until then
   const KEEP = new Set(["pass_yd", "pass_td", "pass_int", "pass_2pt", "rush_yd", "rush_td", "rush_2pt", "rec", "rec_yd",
     "rec_td", "rec_2pt", "fum", "fum_lost", "fum_rec_td", "st_td"]);
   let proj = null;
   try {
-    const [lg, ...pp] = await Promise.all([fetch(`https://api.sleeper.app/v1/league/${meta.league_id}`).then((r) => r.json()),
-      ...["QB", "RB", "WR", "TE"].map((pos) => fetch(`https://api.sleeper.app/projections/nfl/${LW.season}/${wk}?season_type=regular&position[]=${pos}`).then((r) => r.json()))]);
+    const [lg, ...pp] = await Promise.all([fetchT(`https://api.sleeper.app/v1/league/${meta.league_id}`).then((r) => r.json()),
+      ...["QB", "RB", "WR", "TE"].map((pos) => fetchT(`https://api.sleeper.app/projections/nfl/${LW.season}/${wk}?season_type=regular&position[]=${pos}`).then((r) => r.json()))]);
     const sc = lg.scoring_settings || {};
     proj = {};
     for (const arr of pp) for (const r of arr || []) {
@@ -2201,17 +2205,17 @@ async function predict(_a, query, live, opt = {}) {
   const [meta, LW, nfl, H] = await Promise.all([load("meta.json"), load("live_watch.json"), loadNfl(), load("home.json")]);
   // the home page's forecast seasons, replayed here (lotg_support.league_site.forecast_odds)
   const SIM = H.forecast && H.forecast.sim;
-  const SB = SIM ? await fetch(withBuild("data/" + SIM.file)).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null) : null;
+  const SB = SIM ? await fetchT(withBuild("data/" + SIM.file), {}, 25000).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null) : null;
   live = live || await loadLive();
   if (!live && opt.headless) return null;
   if (!live) { $app.innerHTML = `${crumbs(["Predictions"])}<h1>Predictions</h1><div class="card empty"><div class="big">📡</div><p>Needs Sleeper's rosters and schedule, and Sleeper is unreachable right now.</p><p><button class="b pri" data-relive>Try again</button></p></div>`; return; }
   // the season's calendar (live_watch.json); the 2026 layout if an older file lacks it
   const P = LW.playoff || { teams: 4, regular_weeks: 14, semifinal_week: 15, final_weeks: [16, 17], semifinal_bonus: 5 }, teams = meta.teams;
-  const state = await fetch("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ week: meta.week + 1 }));
+  const state = await fetchT("https://api.sleeper.app/v1/state/nfl", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ week: meta.week + 1 }));
   const curWk = Math.max(meta.week + 1, +state.week || 0);
   const weeks = [];
   for (let w = meta.week + 1; w <= P.regular_weeks; w++) weeks.push(w);
-  const mus = await Promise.all(weeks.map((w) => fetch(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${w}`, { cache: "no-store" }).then((r) => r.json()).catch(() => [])));
+  const mus = await Promise.all(weeks.map((w) => fetchT(`https://api.sleeper.app/v1/league/${meta.league_id}/matchups/${w}`, { cache: "no-store" }).then((r) => r.json()).catch(() => [])));
   const games = [];   // {w, a, b, live: {a: {cur, rem, sd}, b: …}}
   weeks.forEach((w, i) => {
     const by = {};
@@ -2826,9 +2830,7 @@ async function calc(_a, query, live) {
   async function simDeltas(mv) {
     const key = simKey(mv);
     if (SIMC[key]) return SIMC[key];
-    calc.E = calc.E || predict(null, "", live, { headless: true });
-    const E = await calc.E;
-    if (!E) throw new Error("Sleeper is unreachable");
+    const E = await calcEngine(live);
     E.setPicks({}); E.setMoves([]);
     calc.base = calc.base || E.runSim(false);
     const b = calc.base, moves = Object.entries(mv).filter(([k]) => k[0] === "p").map(([k, to]) => ({ pid: k.slice(1), to }));
@@ -2892,7 +2894,7 @@ async function calc(_a, query, live) {
         + thirdRender(W, L, good) + (!fixes.length && !good.length ? `<p class="muted small">No single extra player or third team narrows the gap in ${esc(x.short)}.</p>` : "");
       refreshAvatars();
     } catch (e) {
-      if (el()) el().innerHTML = `<h2>Verdict</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}. Pick another measure above.</p>`;
+      if (el()) el().innerHTML = `<h2>Verdict</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}. <button class="b sm" data-simretry>Try again</button> or pick another measure above.</p>`;
     }
   }
   function checksHtml(after) {
@@ -2941,9 +2943,7 @@ async function calc(_a, query, live) {
     const mv = playerMoves(), key = JSON.stringify(mv);
     if (!mv.length || oddsState.key === key) return;
     try {
-      calc.E = calc.E || predict(null, "", live, { headless: true });
-      const E = await calc.E;
-      if (!E) throw new Error("Sleeper is unreachable");
+      const E = await calcEngine(live);
       E.setPicks({}); E.setMoves([]);
       calc.base = calc.base || E.runSim(false);
       E.setMoves(mv);
@@ -2957,7 +2957,9 @@ async function calc(_a, query, live) {
         ${others.length ? `<details><summary class="small">Everyone else</summary><div class="scroll"><table><tbody>${others.map(rowFor).join("")}</tbody></table></div></details>` : ""}
         <p class="muted small">${E.FULL ? `The home page's ${N.toLocaleString()} forecast seasons replayed with the players moved` : `${N.toLocaleString()} simulated seasons`} (the Predictions page's model: each team's best fielded lineup, injuries and the league's playoff rules). Small moves are noise. <a href="#/predict?mv=${encodeURIComponent(mv.map((m) => m.pid + ">" + m.to).join(","))}">Open in Predictions →</a></p>` };
     } catch (e) {
-      oddsState = { key, html: `<h2>Season odds</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}.</p>` };
+      const el = $("#calcodds");
+      if (el && JSON.stringify(playerMoves()) === key) { el.innerHTML = `<h2>Season odds</h2><p class="muted small">Couldn't simulate the season: ${esc(e.message || "error")}. <button class="b sm" data-simretry>Try again</button></p>`; }
+      return;
     }
     const el = $("#calcodds"); if (el && JSON.stringify(playerMoves()) === key) { el.innerHTML = oddsState.html; refreshAvatars(); }
   }, 350);
@@ -3016,6 +3018,7 @@ async function calc(_a, query, live) {
     if (e.target.closest("#cadd")) { const n = teams.find((t) => !T.includes(t)); if (n) { T.push(n); draw(); } return; }
     if (e.target.closest("#cswap")) { T.reverse(); draw(); return; }
     if (e.target.closest("#cclear")) { MV = {}; draw(); return; }
+    if (e.target.closest("[data-simretry]")) { calc.E = null; calc.base = null; oddsState = { key: "", html: "" }; draw(); return; }
   });
   root.addEventListener("change", (e) => {
     const s = e.target.closest("select[data-team]");
@@ -3031,6 +3034,18 @@ async function calc(_a, query, live) {
     const el = $(`[data-pool="${f.dataset.filter}"]`); if (el) el.innerHTML = poolHtml(+f.dataset.filter);
   });
   draw();
+}
+
+// the Predictions simulation for the trade calculator, built once and shared; a failure or a
+// build that takes over 30 s (a Sleeper request that stalls) is dropped, so the next try starts over
+function calcEngine(live) {
+  if (!calc.E) {
+    const p = Promise.race([predict(null, "", live, { headless: true }), new Promise((_, no) => setTimeout(() => no(new Error("Sleeper or the forecast took too long to answer")), 30000))])
+      .then((E) => { if (!E) throw new Error("Sleeper is unreachable"); return E; });
+    calc.E = p;
+    p.catch(() => { if (calc.E === p) { calc.E = null; calc.base = null; } });
+  }
+  return calc.E;
 }
 
 // ---------- every week the league has played, by season (league_week)
