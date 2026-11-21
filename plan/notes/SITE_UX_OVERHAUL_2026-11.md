@@ -648,3 +648,5 @@ browser.
 586. Trade calculator: "Or bring in a third team" — for each other team, the swap through it that leaves every team closest to even.
 587. Trade calculator: checks after every change — every team involved, active roster under the league limit, every starting spot still fillable.
 588. Trade calculator: projected wins added, playoff odds and title odds as verdict / suggestion measures — each team's simulated change (Predictions model); even-it-up candidates (ten most-projected players) and third-team ideas (screened on projected points) are each simulated, and teams outside the deal that move are listed.
+589. Every Sleeper and forecast request has a timeout; the calculator's simulation is dropped if it fails or takes over 30 s, errors aren't cached, and Season odds / Verdict show Try again instead of a spinner that never ends.
+590. Best / worst marks are quiet: colored number with a small ▲ / ▼, no filled box; a tie at either end marks nothing; tables under 4 rows aren't marked.
