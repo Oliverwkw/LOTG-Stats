@@ -56,7 +56,8 @@ def questions(T, stages, as_of, n_close=60, n_moved=40, n_rules=30, n_random=30,
     T = T.reset_index(drop=True).copy()
     T["moved"] = np.log(np.maximum(stages["final"], 1) / np.maximum(stages["vet"], 1))
     top = T[T.V >= 50].head(300).reset_index(drop=True)
-    lv = np.log(top.V.values); sid = top.sid.values; pos = top.pos.values; mv = top.moved.values
+    # rounded so the pairs do not depend on float noise across machines (CI vs local), and stable sorts for ties
+    lv = np.round(np.log(top.V.values), 6); sid = top.sid.values; pos = top.pos.values; mv = np.round(top.moved.values, 6)
     out, seen = [], set()
 
     def add_pair(i, j, why):
@@ -70,8 +71,8 @@ def questions(T, stages, as_of, n_close=60, n_moved=40, n_rules=30, n_random=30,
     near = [(i, j) for i in range(len(top)) for j in range(i + 1, min(i + 9, len(top))) if lv[i] - lv[j] < 0.15]
     cross = [p for p in near if pos[p[0]] != pos[p[1]]]
     for idx in rng.permutation(len(cross))[:n_close]: add_pair(*cross[idx], "close")
-    for i in np.argsort(-np.abs(mv))[:n_moved]:
-        for j in np.argsort(np.abs(lv - lv[i]))[1:6]:
+    for i in np.argsort(-np.abs(mv), kind="stable")[:n_moved]:
+        for j in np.argsort(np.abs(lv - lv[i]), kind="stable")[1:6]:
             if add_pair(i, j, "moved"): break
     wide = [(i, j) for i in range(len(top)) for j in range(i + 1, len(top)) if lv[i] - lv[j] < 0.2]
     for i, j in sorted(wide, key=lambda p: -abs(mv[p[0]] - mv[p[1]]))[:n_rules * 3][::3]: add_pair(i, j, "rules")
