@@ -774,6 +774,94 @@ def vet_deal_cap(rows, contracts):
     return np.array([m.get((str(g), int(y)), np.nan) for g, y in zip(rows.gsis.values, s)])
 
 
+def game_ceiling(rows, cache=None):
+    """per row, from ffopportunity's weekly file (every NFL player's PPR by game, cached by faab_data): over the last two
+    complete seasons and this one, games known by the date (game day + 1): g20_2y / g30_2y = games at 20+ / 30+ PPR,
+    ng_2y = games, sd_streak_2y = the longest run of games under 10, sd_share_2y = share of games under 10; team_run =
+    his team's (that of his last game) share of expected fantasy points from runs (rush / (rush + rec)) this season (4+
+    games), else last season: a pass-first offense reads low. rows: gsis, date. Returns {name: array}; NaN without data."""
+    import glob
+    cache = Path(cache or D.CACHE)
+    N = len(rows); out = {k: np.full(N, np.nan) for k in ("g20_2y", "g30_2y", "ng_2y", "sd_streak_2y", "sd_share_2y", "team_run")}
+    fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); gp = cache / "games.parquet"
+    if not fs or not gp.exists(): return out
+    cols = ["season", "week", "game_id", "player_id", "posteam", "total_fantasy_points", "rush_fantasy_points_exp_team", "rec_fantasy_points_exp_team"]
+    G = pd.concat([pd.read_parquet(f, columns=cols) for f in fs])
+    G = G.merge(pd.read_parquet(gp, columns=["game_id", "gameday"]), on="game_id", how="left")
+    G["known"] = pd.to_datetime(G.gameday) + pd.Timedelta(days=1)
+    G = G.dropna(subset=["player_id", "known"]).sort_values(["player_id", "known"], kind="mergesort")
+    by = {k: (v.known.values, v.season.values.astype(int), v.total_fantasy_points.to_numpy(dtype=float), v.posteam.values) for k, v in G.groupby("player_id")}
+    T = G.drop_duplicates(["game_id", "posteam"]).sort_values("known", kind="mergesort")
+    tb = {k: (v.known.values, v.season.values.astype(int), v.rush_fantasy_points_exp_team.to_numpy(dtype=float), v.rec_fantasy_points_exp_team.to_numpy(dtype=float)) for k, v in T.groupby("posteam")}
+    d = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(d); s = np.where(di.month >= 3, di.year, di.year - 1)
+    for i, g in enumerate(rows.gsis.astype(str).values):
+        t = by.get(g)
+        if t is None: continue
+        k = int(np.searchsorted(t[0], d[i], side="right")); w = t[1][:k] >= s[i] - 1
+        if not w.any(): continue
+        p = t[2][:k][w]; sd = p < 10
+        out["g20_2y"][i] = (p >= 20).sum(); out["g30_2y"][i] = (p >= 30).sum(); out["ng_2y"][i] = len(p); out["sd_share_2y"][i] = sd.mean()
+        best = cur = 0
+        for x in sd:
+            cur = cur + 1 if x else 0; best = max(best, cur)
+        out["sd_streak_2y"][i] = best
+        u = tb.get(t[3][k - 1])
+        if u is not None:
+            kk = int(np.searchsorted(u[0], d[i], side="right")); ww = u[1][:kk] == s[i]
+            if ww.sum() < 4: ww = u[1][:kk] == s[i] - 1
+            if ww.any():
+                ru, re_ = np.nansum(u[2][:kk][ww]), np.nansum(u[3][:kk][ww])
+                out["team_run"][i] = ru / max(ru + re_, 1e-9)
+    return {k: np.round(v, 5) for k, v in out.items()}
+
+
+def qb_change_form(rows, cache=None):
+    """per row: a receiver's PPR per game in games his team's usual QB did not start (the passer with the most attempts
+    that game was not the one with the most attempts that season), and his PPR per game in the other games, over the
+    last four complete seasons and this one, known by the date (game day + 1): (ppg_alt_qb, n_alt_qb, ppg_main_qb).
+    Proven success through a QB change (Oliver 2026-11-22: Chase "when Burrow went down"). NaN without such games."""
+    import glob
+    cache = Path(cache or D.CACHE)
+    N = len(rows); a_p, a_n, m_p = np.full(N, np.nan), np.full(N, np.nan), np.full(N, np.nan)
+    fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); gp = cache / "games.parquet"
+    if not fs or not gp.exists(): return a_p, a_n, m_p
+    G = pd.concat([pd.read_parquet(f, columns=["season", "game_id", "player_id", "posteam", "pass_attempt", "total_fantasy_points"]) for f in fs])
+    G = G.merge(pd.read_parquet(gp, columns=["game_id", "gameday"]), on="game_id", how="left")
+    G["known"] = pd.to_datetime(G.gameday) + pd.Timedelta(days=1); G = G.dropna(subset=["player_id", "known", "posteam"])
+    pa = G.groupby(["posteam", "season", "player_id"]).pass_attempt.sum().reset_index().sort_values("pass_attempt", kind="mergesort")
+    main = pa.drop_duplicates(["posteam", "season"], keep="last").set_index(["posteam", "season"]).player_id
+    gs = G.sort_values("pass_attempt", kind="mergesort").drop_duplicates(["game_id", "posteam"], keep="last").set_index(["game_id", "posteam"]).player_id
+    G["starter"] = [gs.get((g, t)) for g, t in zip(G.game_id, G.posteam)]
+    G["alt"] = [st != main.get((t, y)) for st, t, y in zip(G.starter, G.posteam, G.season)]
+    G = G.sort_values(["player_id", "known"], kind="mergesort")
+    by = {k: (v.known.values, v.season.values.astype(int), v.total_fantasy_points.to_numpy(dtype=float), v.alt.values.astype(bool)) for k, v in G.groupby("player_id")}
+    d = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(d); s = np.where(di.month >= 3, di.year, di.year - 1)
+    for i, g in enumerate(rows.gsis.astype(str).values):
+        t = by.get(g)
+        if t is None: continue
+        k = int(np.searchsorted(t[0], d[i], side="right")); w = t[1][:k] >= s[i] - 4
+        al = w & t[3][:k]; mn = w & ~t[3][:k]
+        if al.any(): a_p[i] = t[2][:k][al].mean(); a_n[i] = al.sum()
+        if mn.any(): m_p[i] = t[2][:k][mn].mean()
+    return np.round(a_p, 5), a_n, np.round(m_p, 5)
+
+
+def contract_left(rows, contracts):
+    """seasons left on the player's latest NFL contract after this one (0 = its final season; the season whose rosters
+    count from March 1), from the latest deal signed in or before that season; negative = his last deal has run out,
+    NaN = no deal on record. rows: gsis, date. contracts: Over The Cap's history (lotg_support.contracts.load_contracts)."""
+    c = contracts[contracts.gsis_id.notna() & contracts.year_signed.notna() & contracts.years.notna()]
+    by = {str(k): v[["year_signed", "years"]].to_numpy(dtype=float) for k, v in c.groupby(c.gsis_id.astype(str))}
+    di = pd.DatetimeIndex(pd.to_datetime(rows.date).values); s = np.where(di.month >= 3, di.year, di.year - 1)
+    out = np.full(len(rows), np.nan)
+    for i, (g, y) in enumerate(zip(rows.gsis.astype(str).values, s)):
+        v = by.get(g)
+        if v is None: continue
+        v = v[v[:, 0] <= y]
+        if len(v): ys, n = v[np.argmax(v[:, 0])]; out[i] = ys + n - 1 - y
+    return out
+
+
 def game_form(gl, gsis, date_v, l0_s, n=10):
     """Game-by-game form as known on each date. `gl`: one row per game played (gsis, season, known, ppr, off_pct).
     Returns a dict of arrays:

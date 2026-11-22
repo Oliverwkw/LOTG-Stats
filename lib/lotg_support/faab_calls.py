@@ -157,6 +157,8 @@ def calls(v, ref=None, qbs=()):
     t += [("Chase Brown <= $1,500 (Oliver 2026-11-22)", rng("Chase Brown", 1, 1500))]
     # Oliver 2026-11-22: Kenneth Walker too low: a big year in a new place (Seattle -> Kansas City)
     t += [("Kenneth Walker above the $2,294 flagged as too low (Oliver 2026-11-22)", rng("Kenneth Walker", 1.15 * 2294, 99999))]
+    # Oliver 2026-11-22: Penix "worth at least a 3rd or two" (a late 3rd, 3.08, is $58 on the 2026-11-21 board)
+    t += [("Penix at least a 3rd (>= $58; Oliver 2026-11-22)", rng("Michael Penix", 58, 99999))]
     # Oliver 2026-11-22: Fannin too high: run-first offense, low ceiling (boom weeks only so big), inconsistent
     t += [("Harold Fannin below the $1,901 flagged as too high (Oliver 2026-11-22)", rng("Harold Fannin Jr.", 1, 0.85 * 1901))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown

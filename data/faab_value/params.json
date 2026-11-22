@@ -106,7 +106,7 @@
  "wr_backup": -0.1,
  "wr_clean_old": -0.1,
  "tgt_lead": 0.5,
- "young_boom": 0.0,
+ "young_boom": 0.25,
  "rb_touch": -0.4,
  "te_slide": -0.1,
  "qb_tough": 0.2,
@@ -126,5 +126,11 @@
  "ceiling_lo": -0.25,
  "new_home": 0.15,
  "soph_fall": -0.3,
- "flop_r1": -0.3
+ "flop_r1": -0.3,
+ "comp_young": 1.0,
+ "boom_rate_lo": -0.2,
+ "rb_pass_team": -0.3,
+ "wr_room_top": 0.05,
+ "qb_proof": 0.1,
+ "young_peak": 0.2
 }
