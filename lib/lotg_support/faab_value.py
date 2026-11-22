@@ -502,6 +502,24 @@ LEAD_SHARE, LEAD_G = 0.2, 99
 ROLE_G = 1
 RB_JOB_FLOOR = 40.0
 OUT_ROOKIE = 1.0
+# far-off #3 (Fuller 2020, "consistent week-to-week production"): a missed-games dock fades (AVAIL_NOW = how much) for a
+# player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
+AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 4, 14.0, ("WR",)
+AVAIL_NOW_BAND = (-2.0, -1.0, 1e9, 2e9)
+# far-off #3 (Aiyuk 2020: "rookie, target competition"): a rookie's breakout bonus is a few games' sample; it is capped at
+# SPIKE_ROOKIE_CAP (a multiplier; 99 = off) while he has under SPIKE_ROOKIE_CAP_G games
+SPIKE_ROOKIE_CAP, SPIKE_ROOKIE_CAP_G = 1.6, 6
+# far-off #3 (Fuller 2020, "consistent week-to-week production boost in that range"): a low-base WR scoring like a starter
+# two seasons running (PROD_L0+ PPR/g last season, PROD_CUR+ over PROD_G+ games this one) is raised (PROD_LO, a log term)
+PROD_LO, PROD_L0, PROD_CUR, PROD_G, PROD_POS = 0.4, 12.0, 14.0, 4, ("WR",)
+PROD_BAND = (40.0, 80.0, 200.0, 300.0)
+# far-off #5 (Brooks 2024-12-09, "bigger cut for injury severity": he left his last game after 1 touch with a re-torn ACL;
+# no injury tag yet): a skill player with no tag whose last game's touches + targets fell under EXIT_R of his recent
+# average (an early exit or a benching) takes EXIT (a log term) until he plays again
+EXIT, EXIT_R = -1.5, 0.25
+# far-off #7 / #24 (Dobbins: "run-first offense, no competition"): a young RB's missed-games dock fades (RUN_AVAIL = how
+# much) when the carries are his once healthy: a run-first team (team_run 0.25 none -> 0.30 full) whose other RBs are older (28+)
+RUN_AVAIL = 1.0
 RUN_UP = 0.0
 RUN_UP_BAND = (-2.0, -1.0, 250.0, 400.0)   # rb_run_team: a young RB (under 27) at a base under $250
 RB_YOUNG_G = 1   # rb_young_comp before this many games this season (the offseason read; in-season his own games say)
@@ -661,6 +679,15 @@ def apply_rules(R, p, X=None, explain=False):
     if yf > 0:
         yw = np.clip((p.get("avail_young_age", 24.0) + 2.0 - np.nan_to_num(col(R, "age"), nan=30)) / 2.0, 0, 1)
         T_["availability"] = np.maximum(T_["availability"], (1 - yw) * T_["availability"] + yw * np.log(yf))
+    if PROD_LO:
+        T_["prod_lo"] = PROD_LO * ((np.nan_to_num(col(R, "e_x_ppg_l0")) >= PROD_L0) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= PROD_CUR) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= PROD_G) & np.isin(pos, PROD_POS)) * np.interp(raw, PROD_BAND, [0, 1, 1, 0])
+    if RUN_AVAIL:
+        ra = (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RUN_AVAIL * ra), T_["availability"])
+    if AVAIL_NOW:
+        gpc, tgc = np.nan_to_num(col(R, "e_x_gp_cur")), col(R, "e_x_team_games_cur")
+        now_ = (gpc >= AVAIL_NOW_G) & (gpc >= np.nan_to_num(tgc, nan=99)) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= AVAIL_NOW_PPG) & np.isin(pos, AVAIL_NOW_POS)
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - AVAIL_NOW * now_ * np.interp(raw, AVAIL_NOW_BAND, [0, 1, 1, 0])), T_["availability"])
     # team-share talent is a bet on the future: it fades past the age wall (share_age)
     T_["share_talent"] = T_["share_talent"] * (1 - p.get("share_age", 0.0) * X["past_wall"])
     # ... and an older WR's team share is capped (share_old_cap, a multiplier, full from share_old_age, fading in over the
@@ -749,6 +776,7 @@ def apply_rules(R, p, X=None, explain=False):
     fall6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 4) * ~np.isnan(pc6) * ~np.isnan(p06) * np.clip((0.8 - np.nan_to_num(pc6) / np.maximum(np.nan_to_num(p06), 1)) / 0.2, 0, 1)
     # (far-off #3, Aiyuk 2020: a rookie's 3 good games behind young established targets): a rookie's breakout bonus fades in with his games (SPIKE_ROOKIE_G = full)
     T_["spike"] = T_["spike"] * np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_comp_share")) >= SPIKE_ROOKIE_COMP) & (np.nan_to_num(col(R, "e_x_comp_age"), nan=99) < 28), np.clip(np.nan_to_num(col(R, "e_x_gp_cur")) / SPIKE_ROOKIE_G, 0, 1), 1.0)
+    T_["spike"] = np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < SPIKE_ROOKIE_CAP_G), np.minimum(T_["spike"], np.log(SPIKE_ROOKIE_CAP)), T_["spike"])
     T_["spike"] = T_["spike"] * (1 - SPIKE_DROP * fall6 * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= SPIKE_DROP_EXP) * np.interp(raw, SPIKE_DROP_BAND, [0, 1, 1, 0]))
     # (far-off #1, Mattison 2023 took the job): an RB's bad yards per carry counts less once he has the snaps this
     # season (3+ games, 25+ points over last season = full by YPC_ROLE)
@@ -756,6 +784,7 @@ def apply_rules(R, p, X=None, explain=False):
     T_["ypc_bad"] = T_["ypc_bad"] * (1 - YPC_ROLE * gain6)
     # (far-off #6, Mims 2020): an Out tag on a rookie who has not played an NFL game yet (a camp injury) costs him
     # less: his value is his draft slot, not this week (OUT_ROOKIE spared)
+    T_["exit_early"] = EXIT * (np.nan_to_num(col(R, "e_x_last_opp_ratio"), nan=9) < EXIT_R) * (R.injury.fillna("").values == "") * np.isin(pos, ["RB", "WR", "TE"])
     T_["inj_out"] = T_["inj_out"] * (1 - OUT_ROOKIE * (np.nan_to_num(col(R, "exp")) == 0) * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0))
     # (far-off #5, Brooks Dec 2024): young upside needs a role once the season is well along: a player with 2+ games
     # played whose team has played 10+ and who is on under 30% of the snaps (15% = none left) keeps UPSIDE_ROLE less of it

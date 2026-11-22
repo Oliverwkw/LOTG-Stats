@@ -779,18 +779,21 @@ def game_ceiling(rows, cache=None):
     complete seasons and this one, games known by the date (game day + 1): g20_2y / g30_2y = games at 20+ / 30+ PPR,
     ng_2y = games, sd_streak_2y = the longest run of games under 10, sd_share_2y = share of games under 10; team_run =
     his team's (that of his last game) share of expected fantasy points from runs (rush / (rush + rec)) this season (4+
-    games), else last season: a pass-first offense reads low. rows: gsis, date. Returns {name: array}; NaN without data."""
+    games), else last season: a pass-first offense reads low; last_opp_ratio = his touches + targets in his last game this
+    season over his average in the (up to) 3 games this season before it (2+ such games averaging 4+; an early exit or a
+    benching reads near 0). rows: gsis, date. Returns {name: array}; NaN without data."""
     import glob
     cache = Path(cache or D.CACHE)
-    N = len(rows); out = {k: np.full(N, np.nan) for k in ("g20_2y", "g30_2y", "ng_2y", "sd_streak_2y", "sd_share_2y", "team_run")}
+    N = len(rows); out = {k: np.full(N, np.nan) for k in ("g20_2y", "g30_2y", "ng_2y", "sd_streak_2y", "sd_share_2y", "team_run", "last_opp_ratio")}
     fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); gp = cache / "games.parquet"
     if not fs or not gp.exists(): return out
-    cols = ["season", "week", "game_id", "player_id", "posteam", "total_fantasy_points", "rush_fantasy_points_exp_team", "rec_fantasy_points_exp_team"]
+    cols = ["season", "week", "game_id", "player_id", "posteam", "total_fantasy_points", "rush_fantasy_points_exp_team", "rec_fantasy_points_exp_team", "rush_attempt", "rec_attempt"]
     G = pd.concat([pd.read_parquet(f, columns=cols) for f in fs])
     G = G.merge(pd.read_parquet(gp, columns=["game_id", "gameday"]), on="game_id", how="left")
     G["known"] = pd.to_datetime(G.gameday) + pd.Timedelta(days=1)
     G = G.dropna(subset=["player_id", "known"]).sort_values(["player_id", "known"], kind="mergesort")
-    by = {k: (v.known.values, v.season.values.astype(int), v.total_fantasy_points.to_numpy(dtype=float), v.posteam.values) for k, v in G.groupby("player_id")}
+    G["opp"] = G.rush_attempt.fillna(0) + G.rec_attempt.fillna(0)
+    by = {k: (v.known.values, v.season.values.astype(int), v.total_fantasy_points.to_numpy(dtype=float), v.posteam.values, v.opp.to_numpy(dtype=float)) for k, v in G.groupby("player_id")}
     T = G.drop_duplicates(["game_id", "posteam"]).sort_values("known", kind="mergesort")
     tb = {k: (v.known.values, v.season.values.astype(int), v.rush_fantasy_points_exp_team.to_numpy(dtype=float), v.rec_fantasy_points_exp_team.to_numpy(dtype=float)) for k, v in T.groupby("posteam")}
     d = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(d); s = np.where(di.month >= 3, di.year, di.year - 1)
@@ -805,6 +808,10 @@ def game_ceiling(rows, cache=None):
         for x in sd:
             cur = cur + 1 if x else 0; best = max(best, cur)
         out["sd_streak_2y"][i] = best
+        cs = np.where(t[1][:k] == s[i])[0]
+        if len(cs) >= 3:
+            pr = t[4][cs[-4:-1]]
+            if pr.mean() >= 4: out["last_opp_ratio"][i] = t[4][cs[-1]] / pr.mean()
         u = tb.get(t[3][k - 1])
         if u is not None:
             kk = int(np.searchsorted(u[0], d[i], side="right")); ww = u[1][:kk] == s[i]
