@@ -528,6 +528,7 @@ XFP_JUMP, XFP_JUMP_LO, XFP_JUMP_HI, XFP_JUMP_BAND = 3.0, 0.08, 0.18, (-2.0, -1.0
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
 VAC_UP, VAC_LO, VAC_HI, VAC_BAND = 1.0, 0.05, 0.2, (-2.0, -1.0, 300.0, 500.0)
 VAC_STACK = 1.0
+OUT_STAR, OUT_STAR_PPG, OUT_STAR_POS = 0.5, 18.0, ("RB",)
 VAC_OWN = 0.06    # ... for a player who had a role last season (his share of his team's expected points) or missed it (under 8 games)
 TD_SPIKE, TD_SPIKE_SNAP, TD_SPIKE_V = -1.2, 0.55, (1000.0, 1500.0)
 RUN_UP = 0.0
@@ -804,6 +805,9 @@ def apply_rules(R, p, X=None, explain=False):
     # (far-off #6, Mims 2020): an Out tag on a rookie who has not played an NFL game yet (a camp injury) costs him
     # less: his value is his draft slot, not this week (OUT_ROOKIE spared)
     T_["exit_early"] = EXIT * (np.nan_to_num(col(R, "e_x_last_opp_ratio"), nan=9) < EXIT_R) * (R.injury.fillna("").values == "") * np.isin(pos, ["RB", "WR", "TE"])
+    # an Out tag on a player scoring like a star this season (OUT_STAR_PPG+ PPR/g over 5+ games) is a week-to-week
+    # absence the league does not halve him for (K. Walker 2026-11-22, Out with 24.6 PPR/g): the dock fades by OUT_STAR
+    T_["inj_out"] = T_["inj_out"] * (1 - OUT_STAR * np.isin(pos, OUT_STAR_POS) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 5) * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= OUT_STAR_PPG))
     T_["inj_out"] = T_["inj_out"] * (1 - OUT_ROOKIE * (np.nan_to_num(col(R, "exp")) == 0) * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0))
     # (far-off #5, Brooks Dec 2024): young upside needs a role once the season is well along: a player with 2+ games
     # played whose team has played 10+ and who is on under 30% of the snaps (15% = none left) keeps UPSIDE_ROLE less of it

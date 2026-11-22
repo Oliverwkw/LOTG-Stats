@@ -560,7 +560,10 @@ def test_final_stage_is_in_the_explain_breakdown():
     T = R[R.date == R.date.max()].drop_duplicates("name").head(50).reset_index(drop=True)
     out, terms, st = F.apply_rules(T, p, explain=True)
     assert "vet_floor" in terms and "top" in st
-    assert np.allclose(out, st["top"] * np.exp(sum(terms[k] for k in F.final_terms(T, st["top"], p, F.characteristics(T)))))
+    fin = st["top"] * np.exp(sum(terms[k] for k in F.final_terms(T, st["top"], p, F.characteristics(T))))
+    # the starter floors (QB at least a 3rd, an RB who won the job) lift a value after the final stage, never lower it
+    floored = np.isclose(out, F.QB_START_FLOOR) | np.isclose(out, F.RB_JOB_FLOOR)
+    assert np.allclose(out[~floored], fin[~floored]) and (out[floored] >= fin[floored] - 1e-9).all()
 
 
 def test_try_rule_scores_a_change_against_the_current_params():
