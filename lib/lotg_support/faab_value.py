@@ -523,6 +523,13 @@ RUN_AVAIL = 1.0
 # far-off #9 (Mike Davis 2020-10-01, "huge carries, cuff"): a cheap RB whose share of his team's expected points this
 # season (3+ games) is well above last season's (+XFP_JUMP_LO none, +XFP_JUMP_HI full) has the job now: raised (XFP_JUMP)
 XFP_JUMP, XFP_JUMP_LO, XFP_JUMP_HI, XFP_JUMP_BAND = 3.0, 0.08, 0.18, (-2.0, -1.0, 60.0, 120.0)
+# Oliver (round 6, #57 Herbert): "an activated cuff should be a short term boost, esp pre-playing". When his team's lead
+# RB has just missed a game or left one early (e_x_cuff_act = games in a row, 1 = just went down) the RB who was second
+# going in is raised by CUFF_ACT (log), fading over CUFF_FADE games as the injury shows in his own usage, at a base
+# under CUFF_BAND's top. Does not stack on xfp_jump / rb_role (the larger counts).
+RQB_OFF = True
+RQB_WR, RQB_PICK, RQB_SH, RQB_BAND = 2.0, 12, 0.2, (-2.0, -1.0, 300.0, 600.0)   # (trial) top target of a top-12 rookie QB
+CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
@@ -532,6 +539,7 @@ VAC_STACK = 1.0
 # they switch teams"): an RB under MOVE_AGE who changed teams this offseason (or is new and has under 4 games there),
 # at a base under MOVE_V (fading out at 1.5x), has his old-role docks eased by MOVE_EASE (0..1): bad YPC, duds, wear
 # (rb_inj) and missed games, which were read behind his old line, in his old committee
+MOVE_FIRST = False   # first NFL team switch only (Oliver): needs e_x_n_teams (scratch-only; tested 11-22: same result, every case was a first switch)
 MOVE_EASE, MOVE_AGE, MOVE_V, MOVE_DOCKS = 0.0, 28.0, 200.0, ("ypc_bad", "rb_duds", "rb_inj", "availability")
 OUT_STAR, OUT_STAR_PPG, OUT_STAR_POS = 0.5, 18.0, ("RB",)
 VAC_OWN = 0.06    # ... for a player who had a role last season (his share of his team's expected points) or missed it (under 8 games)
@@ -581,6 +589,7 @@ def rb_moved(R):
     """1 (fading) for an RB under MOVE_AGE who switched teams (MOVE_EASE): see MOVE_EASE"""
     if not MOVE_EASE: return np.zeros(len(R))
     mv = (np.nan_to_num(col(R, "e_x_moved_off")) > 0) | ((np.nan_to_num(col(R, "e_x_new_team")) > 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < 4))
+    if MOVE_FIRST: mv = mv & (np.nan_to_num(col(R, "e_x_n_teams"), nan=9) <= 2)   # his first NFL team switch only (Oliver)
     return MOVE_EASE * (R.pos.values == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < MOVE_AGE) * mv * np.interp(np.maximum(col(R, "V_raw"), 0), [MOVE_V, 1.5 * MOVE_V], [1, 0])
 
 
@@ -712,6 +721,12 @@ def apply_rules(R, p, X=None, explain=False):
     if XFP_JUMP:
         xj = np.nan_to_num(col(R, "e_x_cur_xfp_share")) - np.nan_to_num(col(R, "e_x_l0_xfp_share"), nan=1)
         T_["xfp_jump"] = XFP_JUMP * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((xj - XFP_JUMP_LO) / (XFP_JUMP_HI - XFP_JUMP_LO), 0, 1) * np.interp(raw, XFP_JUMP_BAND, [0, 1, 1, 0])
+    if RQB_WR:
+        rq = col(R, "e_x_rookie_qb_pick")
+        T_["rqb_wr"] = RQB_WR * np.isin(pos, ["WR", "TE"]) * (np.nan_to_num(rq) > 0) * (np.nan_to_num(rq) <= RQB_PICK) * (np.nan_to_num(col(R, "e_x_l0_tgt_share")) >= RQB_SH) * (np.nan_to_num(col(R, "e_x_moved_off")) == 0) * (np.nan_to_num(col(R, "e_x_offseason")) > 0 if RQB_OFF else 1) * np.interp(raw, RQB_BAND, [0, 1, 1, 0])
+    if CUFF_ACT:
+        ca = np.nan_to_num(col(R, "e_x_cuff_act"))
+        T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
     if RUN_AVAIL:
         ra = (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
         T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RUN_AVAIL * ra), T_["availability"])
@@ -772,6 +787,7 @@ def apply_rules(R, p, X=None, explain=False):
         * np.clip((np.nan_to_num(sc_) - np.nan_to_num(s0_)) / 0.25, ROLE_LO, 1) * np.interp(raw, ROLE_BAND, [0, 1, 1, 0])
     # (xfp_jump, the same job won read from expected points, does not stack on it: the larger of the two counts)
     if "xfp_jump" in T_: T_["xfp_jump"] = np.maximum(T_["xfp_jump"] - np.maximum(T_["rb_role"], 0), 0)
+    if "cuff_act" in T_: T_["cuff_act"] = np.maximum(T_["cuff_act"] - np.maximum(T_["rb_role"], 0) - T_.get("xfp_jump", 0), 0)
     # round 6 (Oliver 2026-11-22, Chase Brown: "streaks of single-digit games and his pass-first offense"): boom_rate_lo =
     # an RB/WR/TE (8+ games in the window) with few 20+ PPR games over the last two seasons and this one (e_x_g20_2y / e_x_ng_2y;
     # BOOM_RATE[0] = none, [1] = full) at a value of BOOM_V+ (fading in), the league's starters win weeks with them;

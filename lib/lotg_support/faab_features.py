@@ -1509,3 +1509,82 @@ def vacated_role(rows, cache=None):
                 v -= np.nansum(sh.reindex(pd.MultiIndex.from_arrays([new.gsis_id.values, ot, [y - 1] * len(new)])).values) + new.rk_share.sum()
         out[i] = round(float(v), 5)
     return out
+
+
+def activated_cuff(rows, cache=None, exit_ratio=0.4):
+    """per row: how many team games in a row (ending with his team's latest game known by the date: game day + 1) his
+    team's lead RB has missed or left early (touches + targets under exit_ratio of his average this season before
+    the streak), when this player was the team's second RB going into the streak (lead / second = most / second-most
+    expected fantasy points among the team's RBs this season before the streak, the lead with 2+ games). 1 = the
+    starter just went down and the backup has not yet had a full game as the lead. 0 for anyone else in season with
+    data, NaN before his team's first game or without data. rows: gsis, date, pos. ffopportunity weekly + games."""
+    import glob
+    cache = Path(cache or D.CACHE); N = len(rows); out = np.full(N, np.nan)
+    fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); gp = cache / "games.parquet"
+    if not fs or not gp.exists(): return out
+    cols = ["season", "game_id", "player_id", "posteam", "position", "total_fantasy_points_exp", "rush_attempt", "rec_attempt"]
+    G = pd.concat([pd.read_parquet(f, columns=[c for c in cols if c != "position"] + ["position"]) for f in fs])
+    G = G.merge(pd.read_parquet(gp, columns=["game_id", "gameday"]), on="game_id", how="left").dropna(subset=["gameday", "posteam"])
+    G["season"] = G.season.astype(int); G["posteam"] = G.posteam.replace(TEAM_FIX)
+    G["known"] = pd.to_datetime(G.gameday) + pd.Timedelta(days=1)
+    G["opp"] = G.rush_attempt.fillna(0) + G.rec_attempt.fillna(0)
+    R_ = G[G.position == "RB"]
+    spans = {}                                       # cuff gsis -> list of (from, to, k)
+    for (tm, s), g in G.groupby(["posteam", "season"]):
+        games = g.drop_duplicates("game_id").sort_values("known", kind="mergesort")[["game_id", "known"]].values
+        rb = R_[(R_.posteam == tm) & (R_.season == s)]
+        by_g = {gid: v.set_index("player_id") for gid, v in rb.groupby("game_id")}
+        cum, cnt, opp_sum = {}, {}, {}
+        start = None                                  # (lead, cuff, avg) when a streak is running
+        for j, (gid, kn) in enumerate(games):
+            v = by_g.get(gid)
+            nxt = games[j + 1][1] if j + 1 < len(games) else kn + np.timedelta64(8, "D")
+            # the lead and second going into this game
+            order = sorted(cum, key=lambda p: -cum[p])
+            if start is None and len(order) >= 2 and cnt[order[0]] >= 2:
+                lead, cuff = order[0], order[1]; avg = opp_sum[lead] / cnt[lead]
+                o = float(v.opp.get(lead, 0.0)) if v is not None and lead in v.index else 0.0
+                if avg >= 4 and o < exit_ratio * avg: start = (lead, cuff, avg, j)
+            elif start is not None:
+                lead, cuff, avg, j0 = start
+                o = float(v.opp.get(lead, 0.0)) if v is not None and lead in v.index else 0.0
+                if o >= exit_ratio * avg: start = None
+            if start is not None:
+                spans.setdefault(start[1], []).append((kn, nxt, j - start[3] + 1))
+            if v is not None:
+                for p, r in v.iterrows():
+                    cum[p] = cum.get(p, 0.0) + float(np.nan_to_num(r.total_fantasy_points_exp)); cnt[p] = cnt.get(p, 0) + 1
+                    opp_sum[p] = opp_sum.get(p, 0.0) + float(r.opp)
+    first = G.groupby("season").known.min()
+    d = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(d); s = np.where(di.month >= 3, di.year, di.year - 1)
+    for i, g in enumerate(rows.gsis.astype(str).values):
+        f0 = first.get(int(s[i]))
+        if f0 is None or d[i] < np.datetime64(f0) or d[i] > np.datetime64(f"{int(s[i]) + 1}-02-15"): continue
+        out[i] = 0.0
+        for a, b, k in spans.get(g, ()):
+            if np.datetime64(a) <= d[i] < np.datetime64(b): out[i] = k; break
+    return out
+
+
+DRAFT_TEAM_FIX = {"GNB": "GB", "SFO": "SF", "NWE": "NE", "LVR": "LV", "KAN": "KC", "NOR": "NO", "TAM": "TB", "LAR": "LA", "SDG": "LAC", "OAK": "LV", "STL": "LA", "SD": "LAC"}
+
+
+def rookie_qb_pick(rows, roster, cache=None):
+    """per row: the overall pick of the highest QB his NFL team (on the date: team_on) took in round 1 of this season's
+    NFL draft, from that draft's day through the season (the season starts March 1); 0 if none, NaN without a team.
+    rows: gsis, date. roster: team_on's roster frame. nflverse draft_picks."""
+    cache = Path(cache or D.CACHE); N = len(rows); out = np.full(N, np.nan)
+    f = cache / "draft_picks.parquet"
+    if not f.exists() or roster is None: return out
+    dk = pd.read_parquet(f, columns=["season", "round", "pick", "team", "position"])
+    q = dk[(dk.position == "QB") & (dk["round"] == 1)]
+    best = {}
+    for r in q.itertuples():
+        k = (DRAFT_TEAM_FIX.get(r.team, r.team), int(r.season)); best[k] = min(best.get(k, 999), int(r.pick))
+    t = team_on(rows.gsis.astype(str).values, rows.date.values, roster)
+    d = pd.to_datetime(rows.date); s = np.where(d.dt.month >= 3, d.dt.year, d.dt.year - 1)
+    for i in range(N):
+        if t[i] is None or pd.isna(t[i]): continue
+        y = int(s[i]); nd = pd.Timestamp(NFL_DRAFT.get(y, f"{y}-04-25"))
+        out[i] = best.get((TEAM_FIX.get(t[i], t[i]), y), 0) if d.iloc[i] >= nd else 0.0
+    return out
