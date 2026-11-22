@@ -505,6 +505,9 @@ RB_JOB_FLOOR = 40.0
 PROVEN_FLOOR, PROVEN_PPG, PROVEN_AGE = 0.0, 10.0, 34.0
 LOW_ADD, LOW_S, LOW_PPG = 0.0, 60.0, 0.0
 SUMMER_LOW, SUMMER_LOW_V = 0.0, (40.0, 150.0)
+DC2_FLOOR, DC2_IMPL = 0.0, 26.0     # depth chart: an RB listed second on a top offense (implied points) is worth at least this (the handcuff)
+DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a contender (win % so far, 6+ team games) is worth at least this
+PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
 QB_BENCH = -1.0                   # depth chart: a QB who was his team's starter on the charts 3-8 weeks ago and is not now (log, lower only)
 DC2_RB, DC2_BAND = 0.0, (-2.0, -1.0, 150.0, 300.0)   # depth chart: an RB listed second on his team's chart (the handcuff), base band
 DC1_UP, DC1_POS, DC1_BAND = 0.0, ("WR", "RB", "TE"), (-2.0, -1.0, 60.0, 150.0)   # depth chart: listed first at his position
@@ -944,6 +947,8 @@ def apply_rules(R, p, X=None, explain=False):
     # double-count it, so the negative terms are scaled back together to the cap (None = off)
     # round 6 (depth charts, weekly to 2024, daily from Aug 2025): what the team says the role is today
     dcr_ = col(R, "e_x_dc_rank"); dcp_ = col(R, "e_x_dc_prev"); hl_ = R.injury.fillna("").values == ""
+    T_["paid_up"] = PAID_UP * (pos != "QB") * np.interp(np.nan_to_num(col(R, "e_x_vet_deal_cap")), PAID_CAP, [0, 1]) \
+        * (1 - np.clip(np.nan_to_num(col(R, "e_x_gp_cur")) / 4.0, 0, 1)) * np.interp(raw, PAID_BAND, [0, 1, 1, 0])
     T_["qb_bench"] = QB_BENCH * (pos == "QB") * (dcr_ >= 2) * (dcp_ == 1) * hl_
     T_["dc2_rb"] = DC2_RB * (pos == "RB") * (dcr_ == 2) * np.interp(raw, DC2_BAND, [0, 1, 1, 0])
     T_["dc1_up"] = DC1_UP * np.isin(pos, DC1_POS) * (dcr_ == 1) * hl_ * np.interp(raw, DC1_BAND, [0, 1, 1, 0])
@@ -1012,6 +1017,13 @@ def apply_rules(R, p, X=None, explain=False):
     ppv = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.where(np.nan_to_num(col(R, "e_x_l0_games")) >= 8, np.nan_to_num(col(R, "e_x_ppg_l0")), 0))
     pr_ = np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (ppv >= PROVEN_PPG) * (np.nan_to_num(col(R, "age"), nan=99) < PROVEN_AGE)
     if PROVEN_FLOOR: out = np.where(pr_ > 0, np.maximum(out, PROVEN_FLOOR * np.clip((ppv - PROVEN_PPG) / 2.0 + 0.5, 0.5, 1.0)), out)
+    # round 6 (depth charts): the team's own chart sets a floor under two roles a multiplier can take to nothing
+    dcr2 = col(R, "e_x_dc_rank"); tgc = np.nan_to_num(col(R, "e_x_team_games_cur"))
+    imp_ = np.where(tgc >= 3, np.nan_to_num(col(R, "e_x_team_implied_cur")), np.nan_to_num(col(R, "e_x_team_implied_l0")))
+    if DC2_FLOOR: out = np.where((R.pos.values == "RB") * (dcr2 == 2) * (imp_ >= DC2_IMPL) > 0, np.maximum(out, DC2_FLOOR), out)
+    if DC1_FLOOR:
+        c1 = np.isin(R.pos.values, ["RB", "WR", "TE"]) * (dcr2 == 1) * (tgc >= DC1_G) * (np.nan_to_num(col(R, "e_x_team_win_cur")) >= DC1_WIN) * (R.injury.fillna("").values == "")
+        out = np.where(c1 > 0, np.maximum(out, DC1_FLOOR), out)
     if LOW_ADD:
         lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
         out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
