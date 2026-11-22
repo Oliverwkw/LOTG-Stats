@@ -500,7 +500,7 @@ SPIKE_ROOKIE_G = 0.001
 LEAD_SPARE, RB_YOUNG_COMP = 0.0, -1.0
 LEAD_SHARE, LEAD_G = 0.2, 99
 ROLE_G = 1
-W_FAROFF, FAR_AT = 0.0, 1.8     # the fit's far-off term (0 = off): trades past 1.8x (80% off) are penalised
+W_FAROFF, FAR_AT, W_CALLS, FAR_OK_RISE = 0.0, 1.8, 1.0, 0.5     # the fit's far-off term (0 = off): trades past 1.8x (80% off) are penalised; W_CALLS weights the calls
 RB_JOB_FLOOR = 40.0
 PROVEN_FLOOR, PROVEN_PPG, PROVEN_AGE = 0.0, 10.0, 34.0
 OUT_ROOKIE = 1.0
@@ -540,6 +540,8 @@ NYG_UP, NYG_BAND = 0.2231, (-2.0, -1.0, 300.0, 600.0)
 AVAIL_UP_XFP, AVAIL_UP_POS, AVAIL_UP_V = (10.0, 13.0), ("WR", "TE"), 100.0
 VAC_SPARE = 0.0
 SUSP_EASE = 1.0
+NOT_BACK, NOT_BACK_G = -0.3, 14
+CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = -0.2, 22.5, 30.0, (-2.0, -1.0, 400.0, 800.0)
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
@@ -751,6 +753,10 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
+    if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
+        nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
+            * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0)
+        T_["not_back"] = NOT_BACK * nb * np.isin(pos, ["RB", "WR", "TE", "QB"])
     if SUSP_EASE:   # (#18 Ridley 2023) games lost to last season's suspension are no injury record
         sl = np.clip(np.nan_to_num(col(R, "e_x_susp_last")) / 0.5, 0, 1) * (np.nan_to_num(col(R, "e_x_gp_cur")) < 4)
         T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - SUSP_EASE * sl), T_["availability"])
@@ -835,6 +841,13 @@ def apply_rules(R, p, X=None, explain=False):
     age_ = np.nan_to_num(col(R, "age"), nan=25.0)
     T_["contract_old"] = p.get("contract_old", 0.0) * last_ * np.clip((age_ - CONTRACT_AGE + 1) / 2.0, 0, 1)
     T_["contract_boom"] = p.get("contract_boom", 0.0) * last_ * (age_ < CONTRACT_AGE) * np.clip(X["spike"], 0, 1.5)
+    # Oliver (round 6): a final contract year cuts both ways with his situation: in a bad offense he may leave for a
+    # better one (raised), in a good one he may leave it (lowered). Situation = his team's implied points (this season
+    # from 4 games, else last), CONTRACT_SIT_MID +-4 for full; CONTRACT_SIT a log strength (0 = off)
+    if CONTRACT_SIT:
+        ti = np.where(np.nan_to_num(col(R, "e_x_team_games_cur")) >= 4, col(R, "e_x_team_implied_cur"), col(R, "e_x_team_implied_l0"))
+        sit = np.clip((CONTRACT_SIT_MID - np.nan_to_num(ti, nan=CONTRACT_SIT_MID)) / 4.0, -1, 1)
+        T_["contract_sit"] = CONTRACT_SIT * last_ * (age_ < CONTRACT_SIT_AGE) * sit * np.interp(raw, CONTRACT_SIT_BAND, [0, 1, 1, 0])
     # round 6 (Oliver 2026-11-22: "a knock against players in this range with no more than X games over 20 and zero over
     # 30"; Fannin "a low ceiling, his boom weeks are only so big"): an RB/WR/TE past his rookie year whose best game in
     # the last two complete seasons and this one (e_x_max_2y) is under CEIL_PTS: the league pays for the weeks that win
@@ -1101,13 +1114,13 @@ def trade_err(V, trades):
 
 
 def far_ok_mask(ev, path=None):
-    """per fitted trade: True if Oliver has judged it fine although far off (data/faab_value/far_off_ok.csv: date + the
+    """per fitted trade: how far off (ratio - 1) it was when Oliver judged it fine although far off, NaN if he has not (data/faab_value/far_off_ok.csv: date + the
     Sleeper ids of every player in it); the far-off term leaves those out"""
     path = Path(path or DATA / "far_off_ok.csv")
     if not path.exists(): return np.zeros(len(ev.trades), bool)
-    ok = {(r.date, r.sids) for r in pd.read_csv(path, dtype=str).itertuples()}
+    ok = {(r.date, r.sids): float(r.was_off) for r in pd.read_csv(path, dtype=str).itertuples()}
     sid = ev.E.sid.astype(str).values
-    return np.array([(str(d)[:10], ";".join(sorted(sid[j] for s_ in sides for j in s_[1]))) in ok for d, sides in ev.trades])
+    return np.array([ok.get((str(d)[:10], ";".join(sorted(sid[j] for s_ in sides for j in s_[1]))), np.nan) for d, sides in ev.trades])
 
 
 def far_err(V, trades, at=FAR_AT):
@@ -1188,7 +1201,7 @@ def objective(ev, ref, votes=None, band=True):
     qbs = set(first.name[first.pos == "QB"]); exp_ = pd.Series(first.exp.values, index=first.name.values) if band else None
     cache = {}
     ok_ = far_ok_mask(ev)
-    far_trades = [t for t, o in zip(ev.trades, ok_) if not o]
+    far_at = np.where(np.isnan(ok_), FAR_AT, 1 + np.nan_to_num(ok_) + FAR_OK_RISE)   # an OK'd trade: only past +50 points
 
     def obj(p, detail=False):
         ya = p.get("youth_age", 26.0)
@@ -1204,8 +1217,8 @@ def objective(ev, ref, votes=None, band=True):
         te, ce = trade_err(ve, ev.trades)[0], cut_err(ve, ev.cuts)
         vo = votes.loss(ev.vote_values(V[ev.pVR])) if votes is not None and len(votes.C) else 0.0
         reg = 0.02 * sum(abs(p[k]) for k in REG_KEYS)
-        fo = far_err(ve, far_trades) if W_FAROFF else 0.0
-        tot = c + W_TRADES * te + W_CUTS * ce + vo + reg + W_FAROFF * fo
+        fo = far_err(ve, ev.trades, far_at) if W_FAROFF else 0.0
+        tot = W_CALLS * c + W_TRADES * te + W_CUTS * ce + vo + reg + W_FAROFF * fo
         return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, faroff=fo, tests=t) if detail else tot
     obj.cache = cache            # module constants read by characteristics() (try-rule's F.X=v) need it cleared
     return obj
