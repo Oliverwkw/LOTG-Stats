@@ -70,6 +70,17 @@ def test_calls_regression_floor():
     assert sum(x == 0 for _, x in t) >= 85, [n for n, x in t if x > 0]
 
 
+def test_every_call_names_a_board_player():
+    """a call whose name is not on its board is skipped without a word (Kenneth Walker vs Kenneth Walker III hid
+    9 calls until 2026-11-22): every name a call reads must resolve"""
+    ev = F.Evidence.load(); p = F.load_params(); T = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
+    LC.MISSING.clear()
+    LC.calls(F.call_values(ev, p), pd.read_csv(REF).set_index("name").V, set(T.name[T.pos == "QB"]))
+    LC.row_calls(ev.R, ev.values(p))
+    assert not LC.MISSING, sorted(LC.MISSING)
+    assert LC.resolve("Kenneth Walker", pd.Index(["Kenneth Walker III"])) == "Kenneth Walker III"
+
+
 def test_evidence_resolves_to_inputs():
     R = F.load_inputs(); ev = json.load(open(F.DATA / "evidence.json"))
     keys = set(zip(R.sid, R.date))
