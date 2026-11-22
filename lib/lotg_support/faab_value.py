@@ -528,6 +528,11 @@ XFP_JUMP, XFP_JUMP_LO, XFP_JUMP_HI, XFP_JUMP_BAND = 3.0, 0.08, 0.18, (-2.0, -1.0
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
 VAC_UP, VAC_LO, VAC_HI, VAC_BAND = 1.0, 0.05, 0.2, (-2.0, -1.0, 300.0, 500.0)
 VAC_STACK = 1.0
+# far-off #14 (Oliver 2026-11-22, Pacheco to Detroit: "removing some docks from RBs in a range under a certain age when
+# they switch teams"): an RB under MOVE_AGE who changed teams this offseason (or is new and has under 4 games there),
+# at a base under MOVE_V (fading out at 1.5x), has his old-role docks eased by MOVE_EASE (0..1): bad YPC, duds, wear
+# (rb_inj) and missed games, which were read behind his old line, in his old committee
+MOVE_EASE, MOVE_AGE, MOVE_V, MOVE_DOCKS = 0.0, 28.0, 200.0, ("ypc_bad", "rb_duds", "rb_inj", "availability")
 OUT_STAR, OUT_STAR_PPG, OUT_STAR_POS = 0.5, 18.0, ("RB",)
 VAC_OWN = 0.06    # ... for a player who had a role last season (his share of his team's expected points) or missed it (under 8 games)
 TD_SPIKE, TD_SPIKE_SNAP, TD_SPIKE_V = -1.2, 0.55, (1000.0, 1500.0)
@@ -570,6 +575,13 @@ def catch_ok(R, pos):
     68% and Kraft 71% keep the target-lead boost, Quentin Johnston 60% does not)"""
     c = col(R, "e_x_catch3"); med = np.select([pos == "WR", pos == "TE"], [CATCH_MED["WR"], CATCH_MED["TE"]], np.nan)
     return np.where(np.isnan(c) | np.isnan(med), 1.0, np.clip((c - med + TGT_LEAD_CATCH_GAP) / max(TGT_LEAD_CATCH_GAP, 1e-9), 0, 1))
+
+
+def rb_moved(R):
+    """1 (fading) for an RB under MOVE_AGE who switched teams (MOVE_EASE): see MOVE_EASE"""
+    if not MOVE_EASE: return np.zeros(len(R))
+    mv = (np.nan_to_num(col(R, "e_x_moved_off")) > 0) | ((np.nan_to_num(col(R, "e_x_new_team")) > 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < 4))
+    return MOVE_EASE * (R.pos.values == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < MOVE_AGE) * mv * np.interp(np.maximum(col(R, "V_raw"), 0), [MOVE_V, 1.5 * MOVE_V], [1, 0])
 
 
 def final_terms(R, v, p, X):
@@ -656,6 +668,9 @@ def final_terms(R, v, p, X):
     T["rb_hold"] = p.get("rb_hold", 0.0) * (pos == "RB") * (np.nan_to_num(rk_, nan=99) <= RB_HOLD_TOP) * (np.nan_to_num(col(R, "e_x_rb_comp"), nan=1) == 0) \
         * np.interp(base, [0.75 * RB_HOLD_LO, RB_HOLD_LO, RB_HOLD_HI, 1.25 * RB_HOLD_HI], [0, 1, 1, 0]) \
         * np.interp(lv, np.log([0.75 * RB_HOLD_MAXV, RB_HOLD_MAXV]), [1, 0])
+    mvd = rb_moved(R)
+    for k in ("rb_duds", "rb_inj"):
+        if k in MOVE_DOCKS: T[k] = T[k] * (1 - mvd)
     return T
 
 
@@ -816,6 +831,9 @@ def apply_rules(R, p, X=None, explain=False):
     # (far-off #4, Rhamondre 2025 "a receiving back, PPR boost"): an RB who earns targets (this season's target share, else
     # last season's; 8% none, 14% full) is paid for catches, so bad yards per carry counts less (YPC_REC)
     ts6 = np.where(np.isnan(col(R, "e_x_cur_tgt_share")), col(R, "e_x_l0_tgt_share"), col(R, "e_x_cur_tgt_share"))
+    mvd_ = rb_moved(R)
+    for k in ("ypc_bad", "availability"):
+        if k in MOVE_DOCKS: T_[k] = np.where(T_[k] < 0, T_[k] * (1 - mvd_), T_[k])
     T_["ypc_bad"] = T_["ypc_bad"] * (1 - YPC_REC * np.clip((np.nan_to_num(ts6) - 0.08) / 0.06, 0, 1))
     T_["position curve"] = X["te"] * curve(p["te_lo"], p["te_hi"]) + np.select([pos == "QB", pos == "RB", pos == "WR"], [top_curve(p["qb_lo"], p["qb_hi"]), top_curve(p["rb_lo"], p["rb_hi"]), top_curve(p["wr_lo"], p["wr_hi"])], 0.0)
     # TE line in two tiers: a light drop below te_thr (capped, te_soft) and a harsh one below te_thr2 (te_line); a proven

@@ -55,9 +55,11 @@ def questions(T, stages, as_of, n_close=60, n_moved=40, n_rules=30, n_random=30,
     rng = np.random.default_rng(seed + int(pd.Timestamp(as_of).strftime("%Y%m%d")))
     T = T.reset_index(drop=True).copy()
     T["moved"] = np.log(np.maximum(stages["final"], 1) / np.maximum(stages["vet"], 1))
-    top = T[T.V >= 50].head(300).reset_index(drop=True)
-    # rounded so the pairs do not depend on float noise across machines (CI vs local), and stable sorts for ties
-    lv = np.round(np.log(top.V.values), 6); sid = top.sid.values; pos = top.pos.values; mv = np.round(top.moved.values, 6)
+    # whole dollars (as the page shows them) and 3-decimal moves, so the pairs do not depend on float noise across
+    # machines (CI vs local); stable sorts for ties
+    T["Vr"] = np.round(T.V.values); T["mvr"] = np.round(T.moved.values, 3)
+    top = T[T.Vr >= 50].sort_values(["Vr", "sid"], ascending=[False, True], kind="stable").head(300).reset_index(drop=True)
+    lv = np.log(top.Vr.values); sid = top.sid.values; pos = top.pos.values; mv = top.mvr.values
     out, seen = [], set()
 
     def add_pair(i, j, why):
