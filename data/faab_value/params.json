@@ -125,5 +125,6 @@
  "qb_opening": 1.5,
  "ceiling_lo": -0.25,
  "new_home": 0.15,
- "soph_fall": -0.3
+ "soph_fall": -0.3,
+ "flop_r1": -0.3
 }
