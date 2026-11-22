@@ -504,7 +504,7 @@ RB_JOB_FLOOR = 40.0
 OUT_ROOKIE = 1.0
 # far-off #3 (Fuller 2020, "consistent week-to-week production"): a missed-games dock fades (AVAIL_NOW = how much) for a
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
-AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 4, 14.0, ("WR",)
+AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 3, 14.0, ("WR",)
 AVAIL_NOW_BAND = (-2.0, -1.0, 1e9, 2e9)
 # far-off #3 (Aiyuk 2020: "rookie, target competition"): a rookie's breakout bonus is a few games' sample; it is capped at
 # SPIKE_ROOKIE_CAP (a multiplier; 99 = off) while he has under SPIKE_ROOKIE_CAP_G games
