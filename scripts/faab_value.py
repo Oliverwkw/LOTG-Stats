@@ -139,8 +139,9 @@ def cmd_fit(a):
     ev = F.Evidence.load(); ref = pd.read_csv(REF).set_index("name").V
     votes = None if a.no_votes else _vote_term(ev)
     if votes is not None: print(f"votes: {len(votes.used)} answers on {votes.as_of}, term weight {votes.weight:.2f} (max {FV.VOTE_MAX})")
+    if a.far: F.W_FAROFF = a.far; print(f"far-off term on: weight {a.far} past {F.FAR_AT}x (trades in far_off_ok.csv left out)")
     obj = F.objective(ev, ref, votes)
-    starts = [dict(F.P0), F.load_params(a.params)]
+    starts = [dict(F.P0), F.load_params(a.params)] + ([F.load_params(a.start)] if a.start else [])
     p = F.fit(obj, starts, restarts=1 if a.quick else 8, passes=1 if a.quick else 3, polish=1 if a.quick else 4)
     Path(a.out).write_text(json.dumps(p, indent=1) + "\n"); print("wrote", a.out)
 
@@ -165,7 +166,8 @@ def main(argv=None):
     s = sub.add_parser("votes"); s.add_argument("--report"); s.set_defaults(f=cmd_votes)
     s = sub.add_parser("publish"); s.set_defaults(f=cmd_publish)
     s = sub.add_parser("fit"); s.add_argument("--out", required=True); s.add_argument("--quick", action="store_true")
-    s.add_argument("--no-votes", action="store_true"); s.set_defaults(f=cmd_fit)
+    s.add_argument("--no-votes", action="store_true"); s.add_argument("--far", type=float, default=0.0)
+    s.add_argument("--start", help="another params file to start from"); s.set_defaults(f=cmd_fit)
     s = sub.add_parser("try-rule"); s.add_argument("changes", nargs="+"); s.add_argument("--base", default="", help="overrides applied to both sides first")
     s.add_argument("--data", help="an inputs folder other than data/faab_value"); s.set_defaults(f=cmd_try)
     s = sub.add_parser("pull-votes"); s.add_argument("url"); s.set_defaults(f=cmd_pull)
