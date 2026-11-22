@@ -132,5 +132,6 @@
  "rb_pass_team": -0.3,
  "wr_room_top": 0.05,
  "qb_proof": 0.1,
- "young_peak": 0.2
+ "young_peak": 0.2,
+ "rb_role": 0.6
 }

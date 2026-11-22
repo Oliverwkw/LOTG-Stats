@@ -493,6 +493,15 @@ SOPH_PPG, SOPH_DROP, SOPH_SNAP, SOPH_G, SOPH_EXP = 14.0, 0.7, 0.6, 10, 2   # sop
 WR_ROOM_AGE, WR_ROOM_MAXAGE = 29.0, 28.0   # wr_room: the top teammate WR 29+ (full at 32) for a WR under 28 (fading out by 30)
 SUMMER_OLD_AGE = 29.0            # summer_old: the summer shift's extra for players 29+ (full at 32)
 CEIL_EXP = 1
+SPIKE_DROP, YPC_ROLE = 1.0, 1.0
+YPC_REC = 0.0
+UPSIDE_ROLE = 1.0
+SPIKE_ROOKIE_G = 0.001
+SPIKE_ROOKIE_COMP = 0.6   # ... when young teammates (under 28) hold 60%+ of the position's share (Kittle, Deebo)
+UPSIDE_BAND = (200.0, 300.0, 1e9, 2e9)   # ... at a base of $300+ (a priced-in prospect; a cheap backup's upside is the bet)
+ROLE_BAND = (-2.0, -1.0, 100.0, 150.0)   # rb_role base band
+SPIKE_DROP_EXP, SPIKE_DROP_BAND = 2, (-2.0, -1.0, 1e9, 2e9)
+ROLE_LO = 0.0   # rb_role: -1 = a lost job lowers too, 0 = only a won job raises
 CEIL_POS = ("RB", "WR", "TE")
 CEIL_VET_EXP = 5   # ceiling_lo skips a WR past this many seasons (a vet's ceiling is known and priced)
 PEAK_AGE = 24.5
@@ -694,7 +703,7 @@ def apply_rules(R, p, X=None, explain=False):
     # share (3+ games) minus last season's, 25 points = full, either way (a job lost lowers him, a job won raises him)
     sc_, s0_ = col(R, "e_x_cur_off_pct"), col(R, "e_x_l0_off_pct")
     T_["rb_role"] = p.get("rb_role", 0.0) * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * ~np.isnan(sc_) * ~np.isnan(s0_) \
-        * np.clip((np.nan_to_num(sc_) - np.nan_to_num(s0_)) / 0.25, -1, 1)
+        * np.clip((np.nan_to_num(sc_) - np.nan_to_num(s0_)) / 0.25, ROLE_LO, 1) * np.interp(raw, ROLE_BAND, [0, 1, 1, 0])
     # round 6 (Oliver 2026-11-22, Chase Brown: "streaks of single-digit games and his pass-first offense"): boom_rate_lo =
     # an RB/WR/TE (8+ games in the window) with few 20+ PPR games over the last two seasons and this one (e_x_g20_2y / e_x_ng_2y;
     # BOOM_RATE[0] = none, [1] = full) at a value of BOOM_V+ (fading in), the league's starters win weeks with them;
@@ -723,6 +732,25 @@ def apply_rules(R, p, X=None, explain=False):
     T_["cheap_deal"] = p.get("cheap_deal", 0.0) * X["cheap_deal"] * np.interp(raw, [300, 600], [0, 1])
     T_["boom_week"] = p.get("boom_week", 0.0) * X["boom_week"] * np.clip((p.get("boom_hi", 600.0) - v) / (0.6 * p.get("boom_hi", 600.0)), 0, 1)
     T_["spike"] = p.get("spike", 0) * X["spike"] * unpriced; T_["team_up"] = p.get("team_up", 0) * X["team_up"] * unpriced
+    # round 6 (far-off #1, Rhamondre 2023 "lost his starting role"): an RB/WR/TE whose PPR a game this season (4+ games)
+    # is well under last season's: the breakout bonus fades (SPIKE_DROP = how much; under 80% of last season starts, 60% = full)
+    pc6, p06 = col(R, "e_x_ppg_cur"), col(R, "e_x_ppg_l0")
+    fall6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 4) * ~np.isnan(pc6) * ~np.isnan(p06) * np.clip((0.8 - np.nan_to_num(pc6) / np.maximum(np.nan_to_num(p06), 1)) / 0.2, 0, 1)
+    # (far-off #3, Aiyuk 2020: a rookie's 3 good games behind young established targets): a rookie's breakout bonus fades in with his games (SPIKE_ROOKIE_G = full)
+    T_["spike"] = T_["spike"] * np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_comp_share")) >= SPIKE_ROOKIE_COMP) & (np.nan_to_num(col(R, "e_x_comp_age"), nan=99) < 28), np.clip(np.nan_to_num(col(R, "e_x_gp_cur")) / SPIKE_ROOKIE_G, 0, 1), 1.0)
+    T_["spike"] = T_["spike"] * (1 - SPIKE_DROP * fall6 * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= SPIKE_DROP_EXP) * np.interp(raw, SPIKE_DROP_BAND, [0, 1, 1, 0]))
+    # (far-off #1, Mattison 2023 took the job): an RB's bad yards per carry counts less once he has the snaps this
+    # season (3+ games, 25+ points over last season = full by YPC_ROLE)
+    gain6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((np.nan_to_num(col(R, "e_x_cur_off_pct")) - np.nan_to_num(col(R, "e_x_l0_off_pct"), nan=1)) / 0.25, 0, 1)
+    T_["ypc_bad"] = T_["ypc_bad"] * (1 - YPC_ROLE * gain6)
+    # (far-off #5, Brooks Dec 2024): young upside needs a role once the season is well along: a player with 2+ games
+    # played whose team has played 10+ and who is on under 30% of the snaps (15% = none left) keeps UPSIDE_ROLE less of it
+    nr6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 2) * (np.nan_to_num(col(R, "e_x_team_games_cur")) >= 10) * np.clip((0.3 - np.nan_to_num(col(R, "e_x_cur_off_pct"), nan=1)) / 0.15, 0, 1)
+    T_["young_upside"] = T_["young_upside"] * (1 - UPSIDE_ROLE * nr6 * np.interp(raw, UPSIDE_BAND, [0, 1, 1, 0]))
+    # (far-off #4, Rhamondre 2025 "a receiving back, PPR boost"): an RB who earns targets (this season's target share, else
+    # last season's; 8% none, 14% full) is paid for catches, so bad yards per carry counts less (YPC_REC)
+    ts6 = np.where(np.isnan(col(R, "e_x_cur_tgt_share")), col(R, "e_x_l0_tgt_share"), col(R, "e_x_cur_tgt_share"))
+    T_["ypc_bad"] = T_["ypc_bad"] * (1 - YPC_REC * np.clip((np.nan_to_num(ts6) - 0.08) / 0.06, 0, 1))
     T_["position curve"] = X["te"] * curve(p["te_lo"], p["te_hi"]) + np.select([pos == "QB", pos == "RB", pos == "WR"], [top_curve(p["qb_lo"], p["qb_hi"]), top_curve(p["rb_lo"], p["rb_hi"]), top_curve(p["wr_lo"], p["wr_hi"])], 0.0)
     # TE line in two tiers: a light drop below te_thr (capped, te_soft) and a harsh one below te_thr2 (te_line); a proven
     # TE's line is eased by te_relief
