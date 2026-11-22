@@ -535,6 +535,8 @@ CUFF_PREM, CUFF_PREM_COMP, CUFF_PREM_SH, CUFF_PREM_AGE, CUFF_PREM_BAND = 1.0, 0.
 # Oliver (round 6, #28 / #35, "a real phenomenon", kept although it costs trades overall): the league pays a small
 # premium for Giants players: an NYG player (his NFL team on the date, e_x_nyg) is raised by NYG_UP (log) in NYG_BAND
 NYG_UP, NYG_BAND = 0.2231, (-2.0, -1.0, 300.0, 600.0)
+AVAIL_UP_XFP, AVAIL_UP_POS, AVAIL_UP_V = (10.0, 13.0), ("WR", "TE"), 100.0
+VAC_SPARE = 0.0
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
@@ -713,7 +715,13 @@ def apply_rules(R, p, X=None, explain=False):
     T_ = {k: p.get(k, 0) * X[x] for k, x in RULE_KEYS.items()}
     # on IR the IR rule already charges for this season's injury: availability counts only the seasons before it
     # availability: missed games lower a value (availability); a clean record raises it by its own strength (avail_up)
-    av_ = lambda x: p.get("availability", 0) * np.minimum(x, 0) + p.get("avail_up", 0) * np.maximum(x, 0)
+    # (#17 Tucker "max $15") the clean-record boost needs a role: it fades in from AVAIL_UP_XFP[0] to [1] expected
+    # PPR/g this season (4+ games; else last season's) for a WR / TE: every game played as a small part is no premium
+    avr = np.ones(len(R))
+    if float(AVAIL_UP_XFP[1]) > 0:
+        xg = np.where(np.nan_to_num(col(R, "e_x_cur_games")) >= 4, col(R, "e_x_cur_xfp_pg"), col(R, "e_x_l0_xfp_pg"))
+        avr = np.where(np.isin(pos, AVAIL_UP_POS) & ~np.isnan(xg) & (np.nan_to_num(col(R, "V_raw"), nan=0) < AVAIL_UP_V), np.clip((np.nan_to_num(xg) - float(AVAIL_UP_XFP[0])) / (float(AVAIL_UP_XFP[1]) - float(AVAIL_UP_XFP[0])), 0, 1), 1.0)
+    av_ = lambda x: p.get("availability", 0) * np.minimum(x, 0) + p.get("avail_up", 0) * np.maximum(x, 0) * avr
     T_["availability"] = np.where(X["ir"] > 0, (1 - p.get("ir_no_double", 0.0)) * av_(X["availability"]) + p.get("ir_no_double", 0.0) * av_(X["avail_prior"]), av_(X["availability"]))
     # a young player's missed games: the availability drop is floored (avail_young_floor, a multiplier; 0 = off) under
     # avail_young_age, fading out over the 2 years after (Oliver: Brooks, Dobbins, Kyren)
@@ -889,6 +897,10 @@ def apply_rules(R, p, X=None, explain=False):
     # 20%+ share) is no waiver body: the replacement line spares him by LEAD_SPARE
     lead6 = (pos == "WR") * (np.nan_to_num(col(R, "e_x_tgt_lead_w")) >= 1) * (np.nan_to_num(col(R, "e_x_l0_tgt_share")) >= LEAD_SHARE) * (np.nan_to_num(col(R, "e_x_gp_cur")) < LEAD_G)
     if "replacement line" in T_: T_["replacement line"] = T_["replacement line"] * (1 - LEAD_SPARE * lead6)
+    # (#16 Samuel 2024 "top option in BUF") an offseason arrival into a big vacated role is no waiver body either
+    if VAC_SPARE and "replacement line" in T_:
+        vs = np.isin(pos, ["WR", "TE"]) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - 0.1) / 0.1, 0, 1)
+        T_["replacement line"] = T_["replacement line"] * (1 - VAC_SPARE * vs)
     # (far-off #2, White 2025 "lost his job to Bucky"): an RB 25+ whose team's other RBs include a young one (their
     # average age under 24) holding 45-60% of the RB share: the job is going to him (RB_YOUNG_COMP, lower only)
     T_["rb_young_comp"] = RB_YOUNG_COMP * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=0) >= 25) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=99) < 24) \
