@@ -54,7 +54,7 @@ BOUNDS = dict(y200=(80, 230), y450=(250, 520), y650=(500, 950), lvl=(0.6, 1.6), 
 P0.update(vet_floor=0.0, rb_duds=0.0, wr_band=0.0, qb_band=0.0, rb_band=0.0, rb_inj=0.0, spike_vet_rb=0.0, qb_inj=0.0, wr_backup=0.0, wr_clean_old=0.0, tgt_lead=0.0, young_boom=0.0, rb_touch=0.0, te_slide=0.0, qb_tough=0.0, qb_ypg=0.0, snap_cap=0.0, rb_hold=0.0, rb_old_hi=0.0,
           boom_bust=0.0, td_dep=0.0, one_game=0.0, young_starter=0.0, carry=0.0, qb_pedigree=0.0, qb_starter=0.0, ir_no_double=0.0, qb_opening=0.0)
 # round 6 (Oliver's 2026-11-22 notes on the failing calls and the far-off trades): every one starts at 0 (off)
-P0.update(comp_young=0.0, wr_adv=0.0, soph_fall=0.0, wr_room=0.0, summer_old=0.0, cutdown=0.0)
+P0.update(ceiling_lo=0.0, new_home=0.0, comp_young=0.0, wr_adv=0.0, soph_fall=0.0, wr_room=0.0, summer_old=0.0, cutdown=0.0)
 BOUNDS.update(vet_floor=(0.0, 1.0), rb_duds=(-1.0, 0.0), wr_band=(-0.6, 0.0), qb_band=(-0.6, 0.0), rb_band=(0.0, 0.6), rb_inj=(-1.0, 0.0),
     spike_vet_rb=(-1.0, 0.0), qb_inj=(-1.0, 0.0), wr_backup=(-1.0, 0.0), wr_clean_old=(-1.0, 0.0), tgt_lead=(0.0, 1.5), young_boom=(0.0, 1.5), rb_touch=(-1.5, 0.0), te_slide=(-1.5, 0.0), qb_tough=(0.0, 1.0), qb_ypg=(-1.0, 0.0), snap_cap=(0.0, 1.0), rb_hold=(0.0, 1.5), rb_old_hi=(-1.0, 0.0),
     rb_hi=(0.0, 0.6), wr_hi=(-0.6, 0.0), qb_hi=(-0.2, 0.2),   # wr_hi: top-end WR fade, lower only, held -0.5 (Oliver 2026-11-18)
@@ -72,11 +72,11 @@ BOUNDS.update(vet_floor=(0.0, 1.0), rb_duds=(-1.0, 0.0), wr_band=(-0.6, 0.0), qb
     spike=(0.0, 1.2), team_q=(0.0, 0.25),                                         # big weeks and team strength: capped
     qb_pedigree=(0.0, 1.5), qb_starter=(0.0, 1.0), qb_opening=(0.0, 1.5),        # QB draft capital, established starting QB, QB opening
     ir_no_double=(0.0, 1.0),                                                      # a blend weight (IR: prior seasons stand in), either direction
-    comp_young=(0.0, 1.0), wr_adv=(0.0, 1.5), soph_fall=(-1.5, 0.0), wr_room=(0.0, 1.0), summer_old=(-1.5, 0.0), cutdown=(-2.0, 0.0))
-RAISE_ONLY = ["rb_hold", "tgt_lead", "young_boom", "qb_tough", "vet_floor", "rb_band", "young_elite", "young_upside", "qb_paid", "team_q_lo", "fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
+    ceiling_lo=(-1.5, 0.0), new_home=(0.0, 1.0), comp_young=(0.0, 1.0), wr_adv=(0.0, 1.5), soph_fall=(-1.5, 0.0), wr_room=(0.0, 1.0), summer_old=(-1.5, 0.0), cutdown=(-2.0, 0.0))
+RAISE_ONLY = ["new_home", "rb_hold", "tgt_lead", "young_boom", "qb_tough", "vet_floor", "rb_band", "young_elite", "young_upside", "qb_paid", "team_q_lo", "fresh_start", "boom_week", "aw_nfl", "aw_college", "usage", "steady", "youth_usage", "youth_role", "elite_streak", "track", "qb_quality", "wr_talent", "rb_multi", "efficiency",
               "pedigree", "rookie_capital", "alpha", "availability", "pick_boom", "new_team_burst", "team_up", "two_way", "share_talent", "spike", "team_q", "opening",
               "young_starter", "carry", "qb_pedigree", "qb_starter", "qb_opening", "peak_share", "avail_up", "wr_adv", "wr_room"]
-LOWER_ONLY = ["wr_hi", "rb_touch", "te_slide", "qb_ypg", "rb_duds", "wr_band", "qb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game", "soph_fall", "summer_old", "cutdown"]
+LOWER_ONLY = ["wr_hi", "rb_touch", "te_slide", "qb_ypg", "rb_duds", "wr_band", "qb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "wr_pair", "overtaken", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "te_line", "te_soft", "old_cliff", "rookie_day3", "vet_move", "ypc_bad", "duds", "slump", "inj_ir", "inj_out", "severe", "prone", "recurring", "off_field", "journeyman", "bust", "rb_age", "boom_bust", "td_dep", "one_game", "soph_fall", "summer_old", "cutdown", "ceiling_lo"]
 _bad = [k for k in RAISE_ONLY if BOUNDS[k][0] < 0] + [k for k in LOWER_ONLY if BOUNDS[k][1] > 0]
 assert not _bad, f"rules with the wrong sign allowed: {_bad}"
 VET_AGE = {"QB": 33, "RB": 26.5, "WR": 28.5, "TE": 28.5}
@@ -357,7 +357,7 @@ def characteristics(R, youth_age=26.0):
     big1 = np.nan_to_num(p1) >= SOPH_PPG
     bad0 = big1 & (np.nan_to_num(col(R, "e_x_l0_games")) >= SOPH_G) & (np.nan_to_num(col(R, "e_x_l0_off_pct")) >= SOPH_SNAP) & (np.nan_to_num(p0_, nan=99) < SOPH_DROP * np.nan_to_num(p1))
     badc = big1 & (cur_gp >= 4) & (np.nan_to_num(pc_, nan=99) < SOPH_DROP * np.nan_to_num(p1))
-    soph_fall = np.isin(posv, ["RB", "WR", "TE"]) * (exp_ <= 3) * (bad0.astype(float) + bad0 * badc * w4)
+    soph_fall = np.isin(posv, ["RB", "WR", "TE"]) * (exp_ <= SOPH_EXP) * (bad0.astype(float) + bad0 * badc * w4)
     # an aging top teammate at his position (29+, full at 32) holding the snaps, for a WR under 28: the room opens soon
     # (Oliver: Puka over ARSB, "his competition is a very-aging Tae Adams, not a young stud Jamo"); `opening` above is the
     # same for young players only
@@ -486,9 +486,13 @@ RB_HOLD_MAXV = 600.0            # ... only while his value at this stage is unde
 COMP_YOUNG_AGE = (24.0, 28.0)   # comp_young: the share of the rookie-competition docks spared, full at or under 24, none from 28
 COMP_NO_STACK = False            # the three docks for one rookie (draft_comp, r1_wr, wr_backup) as the strongest of them, not their sum
 WR_ADV_BAND = (200.0, 300.0, 1500.0, 2200.0)   # wr_adv: base value band (fading in / full / fading out) it reaches
-SOPH_PPG, SOPH_DROP, SOPH_SNAP, SOPH_G = 14.0, 0.7, 0.6, 10   # soph_fall: a big early season (14+ PPR/g) then seasons under 70% of it on 60%+ snaps (10+ games)
+SOPH_PPG, SOPH_DROP, SOPH_SNAP, SOPH_G, SOPH_EXP = 14.0, 0.7, 0.6, 10, 2   # soph_fall: a big early season (14+ PPR/g) then seasons under 70% of it on 60%+ snaps (10+ games)
 WR_ROOM_AGE, WR_ROOM_MAXAGE = 29.0, 28.0   # wr_room: the top teammate WR 29+ (full at 32) for a WR under 28 (fading out by 30)
 SUMMER_OLD_AGE = 29.0            # summer_old: the summer shift's extra for players 29+ (full at 32)
+CEIL_EXP = 1
+CEIL_FULL_L0 = True   # ceiling_lo: only with a full (8+ game) last season, so a sample cut short by injury is not judged
+CEIL_PTS, CEIL_SPAN, CEIL_BAND = 28.0, 4.0, (150.0, 250.0, 99999.0, 99999.0)   # ceiling_lo: best game under 28 PPR (24 = full), base $250+
+NEW_HOME_PPG, NEW_HOME_G, NEW_HOME_V = 3.0, 5, (1200.0, 1800.0)   # ... at a value (after compression) fading in over NEW_HOME_V   # new_home: 3+ PPR a game over last season (9+ = full) on a new team, 5+ games
 CUTDOWN = ((8, 24), (9, 3))      # cutdown: the days before and at the NFL's roster cutdown (late August to Sep 3)
 DRAFT_COMP_NEW = 0.5             # draft_comp: share taken off for a player who joined the team that offseason (not vs a first-rounder)
 
@@ -653,6 +657,13 @@ def apply_rules(R, p, X=None, explain=False):
     T_["wr_room"] = p.get("wr_room", 0.0) * X["wr_room"]
     T_["summer_old"] = p.get("summer_old", 0.0) * X["summer_old"]
     T_["cutdown"] = p.get("cutdown", 0.0) * X["cutdown"]
+    # round 6 (Oliver 2026-11-22: "a knock against players in this range with no more than X games over 20 and zero over
+    # 30"; Fannin "a low ceiling, his boom weeks are only so big"): an RB/WR/TE past his rookie year whose best game in
+    # the last two complete seasons and this one (e_x_max_2y) is under CEIL_PTS: the league pays for the weeks that win
+    # matchups. Full CEIL_SPAN under it; only for base values in CEIL_BAND (fading in / full / fading out)
+    mx_ = col(R, "e_x_max_2y")
+    ceil_ = np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= CEIL_EXP) * ~np.isnan(mx_) * (~np.isnan(col(R, "e_x_ppg_l0")) | (not CEIL_FULL_L0)) * np.clip((CEIL_PTS - np.nan_to_num(mx_, nan=99)) / CEIL_SPAN, 0, 1)
+    T_["ceiling_lo"] = p.get("ceiling_lo", 0.0) * ceil_ * np.interp(raw, CEIL_BAND, [0, 1, 1, 0])
     T_["team_q_lo"] = p.get("team_q_lo", 0.0) * np.minimum(X["team_q"], 0) * np.interp(raw, [75, 150], [1, 0])
     T_["cheap_deal"] = p.get("cheap_deal", 0.0) * X["cheap_deal"] * np.interp(raw, [300, 600], [0, 1])
     T_["boom_week"] = p.get("boom_week", 0.0) * X["boom_week"] * np.clip((p.get("boom_hi", 600.0) - v) / (0.6 * p.get("boom_hi", 600.0)), 0, 1)
@@ -693,13 +704,19 @@ def apply_rules(R, p, X=None, explain=False):
     v3 = np.where(v2 > 2000, 2000 * (np.maximum(v2, 2000) / 2000) ** p["top_g"], v2)
     TF = final_terms(R, v3, p, X)
     TF["wr_backup"] = TF["wr_backup"] * (1 - p.get("comp_young", 0.0) * yw_)
+    # round 6 (Oliver 2026-11-22, Kenneth Walker: "huge success in a new place this year"): a player on a new NFL team
+    # this season (e_x_new_team) scoring NEW_HOME_PPG+ PPR a game more than last season over NEW_HOME_G+ games. Applied
+    # after the top compression: it is a star-level jump the top end otherwise flattens (x2.4 in rules = x1.15 at $2,300)
+    dppg = np.nan_to_num(col(R, "e_x_ppg_cur")) - np.nan_to_num(col(R, "e_x_ppg_l0"), nan=99)
+    TF["new_home"] = p.get("new_home", 0.0) * np.nan_to_num(col(R, "e_x_new_team")) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= NEW_HOME_G) \
+        * np.clip((dppg - NEW_HOME_PPG) / 6.0, 0, 1) * np.interp(v3, NEW_HOME_V, [0, 1])
     out = v3 * np.exp(sum(TF.values()))
     if explain:
         return out, dict(T_, **TF), dict(base=raw, curve=v0, vet=v1, rules=v, anchor=v2, top=v3, final=out)
     return out
 
 # ------------------------------------------------------------------ inputs and evidence
-REG_KEYS = ["comp_young", "wr_adv", "soph_fall", "wr_room", "summer_old", "cutdown", "rb_hold", "rb_old_hi", "tgt_lead", "young_boom", "rb_touch", "te_slide", "qb_tough", "qb_ypg", "vet_floor", "rb_duds", "wr_band", "qb_band", "rb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "te_top3", "young_elite", "young_upside", "wr_pair", "overtaken", "qb_paid", "team_q_lo", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
+REG_KEYS = ["ceiling_lo", "new_home", "comp_young", "wr_adv", "soph_fall", "wr_room", "summer_old", "cutdown", "rb_hold", "rb_old_hi", "tgt_lead", "young_boom", "rb_touch", "te_slide", "qb_tough", "qb_ypg", "vet_floor", "rb_duds", "wr_band", "qb_band", "rb_band", "rb_inj", "spike_vet_rb", "qb_inj", "wr_backup", "wr_clean_old", "r1_wr", "rookie_r1", "te_top3", "young_elite", "young_upside", "wr_pair", "overtaken", "qb_paid", "team_q_lo", "te_one_off", "undrafted", "cheap_deal", "draft_comp", "rookie_backup", "fresh_start", "boom_week", "qb_starter", "qb_pedigree", "ir_no_double", "qb_opening", "young_starter", "carry", "one_game", "boom_bust", "td_dep", "off_field", "summer", "te_line", "te_soft", "te_relief", "old_cliff", "rec_age", "avail_up", "share_age", "anchor_old", "rookie_day3", "vet_move", "ypc_bad", "regress", "duds", "peak_share", "slump", "journeyman", "bust", "rb_multi", "wr_talent", "pick_boom", "rb_age",
             "rookie_capital", "alpha", "availability", "efficiency", "opening", "team_q", "new_team_burst", "share_talent", "recurring", "steady", "pedigree",
             "elite_streak", "track", "qb_quality", "spike", "team_up", "severe", "qb_lo", "qb_hi", "rb_lo", "rb_hi", "wr_lo", "wr_hi", "usage", "youth_usage",
             "youth_role", "te_lo", "te_hi", "inj_ir", "inj_out", "prone", "two_way", "aw_college", "aw_nfl"]
