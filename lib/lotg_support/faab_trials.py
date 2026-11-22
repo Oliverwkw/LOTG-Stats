@@ -40,6 +40,15 @@ def score(ev, obj, p):
     return dict(d=d, r=r, V=V, failed={n for n, x in d["tests"] if x}, far25=far_off(V, ev.trades), far100=far_off(V, ev.trades, 100.0))
 
 
+def _tup(v):
+    """a tuple constant from "a,b,c" (numbers become floats) or a tuple as given"""
+    if isinstance(v, tuple): return v
+    def one(x):
+        try: return float(x)
+        except ValueError: return x
+    return tuple(one(x) for x in str(v).strip("()").split(","))
+
+
 class constants:
     """faab_value module constants set for the length of a `with` block (a rule's fixed shape: a floor, a gate)"""
     def __init__(self, cs): self.cs = dict(cs or {}); self.old = {}

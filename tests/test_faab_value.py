@@ -608,3 +608,13 @@ def test_rb_old_hi_docks_a_32_plus_rb_valued_over_1000():
     t = _final(rows, [1269, 1269, 1269, 875, 600], rb_old_hi=-0.1)["rb_old_hi"]
     assert np.isclose(t[0], -0.1) and t[1] == 0 and t[2] == 0 and np.isclose(t[3], -0.05, atol=0.01) and t[4] == 0
     assert F.load_params().get("rb_old_hi") == -0.1   # Oliver 2026-11-10 (Henry a mid-low first)
+
+
+def test_depth_chart_benched_qb():
+    """depth_chart reads the charts out by the date: Fields was the Jets' QB1 until his benching (2025-11-17), then QB2"""
+    from lotg_support import faab_features as X, faab_frame as kp
+    if kp._read("dc_2025.csv") is None:
+        print("skip: no depth charts cached"); return
+    import pandas as pd
+    rk, pv = X.depth_chart(pd.DataFrame(dict(gsis=["00-0036945", "00-0036945"], date=["2025-11-10", "2025-11-19"])), seasons=[2025])
+    assert list(rk) == [1, 2] and pv[1] == 1, (rk, pv)

@@ -1606,3 +1606,39 @@ def suspended_last(rows, susp):
         k = (str(r.gsis_id), int(r.season)); w[k] = w.get(k, 0) + int(r.week_end) - int(r.week_start) + 1
     g = rows.gsis.astype(str).values
     return np.array([min(w.get((g[i], int(s[i]) - 1), 0) / 17.0, 1.0) for i in range(len(rows))])
+
+
+def depth_chart(rows, seasons=None, stale=21, prev=(21, 56)):
+    """per row: his depth-chart rank at his position on the latest chart out by the date (weekly nflverse charts to
+    2024, counted from 4 days before each game; daily ESPN snapshots from August 2025), NaN when no chart is out within
+    `stale` days of the date or he is on none; and his best rank on the charts `prev` days before (a benched or promoted
+    player). rows: gsis, date. Returns (rank, prev_rank)."""
+    N = len(rows); rk = np.full(N, np.nan); pv = np.full(N, np.nan)
+    seasons = seasons or range(2020, pd.Timestamp.today().year + 1)
+    Dl = []
+    for y in seasons:
+        d = kp._read(f"dc_{y}.csv")
+        if d is None: continue
+        if "depth_team" in d.columns:
+            d = d[(d.formation == "Offense") & d.position.isin(kp.POS) & (d.game_type == "REG")].copy()
+            d["avail"] = (kp._wkdate(y, d.week) - pd.Timedelta(days=4)).values
+            d["rank"] = pd.to_numeric(d.depth_team, errors="coerce")
+        else:
+            d = d[d.pos_abb.isin(kp.POS)].copy()
+            d["avail"] = pd.to_datetime(d.dt.str[:10])
+            d["rank"] = d.pos_rank
+        Dl.append(d[["gsis_id", "avail", "rank"]])
+    if not Dl: return rk, pv
+    Dd = pd.concat(Dl).dropna(subset=["gsis_id"]).groupby(["gsis_id", "avail"])["rank"].min().reset_index()
+    by = {g: (v.avail.values.astype("datetime64[D]"), v["rank"].values) for g, v in Dd.sort_values("avail").groupby("gsis_id")}
+    dts = pd.to_datetime(pd.Series(rows["date"]).values).values.astype("datetime64[D]")
+    gs = pd.Series(rows["gsis"]).values
+    for i in range(N):
+        a = by.get(gs[i])
+        if a is None: continue
+        av, r = a; t = dts[i]
+        j = np.searchsorted(av, t, side="right") - 1
+        if j >= 0 and (t - av[j]).astype(int) <= stale: rk[i] = r[j]
+        m = (av <= t - np.timedelta64(prev[0], "D")) & (av >= t - np.timedelta64(prev[1], "D"))
+        if m.any(): pv[i] = r[m].min()
+    return rk, pv

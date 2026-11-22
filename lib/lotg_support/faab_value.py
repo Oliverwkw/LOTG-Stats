@@ -503,6 +503,11 @@ ROLE_G = 1
 W_FAROFF, FAR_AT, W_CALLS, FAR_OK_RISE = 0.0, 1.8, 1.0, 0.5     # the fit's far-off term (0 = off): trades past 1.8x (80% off) are penalised; W_CALLS weights the calls
 RB_JOB_FLOOR = 40.0
 PROVEN_FLOOR, PROVEN_PPG, PROVEN_AGE = 0.0, 10.0, 34.0
+LOW_ADD, LOW_S, LOW_PPG = 0.0, 60.0, 0.0
+SUMMER_LOW, SUMMER_LOW_V = 0.0, (40.0, 150.0)
+QB_BENCH = -1.0                   # depth chart: a QB who was his team's starter on the charts 3-8 weeks ago and is not now (log, lower only)
+DC2_RB, DC2_BAND = 0.0, (-2.0, -1.0, 150.0, 300.0)   # depth chart: an RB listed second on his team's chart (the handcuff), base band
+DC1_UP, DC1_POS, DC1_BAND = 0.0, ("WR", "RB", "TE"), (-2.0, -1.0, 60.0, 150.0)   # depth chart: listed first at his position
 OUT_ROOKIE = 1.0
 # far-off #3 (Fuller 2020, "consistent week-to-week production"): a missed-games dock fades (AVAIL_NOW = how much) for a
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
@@ -541,7 +546,8 @@ AVAIL_UP_XFP, AVAIL_UP_POS, AVAIL_UP_V = (10.0, 13.0), ("WR", "TE"), 100.0
 VAC_SPARE = 0.0
 SUSP_EASE = 1.0
 NOT_BACK, NOT_BACK_G = -0.3, 14
-CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = -0.2, 22.5, 30.0, (-2.0, -1.0, 400.0, 800.0)
+NOT_BACK_SKIP = ("Out", "Doubtful", "Questionable")
+CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = 0.0, 22.5, 30.0, (-2.0, -1.0, 400.0, 800.0)
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
@@ -755,7 +761,8 @@ def apply_rules(R, p, X=None, explain=False):
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
     if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
         nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
-            * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0)
+            * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0) \
+            * ~np.isin(R.injury.fillna("").values, NOT_BACK_SKIP)    # a game-week tag (Out) is this season's injury, priced by inj_out
         T_["not_back"] = NOT_BACK * nb * np.isin(pos, ["RB", "WR", "TE", "QB"])
     if SUSP_EASE:   # (#18 Ridley 2023) games lost to last season's suspension are no injury record
         sl = np.clip(np.nan_to_num(col(R, "e_x_susp_last")) / 0.5, 0, 1) * (np.nan_to_num(col(R, "e_x_gp_cur")) < 4)
@@ -935,6 +942,14 @@ def apply_rules(R, p, X=None, explain=False):
     # round 6 (far-off trades): the docks mostly measure one weakness from several angles (a so-so player is slow, often
     # hurt, below the replacement line, with duds): stacked past DOCK_CAP (log; the seasonal summer shift aside) they
     # double-count it, so the negative terms are scaled back together to the cap (None = off)
+    # round 6 (depth charts, weekly to 2024, daily from Aug 2025): what the team says the role is today
+    dcr_ = col(R, "e_x_dc_rank"); dcp_ = col(R, "e_x_dc_prev"); hl_ = R.injury.fillna("").values == ""
+    T_["qb_bench"] = QB_BENCH * (pos == "QB") * (dcr_ >= 2) * (dcp_ == 1) * hl_
+    T_["dc2_rb"] = DC2_RB * (pos == "RB") * (dcr_ == 2) * np.interp(raw, DC2_BAND, [0, 1, 1, 0])
+    T_["dc1_up"] = DC1_UP * np.isin(pos, DC1_POS) * (dcr_ == 1) * hl_ * np.interp(raw, DC1_BAND, [0, 1, 1, 0])
+    if SUMMER_LOW and "summer" in T_:
+        pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
+        T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))
     if DOCK_CAP > -90:
         ks = [k for k in T_ if k not in DOCK_KEEP]
         neg = sum(np.minimum(T_[k], 0) for k in ks)
@@ -997,6 +1012,9 @@ def apply_rules(R, p, X=None, explain=False):
     ppv = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.where(np.nan_to_num(col(R, "e_x_l0_games")) >= 8, np.nan_to_num(col(R, "e_x_ppg_l0")), 0))
     pr_ = np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (ppv >= PROVEN_PPG) * (np.nan_to_num(col(R, "age"), nan=99) < PROVEN_AGE)
     if PROVEN_FLOOR: out = np.where(pr_ > 0, np.maximum(out, PROVEN_FLOOR * np.clip((ppv - PROVEN_PPG) / 2.0 + 0.5, 0.5, 1.0)), out)
+    if LOW_ADD:
+        lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
+        out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
     if explain:
         return out, dict(T_, **TF), dict(base=raw, curve=v0, vet=v1, rules=v, anchor=v2, top=v3, final=out)
     return out
