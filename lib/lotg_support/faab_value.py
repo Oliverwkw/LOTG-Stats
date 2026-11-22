@@ -497,6 +497,14 @@ SPIKE_DROP, YPC_ROLE = 1.0, 1.0
 YPC_REC = 0.0
 UPSIDE_ROLE = 1.0
 SPIKE_ROOKIE_G = 0.001
+LEAD_SPARE, RB_YOUNG_COMP = 0.0, -1.0
+LEAD_SHARE, LEAD_G = 0.2, 99
+ROLE_G = 1
+RB_JOB_FLOOR = 40.0
+OUT_ROOKIE = 1.0
+RUN_UP = 0.0
+RUN_UP_BAND = (-2.0, -1.0, 250.0, 400.0)   # rb_run_team: a young RB (under 27) at a base under $250
+RB_YOUNG_G = 1   # rb_young_comp before this many games this season (the offseason read; in-season his own games say)
 SPIKE_ROOKIE_COMP = 0.6   # ... when young teammates (under 28) hold 60%+ of the position's share (Kittle, Deebo)
 UPSIDE_BAND = (200.0, 300.0, 1e9, 2e9)   # ... at a base of $300+ (a priced-in prospect; a cheap backup's upside is the bet)
 ROLE_BAND = (-2.0, -1.0, 100.0, 150.0)   # rb_role base band
@@ -702,7 +710,7 @@ def apply_rules(R, p, X=None, explain=False):
     # round 6 (Oliver 2026-11-22, far-off #1/#4/#13/#14/#45: an RB who lost or won the job): rb_role = this season's snap
     # share (3+ games) minus last season's, 25 points = full, either way (a job lost lowers him, a job won raises him)
     sc_, s0_ = col(R, "e_x_cur_off_pct"), col(R, "e_x_l0_off_pct")
-    T_["rb_role"] = p.get("rb_role", 0.0) * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * ~np.isnan(sc_) * ~np.isnan(s0_) \
+    T_["rb_role"] = p.get("rb_role", 0.0) * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= ROLE_G) * ~np.isnan(sc_) * ~np.isnan(s0_) \
         * np.clip((np.nan_to_num(sc_) - np.nan_to_num(s0_)) / 0.25, ROLE_LO, 1) * np.interp(raw, ROLE_BAND, [0, 1, 1, 0])
     # round 6 (Oliver 2026-11-22, Chase Brown: "streaks of single-digit games and his pass-first offense"): boom_rate_lo =
     # an RB/WR/TE (8+ games in the window) with few 20+ PPR games over the last two seasons and this one (e_x_g20_2y / e_x_ng_2y;
@@ -712,6 +720,9 @@ def apply_rules(R, p, X=None, explain=False):
     ng_ = np.nan_to_num(col(R, "e_x_ng_2y")); br_ = np.nan_to_num(col(R, "e_x_g20_2y")) / np.maximum(ng_, 1)
     T_["boom_rate_lo"] = p.get("boom_rate_lo", 0.0) * np.isin(pos, BOOM_POS) * (ng_ >= 8) * np.clip((BOOM_RATE[0] - br_) / (BOOM_RATE[0] - BOOM_RATE[1]), 0, 1) * np.interp(raw, BOOM_V, [0, 1, 1, 0])
     tr_ = col(R, "e_x_team_run")
+    # (far-off #7, Dobbins 2023 "run-first offense, no competition"): an RB on a run-first offense (e_x_team_run 25%
+    # none, 30% full) whose other RBs are older (28+): the carries are his (RUN_UP, raise only)
+    T_["rb_run_team"] = RUN_UP * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * np.interp(raw, RUN_UP_BAND, [0, 1, 1, 0]) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
     T_["rb_pass_team"] = p.get("rb_pass_team", 0.0) * (pos == "RB") * ~np.isnan(tr_) * ((br_ < RUN_BOOM) | (ng_ < 8)) * np.interp(raw, RUN_BAND, [0, 1, 1, 0]) * np.clip((RUN_LO[1] - np.nan_to_num(tr_, nan=1)) / (RUN_LO[1] - RUN_LO[0]), 0, 1)
     # round 6 (Oliver 2026-11-22: "contract length might be a good one"; Kirk "aging on an expiring contract", Singletary
     # "expiring contract -> his boom raised FA speculation"): e_x_contract_left = seasons left on his latest NFL deal after
@@ -743,6 +754,9 @@ def apply_rules(R, p, X=None, explain=False):
     # season (3+ games, 25+ points over last season = full by YPC_ROLE)
     gain6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((np.nan_to_num(col(R, "e_x_cur_off_pct")) - np.nan_to_num(col(R, "e_x_l0_off_pct"), nan=1)) / 0.25, 0, 1)
     T_["ypc_bad"] = T_["ypc_bad"] * (1 - YPC_ROLE * gain6)
+    # (far-off #6, Mims 2020): an Out tag on a rookie who has not played an NFL game yet (a camp injury) costs him
+    # less: his value is his draft slot, not this week (OUT_ROOKIE spared)
+    T_["inj_out"] = T_["inj_out"] * (1 - OUT_ROOKIE * (np.nan_to_num(col(R, "exp")) == 0) * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0))
     # (far-off #5, Brooks Dec 2024): young upside needs a role once the season is well along: a player with 2+ games
     # played whose team has played 10+ and who is on under 30% of the snaps (15% = none left) keeps UPSIDE_ROLE less of it
     nr6 = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 2) * (np.nan_to_num(col(R, "e_x_team_games_cur")) >= 10) * np.clip((0.3 - np.nan_to_num(col(R, "e_x_cur_off_pct"), nan=1)) / 0.15, 0, 1)
@@ -770,6 +784,14 @@ def apply_rules(R, p, X=None, explain=False):
         n_ = col(R, "line_n"); vetr = (np.nan_to_num(col(R, "exp")) >= 3) * np.where(X["wr_no_role"] > 0, 1.0, np.clip((np.nan_to_num(col(R, "age"), nan=28) - 25.0) / 3.0, 0, 1))   # 4th season on, fading in from 25 to 28 (a WR who never had a starter's role: full)
         T_["replacement line"] = -p.get("bubble", 0.0) * np.nan_to_num(vetr * np.clip((col(R, "rank_raw") - p.get("line_frac", 0.8) * n_) / (0.25 * n_), 0, 1.5))
     if "replacement line" in T_: T_["replacement line"] = T_["replacement line"] * (1 - X["qb_paid"])
+    # round 6 (far-off #2, Ridley 2025 "clear #1 target"): his team's target leader last season (e_x_tgt_lead_w = 1, a
+    # 20%+ share) is no waiver body: the replacement line spares him by LEAD_SPARE
+    lead6 = (pos == "WR") * (np.nan_to_num(col(R, "e_x_tgt_lead_w")) >= 1) * (np.nan_to_num(col(R, "e_x_l0_tgt_share")) >= LEAD_SHARE) * (np.nan_to_num(col(R, "e_x_gp_cur")) < LEAD_G)
+    if "replacement line" in T_: T_["replacement line"] = T_["replacement line"] * (1 - LEAD_SPARE * lead6)
+    # (far-off #2, White 2025 "lost his job to Bucky"): an RB 25+ whose team's other RBs include a young one (their
+    # average age under 24) holding 45-60% of the RB share: the job is going to him (RB_YOUNG_COMP, lower only)
+    T_["rb_young_comp"] = RB_YOUNG_COMP * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=0) >= 25) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=99) < 24) \
+        * np.interp(np.nan_to_num(col(R, "e_x_comp_share")), (0.3, 0.45, 0.6, 0.72), (0, 1, 1, 0)) * (np.nan_to_num(col(R, "e_x_gp_cur")) < RB_YOUNG_G)   # a share past 72%: he is the star's handcuff (a cuff premium), not losing a committee
     # a fresh start (followed his coach to a new team): the role-based docks (TE line, replacement line) are lifted
     # and the move is priced by its own strength (fresh_start, held on Oliver's call). Only for a player who would
     # otherwise be worth under $200 (Oliver): a valued player's price already carries his role
@@ -815,6 +837,11 @@ def apply_rules(R, p, X=None, explain=False):
     qpp_ = np.where(qg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
     qs_ = (R.pos.values == "QB") * (np.nan_to_num(col(R, "e_x_contract_left"), nan=-1) >= 1) * (snp_ >= QB_START_SNAP) * (qpp_ >= QB_START_PPG)
     out = np.where(qs_ > 0, np.maximum(out, QB_START_FLOOR), out) if QB_START_FLOOR else out + QB_START_ADD * qs_   # floor variant: at least a 3rd
+    # round 6 (far-off #6, Malcolm Brown 2020 "won the RB job: worth 75+"): an RB who has just taken the job (this season
+    # 55%+ of the snaps, 25+ points over last season's) is worth at least RB_JOB_FLOOR, a multiplier cannot lift a $2 body
+    sj_ = np.nan_to_num(col(R, "e_x_cur_off_pct")); s0j = np.nan_to_num(col(R, "e_x_l0_off_pct"))
+    job_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * (sj_ >= 0.55) * (sj_ - s0j >= 0.25)
+    out = np.where(job_ > 0, np.maximum(out, RB_JOB_FLOOR), out)
     if explain:
         return out, dict(T_, **TF), dict(base=raw, curve=v0, vet=v1, rules=v, anchor=v2, top=v3, final=out)
     return out
