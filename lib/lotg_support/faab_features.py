@@ -1588,3 +1588,9 @@ def rookie_qb_pick(rows, roster, cache=None):
         y = int(s[i]); nd = pd.Timestamp(NFL_DRAFT.get(y, f"{y}-04-25"))
         out[i] = best.get((TEAM_FIX.get(t[i], t[i]), y), 0) if d.iloc[i] >= nd else 0.0
     return out
+
+
+def on_team(rows, roster, team="NYG"):
+    """per row: 1 if his NFL team on the date (team_on) is `team`, 0 if another, NaN without one. rows: gsis, date"""
+    t = team_on(rows.gsis.astype(str).values, rows.date.values, roster)
+    return np.array([np.nan if (x is None or pd.isna(x)) else float(TEAM_FIX.get(x, x) == team) for x in t])

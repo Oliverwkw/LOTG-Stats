@@ -529,6 +529,13 @@ XFP_JUMP, XFP_JUMP_LO, XFP_JUMP_HI, XFP_JUMP_BAND = 3.0, 0.08, 0.18, (-2.0, -1.0
 # under CUFF_BAND's top. Does not stack on xfp_jump / rb_role (the larger counts).
 RQB_OFF = True
 RQB_WR, RQB_PICK, RQB_SH, RQB_BAND = 2.0, 12, 0.2, (-2.0, -1.0, 300.0, 600.0)   # (trial) top target of a top-12 rookie QB
+# (#57 Herbert, #19 "cuff premium"): a young RB behind one lead back (that back holds CUFF_PREM_COMP+ of the other RBs'
+# share) with a role of his own this season (CUFF_PREM_SH+ of the team's expected points): one injury from the job
+CUFF_PREM, CUFF_PREM_COMP, CUFF_PREM_SH, CUFF_PREM_AGE, CUFF_PREM_BAND = 1.0, 0.65, 0.10, 26.0, (-2.0, -1.0, 80.0, 160.0)
+# Oliver (round 6, #28 / #35, "a real phenomenon", kept although it costs trades overall): the league pays a small
+# premium for Giants players: an NYG player (his NFL team on the date, e_x_nyg) is raised by NYG_UP (log) in NYG_BAND
+NYG_UP, NYG_BAND = 0.2231, (-2.0, -1.0, 300.0, 600.0)
+SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
@@ -724,6 +731,11 @@ def apply_rules(R, p, X=None, explain=False):
     if RQB_WR:
         rq = col(R, "e_x_rookie_qb_pick")
         T_["rqb_wr"] = RQB_WR * np.isin(pos, ["WR", "TE"]) * (np.nan_to_num(rq) > 0) * (np.nan_to_num(rq) <= RQB_PICK) * (np.nan_to_num(col(R, "e_x_l0_tgt_share")) >= RQB_SH) * (np.nan_to_num(col(R, "e_x_moved_off")) == 0) * (np.nan_to_num(col(R, "e_x_offseason")) > 0 if RQB_OFF else 1) * np.interp(raw, RQB_BAND, [0, 1, 1, 0])
+    if NYG_UP:
+        T_["nyg"] = NYG_UP * np.nan_to_num(col(R, "e_x_nyg")) * np.interp(raw, NYG_BAND, [0, 1, 1, 0])
+    if CUFF_PREM:
+        T_["cuff_prem"] = CUFF_PREM * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < CUFF_PREM_AGE) * (np.nan_to_num(col(R, "e_x_comp_share")) >= CUFF_PREM_COMP) \
+            * (np.nan_to_num(col(R, "e_x_cur_xfp_share")) >= CUFF_PREM_SH) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * np.interp(raw, CUFF_PREM_BAND, [0, 1, 1, 0])
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
@@ -828,6 +840,9 @@ def apply_rules(R, p, X=None, explain=False):
     T_["spike"] = np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < SPIKE_ROOKIE_CAP_G), np.minimum(T_["spike"], np.log(SPIKE_ROOKIE_CAP)), T_["spike"])
     # (vac_up does not stack on a breakout: the larger counts, VAC_STACK = 0; 1 = both count)
     if "vac_up" in T_ and VAC_STACK < 1: T_["vac_up"] = np.maximum(T_["vac_up"] - (1 - VAC_STACK) * np.maximum(T_["spike"], 0), 0)
+    if SPIKE_DAY3:   # (#24 / #44 Renfrow "way down") a day-3 / undrafted WR's breakout season, priced in the offseason
+        d3 = (pos == "WR") * (np.nan_to_num(col(R, "e_x_draft_pick"), nan=300) > SPIKE_DAY3_PICK) * (np.nan_to_num(col(R, "exp")) >= 2) * (np.nan_to_num(col(R, "e_x_gp_cur")) < 3)
+        T_["spike"] = np.where(T_["spike"] > 0, T_["spike"] * (1 - SPIKE_DAY3 * d3), T_["spike"])
     T_["spike"] = T_["spike"] * (1 - SPIKE_DROP * fall6 * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= SPIKE_DROP_EXP) * np.interp(raw, SPIKE_DROP_BAND, [0, 1, 1, 0]))
     # (far-off #1, Mattison 2023 took the job): an RB's bad yards per carry counts less once he has the snaps this
     # season (3+ games, 25+ points over last season = full by YPC_ROLE)
