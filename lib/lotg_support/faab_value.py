@@ -500,7 +500,9 @@ SPIKE_ROOKIE_G = 0.001
 LEAD_SPARE, RB_YOUNG_COMP = 0.0, -1.0
 LEAD_SHARE, LEAD_G = 0.2, 99
 ROLE_G = 1
+W_FAROFF, FAR_AT = 0.0, 1.8     # the fit's far-off term (0 = off): trades past 1.8x (80% off) are penalised
 RB_JOB_FLOOR = 40.0
+PROVEN_FLOOR, PROVEN_PPG, PROVEN_AGE = 0.0, 10.0, 34.0
 OUT_ROOKIE = 1.0
 # far-off #3 (Fuller 2020, "consistent week-to-week production"): a missed-games dock fades (AVAIL_NOW = how much) for a
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
@@ -537,6 +539,8 @@ CUFF_PREM, CUFF_PREM_COMP, CUFF_PREM_SH, CUFF_PREM_AGE, CUFF_PREM_BAND = 1.0, 0.
 NYG_UP, NYG_BAND = 0.2231, (-2.0, -1.0, 300.0, 600.0)
 AVAIL_UP_XFP, AVAIL_UP_POS, AVAIL_UP_V = (10.0, 13.0), ("WR", "TE"), 100.0
 VAC_SPARE = 0.0
+SUSP_EASE = 1.0
+DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
@@ -747,6 +751,9 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
+    if SUSP_EASE:   # (#18 Ridley 2023) games lost to last season's suspension are no injury record
+        sl = np.clip(np.nan_to_num(col(R, "e_x_susp_last")) / 0.5, 0, 1) * (np.nan_to_num(col(R, "e_x_gp_cur")) < 4)
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - SUSP_EASE * sl), T_["availability"])
     if RUN_AVAIL:
         ra = (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
         T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RUN_AVAIL * ra), T_["availability"])
@@ -912,6 +919,14 @@ def apply_rules(R, p, X=None, explain=False):
     for k_ in ("te_line", "replacement line"):
         if k_ in T_: T_[k_] = T_[k_] * (1 - fr)
     T_["fresh_start"] = p.get("fresh_start", 0.0) * fr
+    # round 6 (far-off trades): the docks mostly measure one weakness from several angles (a so-so player is slow, often
+    # hurt, below the replacement line, with duds): stacked past DOCK_CAP (log; the seasonal summer shift aside) they
+    # double-count it, so the negative terms are scaled back together to the cap (None = off)
+    if DOCK_CAP > -90:
+        ks = [k for k in T_ if k not in DOCK_KEEP]
+        neg = sum(np.minimum(T_[k], 0) for k in ks)
+        sc = np.where(neg < DOCK_CAP, DOCK_CAP / np.minimum(neg, -1e-9), 1.0) * np.isin(pos, DOCK_POS) + (1 - np.isin(pos, DOCK_POS))
+        for k in ks: T_[k] = np.where(T_[k] < 0, T_[k] * sc, T_[k])
     v = v * np.exp(sum(T_.values()))
     # usage anchor: pull part of the way toward the value the current role implies (history-built values drift to what a player does now)
     w = p.get("anchor_w", 0.0) + p.get("anchor_old", 0.0) * X["near_wall"]       # older players: priced on what they do now
@@ -962,6 +977,13 @@ def apply_rules(R, p, X=None, explain=False):
     sj_ = np.nan_to_num(col(R, "e_x_cur_off_pct")); s0j = np.nan_to_num(col(R, "e_x_l0_off_pct"))
     job_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * (sj_ >= 0.55) * (sj_ - s0j >= 0.25)
     out = np.where(job_ > 0, np.maximum(out, RB_JOB_FLOOR), out)
+    # round 6 (Oliver: far-off trades must go under 100%): a proven producer is never a free body in a trade. The
+    # league never trades a player who scored PROVEN_PPG+ PPR/g over a real sample (this season from 4 games, else
+    # last season from 8) for nothing: he is worth at least PROVEN_FLOOR (a late pick), under age PROVEN_AGE
+    pg_ = np.nan_to_num(col(R, "e_x_gp_cur")) >= 4
+    ppv = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.where(np.nan_to_num(col(R, "e_x_l0_games")) >= 8, np.nan_to_num(col(R, "e_x_ppg_l0")), 0))
+    pr_ = np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (ppv >= PROVEN_PPG) * (np.nan_to_num(col(R, "age"), nan=99) < PROVEN_AGE)
+    if PROVEN_FLOOR: out = np.where(pr_ > 0, np.maximum(out, PROVEN_FLOOR * np.clip((ppv - PROVEN_PPG) / 2.0 + 0.5, 0.5, 1.0)), out)
     if explain:
         return out, dict(T_, **TF), dict(base=raw, curve=v0, vet=v1, rules=v, anchor=v2, top=v3, final=out)
     return out
@@ -1078,6 +1100,23 @@ def trade_err(V, trades):
     return float(np.median(np.abs(r)) + np.mean(np.abs(r))), r
 
 
+def far_ok_mask(ev, path=None):
+    """per fitted trade: True if Oliver has judged it fine although far off (data/faab_value/far_off_ok.csv: date + the
+    Sleeper ids of every player in it); the far-off term leaves those out"""
+    path = Path(path or DATA / "far_off_ok.csv")
+    if not path.exists(): return np.zeros(len(ev.trades), bool)
+    ok = {(r.date, r.sids) for r in pd.read_csv(path, dtype=str).itertuples()}
+    sid = ev.E.sid.astype(str).values
+    return np.array([(str(d)[:10], ";".join(sorted(sid[j] for s_ in sides for j in s_[1]))) in ok for d, sides in ev.trades])
+
+
+def far_err(V, trades, at=FAR_AT):
+    """far-off trades (Oliver, round 6: every trade he has not OK'd under 100% off): the mean, over trades, of how far
+    past `at` (a ratio of the sides, +25 each) a trade's |log ratio| goes; 0 for a trade within it"""
+    r = np.array([np.log((a[0] + V[a[1]].sum() + 25) / (b[0] + V[b[1]].sum() + 25)) for _, (a, b) in trades])
+    return float(np.mean(np.maximum(np.abs(r) - np.log(at), 0)))
+
+
 def cut_err(V, cuts):
     """cuts valued over $100 the day before, in log units above $100 (capped at 2)"""
     return float(np.mean(np.minimum(np.maximum(0, np.log(V[cuts] / 100)), 2)))
@@ -1148,6 +1187,8 @@ def objective(ev, ref, votes=None, band=True):
     first = ev.Ts[ev.call_boards[LC.CALL_DATES[0]]]
     qbs = set(first.name[first.pos == "QB"]); exp_ = pd.Series(first.exp.values, index=first.name.values) if band else None
     cache = {}
+    ok_ = far_ok_mask(ev)
+    far_trades = [t for t, o in zip(ev.trades, ok_) if not o]
 
     def obj(p, detail=False):
         ya = p.get("youth_age", 26.0)
@@ -1163,8 +1204,9 @@ def objective(ev, ref, votes=None, band=True):
         te, ce = trade_err(ve, ev.trades)[0], cut_err(ve, ev.cuts)
         vo = votes.loss(ev.vote_values(V[ev.pVR])) if votes is not None and len(votes.C) else 0.0
         reg = 0.02 * sum(abs(p[k]) for k in REG_KEYS)
-        tot = c + W_TRADES * te + W_CUTS * ce + vo + reg
-        return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, tests=t) if detail else tot
+        fo = far_err(ve, far_trades) if W_FAROFF else 0.0
+        tot = c + W_TRADES * te + W_CUTS * ce + vo + reg + W_FAROFF * fo
+        return dict(total=tot, calls=c, trades=te, cuts=ce, votes=vo, reg=reg, faroff=fo, tests=t) if detail else tot
     obj.cache = cache            # module constants read by characteristics() (try-rule's F.X=v) need it cleared
     return obj
 

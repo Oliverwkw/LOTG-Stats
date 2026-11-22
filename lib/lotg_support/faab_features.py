@@ -1594,3 +1594,15 @@ def on_team(rows, roster, team="NYG"):
     """per row: 1 if his NFL team on the date (team_on) is `team`, 0 if another, NaN without one. rows: gsis, date"""
     t = team_on(rows.gsis.astype(str).values, rows.date.values, roster)
     return np.array([np.nan if (x is None or pd.isna(x)) else float(TEAM_FIX.get(x, x) == team) for x in t])
+
+
+def suspended_last(rows, susp):
+    """per row: the share of last season's 17-18 weeks he was suspended (data/suspensions.csv; the season starts
+    March 1), 0 if none. A suspension is not an injury: the availability dock reads those games as missed.
+    rows: gsis, date. susp: player_name, gsis_id, season, week_start, week_end."""
+    d = pd.to_datetime(rows.date); s = np.where(d.dt.month >= 3, d.dt.year, d.dt.year - 1)
+    w = {}
+    for r in susp.dropna(subset=["gsis_id"]).itertuples():
+        k = (str(r.gsis_id), int(r.season)); w[k] = w.get(k, 0) + int(r.week_end) - int(r.week_start) + 1
+    g = rows.gsis.astype(str).values
+    return np.array([min(w.get((g[i], int(s[i]) - 1), 0) / 17.0, 1.0) for i in range(len(rows))])
