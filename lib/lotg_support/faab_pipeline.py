@@ -309,7 +309,7 @@ def backup_columns(E, gsis, pa, workers=None):
                 dc1=lambda: X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=gone()),
                 undrafted=lambda: X.league_undrafted(rows, adds),
                 draft_done=lambda: X.league_draft_done(rows, adds),
-                contracts=contracts, ceiling=lambda: X.game_ceiling(rows), qb_change=lambda: X.qb_change_form(rows))
+                contracts=contracts, ceiling=lambda: X.game_ceiling(rows), qb_change=lambda: X.qb_change_form(rows), vacated=lambda: X.vacated_role(rows))
     if X.GL is not None:
         jobs.update(te_one_off=lambda: X.te_one_off(rows, X.GL, X.RW), ypc=lambda: X.ypc_with_current(rows, X.GL),
                     overtaken=lambda: X.overtaken_by_rookie(rows, X.GL, X.RW, dp), te_top3=lambda: X.te_top3(rows, X.GL, pos=pos_of),
@@ -326,6 +326,7 @@ def backup_columns(E, gsis, pa, workers=None):
         rk, cp = J["rb_room"]
         E = E.assign(e_x_rb_prev_rank=rk, e_x_rb_comp=cp)
     E = E.assign(**{f"e_x_{k}": v for k, v in J["ceiling"].items()})
+    E = E.assign(e_x_vacated=J["vacated"])
     E = E.assign(e_x_ppg_alt_qb=J["qb_change"][0], e_x_n_alt_qb=J["qb_change"][1], e_x_ppg_main_qb=J["qb_change"][2])
     if isinstance(J["contracts"], Exception):
         print(f"contracts unavailable ({type(J['contracts']).__name__}): e_x_vet_deal_cap left empty")

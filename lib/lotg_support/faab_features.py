@@ -1456,3 +1456,56 @@ def build_store(last=None, log=print):
         A.sort_values(["season", "award", "gsis"]).to_csv(DATA / "awards.csv", index=False)
     build_finish(str(D.FRAME_CACHE), str(XF_DIR), last - 1)
     log(f"feature store: {XF_DIR} ({len(A)} award rows)")
+
+
+TEAM_FIX = {"LAR": "LA", "OAK": "LV", "SD": "LAC", "STL": "LA"}
+
+
+def vacated_role(rows, cache=None):
+    """per row, in the offseason (March 15 to the upcoming season's kickoff): the share of his upcoming team's expected
+    fantasy points (ffopportunity, last season) held by players at his position who were on that team at the end of
+    last season and are not on it in week 1 (left, cut, retired), minus the share other newcomers at his position
+    brought from their old teams. His upcoming team = his week-1 roster team (the same small hindsight as moved_off).
+    rows: gsis, date, pos. Returns an array; NaN outside the window or without data."""
+    import glob
+    cache = Path(cache or D.CACHE); N = len(rows); out = np.full(N, np.nan)
+    fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); rs = sorted(glob.glob(str(cache / "roster_weekly_*.parquet")))
+    if not fs or not rs: return out
+    G = pd.concat([pd.read_parquet(f, columns=["season", "game_id", "player_id", "posteam", "total_fantasy_points_exp", "total_fantasy_points_exp_team"]) for f in fs])
+    G["season"] = G.season.astype(int); G["posteam"] = G.posteam.replace(TEAM_FIX)
+    ts = G.drop_duplicates(["game_id", "posteam"]).groupby(["posteam", "season"]).total_fantasy_points_exp_team.sum()
+    ps = G.groupby(["player_id", "posteam", "season"]).total_fantasy_points_exp.sum().reset_index()
+    ps["share"] = ps.total_fantasy_points_exp.values / ts.reindex(pd.MultiIndex.from_arrays([ps.posteam, ps.season])).values
+    sh = ps.set_index(["player_id", "posteam", "season"]).share
+    W = pd.concat([pd.read_parquet(f, columns=["season", "week", "team", "position", "gsis_id", "game_type", "draft_number", "rookie_year"]) for f in rs])
+    W = W[(W.game_type == "REG") & W.gsis_id.notna()].sort_values(["season", "week"], kind="mergesort")
+    W["season"] = W.season.astype(int); W["team"] = W.team.replace(TEAM_FIX)
+    g = W.groupby(["gsis_id", "season"]); FT = g.team.first(); LT = g.team.last(); PO = g.position.last()
+    wk1 = W[W.week == W.groupby("season").week.transform("min")]
+    first = {(t, s): set(v) for (t, s), v in wk1.groupby(["team", "season"]).gsis_id}
+    LTd = LT.reset_index(); LTd["pos"] = PO.values
+    ends = {k: v for k, v in LTd.groupby(["team", "season", "pos"])}
+    FTd = FT.reset_index(); FTd["pos"] = PO.values
+    # a drafted rookie arriving takes a share by draft slot (round 1 0.15, round 2 0.08, picks 65-100 0.04)
+    dn = pd.to_numeric(g.draft_number.last(), errors="coerce").values; ry = pd.to_numeric(g.rookie_year.last(), errors="coerce").values
+    FTd["rk_share"] = np.where(ry == FTd.season.values, np.select([dn <= 32, dn <= 64, dn <= 100], [0.15, 0.08, 0.04], 0.0), 0.0)
+    starts = {k: v for k, v in FTd.groupby(["team", "season", "pos"])}
+    d = pd.to_datetime(rows.date); up = np.where(d.dt.month.values >= 3, d.dt.year.values, d.dt.year.values - 1)
+    gs = rows.gsis.astype(str).values; pv = rows.pos.astype(str).values; dv = d.values.astype("datetime64[ns]")
+    for i in range(N):
+        y = int(up[i]); ko = np.datetime64(KO.get(y, pd.Timestamp(f"{y}-09-08")))
+        if not (np.datetime64(f"{y}-03-15") <= dv[i] < ko): continue
+        tm = FT.get((gs[i], y))
+        if tm is None or pd.isna(tm): continue
+        stay = first.get((tm, y), set()); e = ends.get((tm, y - 1, pv[i])); s_ = starts.get((tm, y, pv[i]))
+        if e is None: continue
+        left = e[(e.gsis_id != gs[i]) & ~e.gsis_id.isin(stay)]
+        v = np.nansum(sh.reindex(pd.MultiIndex.from_arrays([left.gsis_id, [tm] * len(left), [y - 1] * len(left)])).values)
+        if s_ is not None:
+            new = s_[(s_.gsis_id != gs[i])]
+            new = new[LT.reindex(pd.MultiIndex.from_arrays([new.gsis_id, [y - 1] * len(new)])).values != tm]
+            if len(new):
+                ot = LT.reindex(pd.MultiIndex.from_arrays([new.gsis_id, [y - 1] * len(new)])).values
+                v -= np.nansum(sh.reindex(pd.MultiIndex.from_arrays([new.gsis_id.values, ot, [y - 1] * len(new)])).values) + new.rk_share.sum()
+        out[i] = round(float(v), 5)
+    return out

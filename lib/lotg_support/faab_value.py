@@ -520,6 +520,16 @@ EXIT, EXIT_R = -1.5, 0.25
 # far-off #7 / #24 (Dobbins: "run-first offense, no competition"): a young RB's missed-games dock fades (RUN_AVAIL = how
 # much) when the carries are his once healthy: a run-first team (team_run 0.25 none -> 0.30 full) whose other RBs are older (28+)
 RUN_AVAIL = 1.0
+# far-off #9 (Mike Davis 2020-10-01, "huge carries, cuff"): a cheap RB whose share of his team's expected points this
+# season (3+ games) is well above last season's (+XFP_JUMP_LO none, +XFP_JUMP_HI full) has the job now: raised (XFP_JUMP)
+XFP_JUMP, XFP_JUMP_LO, XFP_JUMP_HI, XFP_JUMP_BAND = 3.0, 0.08, 0.18, (-2.0, -1.0, 60.0, 120.0)
+# far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
+# offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
+# other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
+VAC_UP, VAC_LO, VAC_HI, VAC_BAND = 1.0, 0.05, 0.2, (-2.0, -1.0, 300.0, 500.0)
+VAC_STACK = 1.0
+VAC_OWN = 0.06    # ... for a player who had a role last season (his share of his team's expected points) or missed it (under 8 games)
+TD_SPIKE, TD_SPIKE_SNAP, TD_SPIKE_V = -1.2, 0.55, (1000.0, 1500.0)
 RUN_UP = 0.0
 RUN_UP_BAND = (-2.0, -1.0, 250.0, 400.0)   # rb_run_team: a young RB (under 27) at a base under $250
 RB_YOUNG_G = 1   # rb_young_comp before this many games this season (the offseason read; in-season his own games say)
@@ -681,6 +691,11 @@ def apply_rules(R, p, X=None, explain=False):
         T_["availability"] = np.maximum(T_["availability"], (1 - yw) * T_["availability"] + yw * np.log(yf))
     if PROD_LO:
         T_["prod_lo"] = PROD_LO * ((np.nan_to_num(col(R, "e_x_ppg_l0")) >= PROD_L0) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= PROD_CUR) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= PROD_G) & np.isin(pos, PROD_POS)) * np.interp(raw, PROD_BAND, [0, 1, 1, 0])
+    if VAC_UP:
+        T_["vac_up"] = VAC_UP * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= 1) * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) >= VAC_OWN) | (np.nan_to_num(col(R, "e_x_l0_games")) < 8)) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - VAC_LO) / (VAC_HI - VAC_LO), 0, 1) * np.interp(raw, VAC_BAND, [0, 1, 1, 0])
+    if XFP_JUMP:
+        xj = np.nan_to_num(col(R, "e_x_cur_xfp_share")) - np.nan_to_num(col(R, "e_x_l0_xfp_share"), nan=1)
+        T_["xfp_jump"] = XFP_JUMP * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((xj - XFP_JUMP_LO) / (XFP_JUMP_HI - XFP_JUMP_LO), 0, 1) * np.interp(raw, XFP_JUMP_BAND, [0, 1, 1, 0])
     if RUN_AVAIL:
         ra = (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
         T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RUN_AVAIL * ra), T_["availability"])
@@ -739,6 +754,8 @@ def apply_rules(R, p, X=None, explain=False):
     sc_, s0_ = col(R, "e_x_cur_off_pct"), col(R, "e_x_l0_off_pct")
     T_["rb_role"] = p.get("rb_role", 0.0) * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= ROLE_G) * ~np.isnan(sc_) * ~np.isnan(s0_) \
         * np.clip((np.nan_to_num(sc_) - np.nan_to_num(s0_)) / 0.25, ROLE_LO, 1) * np.interp(raw, ROLE_BAND, [0, 1, 1, 0])
+    # (xfp_jump, the same job won read from expected points, does not stack on it: the larger of the two counts)
+    if "xfp_jump" in T_: T_["xfp_jump"] = np.maximum(T_["xfp_jump"] - np.maximum(T_["rb_role"], 0), 0)
     # round 6 (Oliver 2026-11-22, Chase Brown: "streaks of single-digit games and his pass-first offense"): boom_rate_lo =
     # an RB/WR/TE (8+ games in the window) with few 20+ PPR games over the last two seasons and this one (e_x_g20_2y / e_x_ng_2y;
     # BOOM_RATE[0] = none, [1] = full) at a value of BOOM_V+ (fading in), the league's starters win weeks with them;
@@ -777,6 +794,8 @@ def apply_rules(R, p, X=None, explain=False):
     # (far-off #3, Aiyuk 2020: a rookie's 3 good games behind young established targets): a rookie's breakout bonus fades in with his games (SPIKE_ROOKIE_G = full)
     T_["spike"] = T_["spike"] * np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_comp_share")) >= SPIKE_ROOKIE_COMP) & (np.nan_to_num(col(R, "e_x_comp_age"), nan=99) < 28), np.clip(np.nan_to_num(col(R, "e_x_gp_cur")) / SPIKE_ROOKIE_G, 0, 1), 1.0)
     T_["spike"] = np.where((np.nan_to_num(col(R, "exp")) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < SPIKE_ROOKIE_CAP_G), np.minimum(T_["spike"], np.log(SPIKE_ROOKIE_CAP)), T_["spike"])
+    # (vac_up does not stack on a breakout: the larger counts, VAC_STACK = 0; 1 = both count)
+    if "vac_up" in T_ and VAC_STACK < 1: T_["vac_up"] = np.maximum(T_["vac_up"] - (1 - VAC_STACK) * np.maximum(T_["spike"], 0), 0)
     T_["spike"] = T_["spike"] * (1 - SPIKE_DROP * fall6 * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= SPIKE_DROP_EXP) * np.interp(raw, SPIKE_DROP_BAND, [0, 1, 1, 0]))
     # (far-off #1, Mattison 2023 took the job): an RB's bad yards per carry counts less once he has the snaps this
     # season (3+ games, 25+ points over last season = full by YPC_ROLE)
@@ -857,6 +876,13 @@ def apply_rules(R, p, X=None, explain=False):
     dppg = np.nan_to_num(col(R, "e_x_ppg_cur")) - np.nan_to_num(col(R, "e_x_ppg_l0"), nan=99)
     TF["new_home"] = p.get("new_home", 0.0) * np.nan_to_num(col(R, "e_x_new_team")) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= NEW_HOME_G) \
         * np.clip((dppg - NEW_HOME_PPG) / 6.0, 0, 1) * np.interp(v3, NEW_HOME_V, [0, 1])
+    # far-off #10 (CEH 2022-10-08, "TD spike, no huge weeks"): an RB scoring well over his expected points (TDs) on a
+    # part-time role (under TD_SPIKE_SNAP of the snaps) early in a season (3-8 games) is lowered after the top compression
+    # (TD_SPIKE, a log term; full at +4 PPR/g over expected, none at +2), fading in over TD_SPIKE_V
+    oe_ = np.nan_to_num(col(R, "e_x_ppg_cur")) - np.nan_to_num(col(R, "e_x_cur_xfp_pg"), nan=99)
+    gpf = np.nan_to_num(col(R, "e_x_gp_cur"))
+    TF["td_spike"] = TD_SPIKE * (R.pos.values == "RB") * (gpf >= 3) * (gpf <= 8) * (np.nan_to_num(col(R, "e_x_cur_off_pct"), nan=1) < TD_SPIKE_SNAP) \
+        * np.clip((oe_ - 2.0) / 2.0, 0, 1) * np.interp(v3, TD_SPIKE_V, [0, 1])
     out = v3 * np.exp(sum(TF.values()))
     # round 6 (Oliver 2026-11-22, Penix: "inflate the base value by a 3rd for every QB under contract for next year, with
     # a full hold on the starting job when healthy, averaging 10+ a game as the starter"): a superflex starter with a
