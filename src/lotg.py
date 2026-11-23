@@ -2603,21 +2603,22 @@ def _pos_points_rollup(g: pd.DataFrame) -> Dict[str, Any]:
 
     Two versions: starters only ("Points from QBs") and the whole roster
     ("Points from QBs (roster)", bench = every non-starter). "Avg points from
-    QBs" (and its roster twin) is points per START (per rostered week): the
-    summed points over the summed weekly "Number of QB started" ("... rostered")
-    — NOT over the year sheet's own Number of QB started, which counts DISTINCT
-    players. N/A when the period had none."""
+    QBs" is points per START: the summed points over the summed weekly "Number
+    of QB started" — NOT over the year sheet's own Number of QB started, which
+    counts DISTINCT players. Its roster twin is points per PLAYED rostered
+    player-week (the internal weekly "_QB rostered (played)" count: every
+    starter, plus bench players not on a bye / injured / suspended). N/A when
+    the period had none."""
     def _sum(col: str) -> float:
         return float(pd.to_numeric(g.get(col), errors="coerce").fillna(0.0).sum())
 
     out: Dict[str, Any] = {}
-    for suf, total_col, n_word in (("", "_StarterPointsTotal", "started"),
-                                   (" (roster)", "_RosterPointsTotal", "rostered")):
+    for suf, total_col in (("", "_StarterPointsTotal"), (" (roster)", "_RosterPointsTotal")):
         total = _sum(total_col)
         for pts_col, pct_col in _POS_POINT_COLUMNS:
             pos = pts_col[len("Points from "):]                 # "QBs"
             v = _sum(pts_col + suf)
-            n = _sum(f"Number of {pos[:-1]} {n_word}")
+            n = _sum(f"Number of {pos[:-1]} started" if not suf else f"_{pos[:-1]} rostered (played)")
             out[pts_col + suf] = round(v, 2)
             out[pct_col + suf] = round(v / total, 4) if total else None
             out[f"Avg points from {pos}{suf}"] = round(v / n, 2) if n else None
@@ -15565,6 +15566,24 @@ def build_all(repo_root: Path) -> None:
         # Same played-only correction for the "under 10" family.
         tw["Players under 10 pts (roster)"] = tw["Number_of_players_under10"].round(0).astype(int)
         tw["Players under 10 pts (starters)"] = tw["Number_of_starters_under10"].round(0).astype(int)
+        # "Avg points from <pos> (roster)" divides by the rostered players who
+        # PLAYED [per user, 2026-11-23]: the donut rule's `_counts` (every
+        # starter; a bench player only if not on a bye / injured / suspended),
+        # by the same Sleeper fantasy position the loop's split uses. The
+        # loop's provisional value (÷ every rostered player) is overwritten;
+        # the per-week count stays as an internal column so team_year /
+        # team_all_time divide by the same played player-weeks.
+        _fpos = pw2["Player ID"].astype(str).map(lambda x: pid_pos.get(x) or "")
+        _played_cnt = pd.DataFrame({k: pw2[k] for k in ("Team", "Year", "Week")})
+        for _P in ("QB", "WR", "TE", "RB"):
+            _played_cnt[f"_{_P} rostered (played)"] = (_counts & _fpos.eq(_P)).astype(int)
+        _played_cnt = _played_cnt.groupby(["Team", "Year", "Week"], as_index=False).sum()
+        tw = tw.merge(_played_cnt, how="left", on=["Team", "Year", "Week"])
+        for _P in ("QB", "WR", "TE", "RB"):
+            _n = pd.to_numeric(tw[f"_{_P} rostered (played)"], errors="coerce").fillna(0)
+            tw[f"_{_P} rostered (played)"] = _n.astype(int)
+            _pts = pd.to_numeric(tw.get(f"Points from {_P}s (roster)"), errors="coerce")
+            tw[f"Avg points from {_P}s (roster)"] = (_pts / _n.where(_n > 0)).round(2)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",

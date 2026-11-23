@@ -106,25 +106,43 @@ def reconcile(frames) -> list:
         out.append(("team_week positional shares sum to 1",
                     bool(shares.empty or d.max() <= 0.001), f"max Δ {d.max():.4f}", False))
 
-        # The per-player averages and the whole-roster versions (team_week only).
-        # Avg = points ÷ players at the position (started / rostered), N/A
-        # exactly when there were none; the roster split adds the bench to the
-        # starter split (bench = every non-starter, taxi and IR included).
+        # The per-player averages and the whole-roster versions. The starter
+        # average = points ÷ Number started, N/A exactly when none started. The
+        # roster average divides by the rostered players who PLAYED (every
+        # starter + bench players not on a bye / injured / suspended — the
+        # Donuts (roster) rule); that count isn't exported, so it is rebuilt
+        # from player_week, whose Position can differ from the Sleeper fantasy
+        # position the build counts by (two-way players): ≥ 99% of rows must
+        # match, and every mismatch is reported. The roster split adds the
+        # bench to the starter split (bench = every non-starter).
         _pos = [("QBs", "QB"), ("WRs", "WR"), ("TEs", "TE"), ("RBs", "RB")]
         _roster = [f"Points from {p} (roster)" for p, _ in _pos]
         _new = ([f"Avg points from {p}" for p, _ in _pos] + _roster
                 + [f"% of points from {p} (roster)" for p, _ in _pos]
                 + [f"Avg points from {p} (roster)" for p, _ in _pos])
         if all(c in tw.columns for c in _new):
+            _flag = lambda c: pw[c].astype(str).str.lower().eq("true")
+            _pl = pw.assign(_played=((pw["Starter/Bench"] == "Starter")
+                                     | ~(_flag("Bye?") | _flag("Injury?") | _flag("Suspension?"))).astype(int))
+            _key = ["Team", "Year", "Week"]
+            _tw = tw.copy()
             for p, s in _pos:
-                for suf, n_col in (("", f"Number of {s} started"), (" (roster)", f"Number of {s} rostered")):
-                    pts, avg, n = (_num(tw[f"Points from {p}{suf}"]), _num(tw[f"Avg points from {p}{suf}"]),
-                                   _num(tw[n_col]).fillna(0))
-                    has = n > 0
-                    d = (avg[has] - pts[has] / n[has]).abs()
-                    ok = bool(d.max() <= 0.006) and bool(avg[~has].isna().all()) and bool(avg[has].notna().all())
-                    out.append((f"team_week Avg points from {p}{suf} = points ÷ {n_col}", ok,
-                                f"max Δ {d.max():.4f}, {int(avg[~has].notna().sum())} non-N/A with none", False))
+                pts, avg, n = (_num(tw[f"Points from {p}"]), _num(tw[f"Avg points from {p}"]),
+                               _num(tw[f"Number of {s} started"]).fillna(0))
+                has = n > 0
+                d = (avg[has] - pts[has] / n[has]).abs()
+                ok = bool(d.max() <= 0.006) and bool(avg[~has].isna().all()) and bool(avg[has].notna().all())
+                out.append((f"team_week Avg points from {p} = points ÷ Number of {s} started", ok,
+                            f"max Δ {d.max():.4f}, {int(avg[~has].notna().sum())} non-N/A with none", False))
+                c = (_pl[_pl.Position == s].groupby(_key)["_played"].sum().rename("_n").reset_index())
+                m = tw[_key + [f"Points from {p} (roster)", f"Avg points from {p} (roster)"]].merge(c, on=_key, how="left")
+                n = m["_n"].fillna(0)
+                exp = (_num(m[f"Points from {p} (roster)"]) / n.where(n > 0)).round(2)
+                got = _num(m[f"Avg points from {p} (roster)"])
+                bad = ~(((got - exp).abs() <= 0.006) | (got.isna() & exp.isna()))
+                out.append((f"team_week Avg points from {p} (roster) = roster points ÷ played (player_week rebuild)",
+                            bool(bad.mean() <= 0.01), f"{int(bad.sum())} of {len(m)} rows differ", False))
+                _tw[f"_n_{s}"] = n.values
             split_r = sum(_num(tw[c]).fillna(0) for c in _roster)
             d = (split_r - split - _num(tw["Bench points"]).fillna(0)).abs()
             out.append(("team_week Σ positional roster points = starter split + Bench points",
@@ -141,19 +159,25 @@ def reconcile(frames) -> list:
                     out.append((f"team_year {col} = Σ team_week", bool(d.max() <= 0.05),
                                 f"max Δ {d.max():.3f}", False))
                     cmp_group(ty, "Team", col, ta, "Team", 0.05, f"team_all {col} = Σ team_year")
-                # Year / all-time averages are per START (per rostered week):
-                # Σ weekly points ÷ Σ weekly counts — not the distinct-player count.
+                # Year / all-time averages: Σ weekly points ÷ Σ weekly starts
+                # (played rostered weeks) — not the distinct-player count.
                 for p, s in _pos:
-                    for suf, n_col in (("", f"Number of {s} started"), (" (roster)", f"Number of {s} rostered")):
-                        a = tw.assign(_p=_num(tw[f"Points from {p}{suf}"]).fillna(0), _n=_num(tw[n_col]).fillna(0))
+                    for suf, n_src, strict in (("", f"Number of {s} started", True), (" (roster)", f"_n_{s}", False)):
+                        a = _tw.assign(_p=_num(_tw[f"Points from {p}{suf}"]).fillna(0),
+                                       _n=pd.to_numeric(_tw[n_src].replace({"N/A": None}), errors="coerce").fillna(0))
                         for keys, big in ((["Team", "Year"], ty), (["Team"], ta)):
                             g = a.groupby(keys)[["_p", "_n"]].sum().reset_index()
                             m = big.merge(g, on=keys)
                             has = m["_n"] > 0
                             d = (_num(m[f"Avg points from {p}{suf}"])[has] - m["_p"][has] / m["_n"][has]).abs()
-                            out.append((f"{'team_year' if len(keys) == 2 else 'team_all'} Avg points from {p}{suf}"
-                                        f" = Σ points ÷ Σ weekly {n_col}", bool(d.max() <= 0.006),
-                                        f"max Δ {d.max():.4f}", False))
+                            name = (f"{'team_year' if len(keys) == 2 else 'team_all'} Avg points from {p}{suf}"
+                                    f" = Σ points ÷ Σ weekly {'starts' if strict else 'played'}")
+                            if strict:
+                                out.append((name, bool(d.max() <= 0.006), f"max Δ {d.max():.4f}", False))
+                            else:   # player_week position drift again: within 1% relative on ≥ 99% of rows
+                                rel = d / (m["_p"][has] / m["_n"][has]).abs().clip(lower=1)
+                                out.append((name, bool((rel > 0.01).mean() <= 0.01),
+                                            f"{int((rel > 0.01).sum())} of {int(has.sum())} rows off by > 1%", False))
 
         for col in _pos_pts:
             g = tw.groupby(["Team", "Year"])[col].apply(lambda s: _num(s).sum()).reset_index()

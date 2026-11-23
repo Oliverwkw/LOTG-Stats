@@ -868,7 +868,8 @@ async function recordWatch(meta) {
       S["nst_" + P] = cnt(st, (x) => x.p.pos === P); S["nro_" + P] = cnt(ro, (x) => x.p.pos === P);
       S["avg_" + P] = S["nst_" + P] ? S["from_" + P] / S["nst_" + P] : null;
       S["rfrom_" + P] = ro.reduce((a, x) => a + (x.p.pos === P ? x.v : 0), 0);
-      S["ravg_" + P] = S["nro_" + P] ? S["rfrom_" + P] / S["nro_" + P] : null;
+      const npl = cnt(ro, (x) => x.p.pos === P && (x.p.st || !x.p.absent));   // played: starters + bench not out / on bye
+      S["ravg_" + P] = npl ? S["rfrom_" + P] / npl : null;
       S["rpct_" + P] = rtot ? S["rfrom_" + P] / rtot : null;
     }
     const rc = ro.filter((x) => x.p.st || !x.p.absent);
