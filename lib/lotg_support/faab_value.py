@@ -726,7 +726,10 @@ def final_terms(R, v, p, X):
 
 # Targeted rules (Oliver 2026-11-23: "a targeted attach for each of the 9 ... something unique or nearly-unique"). Each keys
 # on stats only (any player can meet it in any season); strengths 0 = off. AT_* names the trade that prompted it.
-AW_ELITE, AW_ELITE_BAND, AW_ELITE_POS = 0.0, (2000.0, 4000.0), ("RB",)   # share of the NFL-award boost removed for a top base (0 = off)
+AW_ELITE, AW_ELITE_BAND, AW_ELITE_POS = 0.45, (2000.0, 4000.0), ("RB",)   # share of the NFL-award boost removed for a top base (0 = off)
+AT_EX_ELITE = 2.5  # Saquon Barkley 2026: a 28+ RB/WR who finished top 3 at his position in the last 4 seasons and is still his
+                   # team's depth-chart starter (healthy): a former elite starter is not a cheap aging body yet
+WR_TOP, WR_TOP_AT = 0.4, 3600.0   # a WR's final value above WR_TOP_AT keeps only this share of the excess (1 = off)
 AT_TE_TD = 1.3     # Cole Kmet 2022: a young TE (under 26) with a 16%+ target share and no touchdowns last season (14+ games): TDs follow volume
 AT_PAID_BRK = 0.6  # Mike Williams 2022: a WR just paid 9%+ of the cap after a breakout (14+ PPG, 4+ over the year before): the team bet on him
 AT_CROWD = -0.5     # Hunter Renfrow 2022 (Davante Adams arrives): offseason, after a one-year jump (5+ PPG over the year before) his team added
@@ -767,6 +770,9 @@ def _attach(R, T_, pos, raw):
         T_["at_fade"] = AT_FADE * (np.isin(pos, ["WR", "TE", "RB"]) & (c_("e_x_gp_cur") >= 8) & (c_("e_x_last_opp_ratio", 9) < 0.45) & (c_("e_x_team_win_cur", 1) < 0.25))
     if AT_LEAD_CHEAP:
         T_["at_lead_cheap"] = AT_LEAD_CHEAP * ((pos == "WR") & (c_("e_x_tgt_lead_w") >= 1) & (c_("e_x_l0_tgt_share") >= 0.24) & (raw < 100) & (c_("exp") >= 1))
+    if AT_EX_ELITE:
+        T_["at_ex_elite"] = AT_EX_ELITE * (np.isin(pos, ["RB", "WR"]) & (c_("age") >= 28) & (c_("e_x_best_rank_4y", 99) <= 3) & (c_("e_x_dc_rank", 9) == 1)
+                                           & (R.injury.fillna("").values == "") & (raw < 400))
     if AT_WON_JOB:
         m = (pos == "RB") & (c_("exp") >= 2) & (c_("e_x_rookie_backup") > 0) & (c_("e_x_gp_cur") >= 1) & (c_("e_x_gp_cur") <= 2) & (c_("e_x_cur_big") >= 1) & (c_("e_x_cur_xfp_share") >= 0.2) & (raw < 100)
         for k in ("rookie_backup", "share_talent", "replacement line"): spare(k, m, 1.0)
@@ -1121,6 +1127,9 @@ def apply_rules(R, p, X=None, explain=False):
     if LOW_ADD:
         lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
         out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
+    # (Oliver 2026-11-23: "increase WR fade over 3600 even more", Jaxon Smith-Njigba about $3,750 on Oct 24) a WR above
+    # $3,600 keeps only WR_TOP of the excess: an elite WR stands less far above the next tier than an elite RB or QB
+    if WR_TOP < 1: out = np.where((R.pos.values == "WR") & (out > WR_TOP_AT), WR_TOP_AT + (out - WR_TOP_AT) * WR_TOP, out)
     if explain:
         return out, dict(T_, **TF), dict(base=raw, curve=v0, vet=v1, rules=v, anchor=v2, top=v3, final=out)
     return out
