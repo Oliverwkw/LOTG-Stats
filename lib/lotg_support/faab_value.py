@@ -726,6 +726,7 @@ def final_terms(R, v, p, X):
 
 # Targeted rules (Oliver 2026-11-23: "a targeted attach for each of the 9 ... something unique or nearly-unique"). Each keys
 # on stats only (any player can meet it in any season); strengths 0 = off. AT_* names the trade that prompted it.
+AW_ELITE, AW_ELITE_BAND, AW_ELITE_POS = 0.0, (2000.0, 4000.0), ("RB",)   # share of the NFL-award boost removed for a top base (0 = off)
 AT_TE_TD = 1.3     # Cole Kmet 2022: a young TE (under 26) with a 16%+ target share and no touchdowns last season (14+ games): TDs follow volume
 AT_PAID_BRK = 0.6  # Mike Williams 2022: a WR just paid 9%+ of the cap after a breakout (14+ PPG, 4+ over the year before): the team bet on him
 AT_CROWD = -0.5     # Hunter Renfrow 2022 (Davante Adams arrives): offseason, after a one-year jump (5+ PPG over the year before) his team added
@@ -989,6 +990,9 @@ def apply_rules(R, p, X=None, explain=False):
     # scaled by the drop in his expected PPG: an old star in decline is priced on his next season, not on his record (the
     # vet discount above spares expensive players). An old player still producing (no drop) keeps his value
     for k_ in ("elite_streak", "aw_nfl", "track"): T_[k_] = T_[k_] * (1 - p.get("regress", 0.0) * X["regress"]) * (1 - p.get("rec_age", 0.0) * X["rec_age"])
+    if AW_ELITE:   # (Oliver 2026-11-23, Bijan Robinson > Jahmyr Gibbs) an NFL award confirms talent that a top stats base
+        # already prices: the award boost fades out as the base rises through AW_ELITE_BAND
+        T_["aw_nfl"] = T_["aw_nfl"] * (1 - AW_ELITE * np.interp(raw, AW_ELITE_BAND, [0, 1]) * np.isin(pos, AW_ELITE_POS))
     # replacement level: a veteran (4th season on) ranked near or below the line is a waiver-wire body worth ~0;
     # players in their first three seasons keep their upside value
     if "rank_raw" in R:
