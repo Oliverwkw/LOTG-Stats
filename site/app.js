@@ -2702,7 +2702,7 @@ function ktcVerdict(o, variance) {
 // ?t=A,B,C&mv=<asset>><team>,… ; assets "p<sleeper id>" or "k<year>-<round>-<original team>";
 // &m=<metric>.
 const CALC_METRICS = {
-  ktc: { name: "KTC (with KTC's value adjustment)", short: "KTC", fmt: (v) => Math.round(v).toLocaleString() },
+  ktc: { name: "KTC (KTC's value adjustment in two-team trades)", short: "KTC", fmt: (v) => Math.round(v).toLocaleString() },
   faab: { name: "FAAB value (the league's board)", short: "FAAB", fmt: (v) => money(v) },
   proj: { name: "Projected points a week", short: "proj. pts/wk", fmt: (v) => fmt({ d: 1 }, v) },
   ros: { name: "Rest-of-season points", short: "rest-of-season pts", fmt: (v) => fmt({ d: 1 }, v) },
@@ -2779,9 +2779,13 @@ async function calc(_a, query, live) {
   const sendsOf = (t, mv = MV) => Object.keys(mv).filter((k) => ownerOf[k] === t);
   // one asset on a metric (KTC raw; the adjustment is applied to whole packages)
   const mval = (k, m = metric) => { const x = info(k); if (CALC_METRICS[m] && CALC_METRICS[m].sim) m = "proj"; return m === "faab" ? x.value || 0 : m === "ktc" ? x.ktc || 0 : m === "proj" ? x.rate || 0 : m === "ros" ? (x.rate || 0) * weeksLeft : x.ppg || 0; };
+  const dealTeams = (mv) => new Set(Object.entries(mv).flatMap(([k, to]) => [ownerOf[k], to])).size;
   // a team's side of the deal on a metric: what it gets, what it sends, net (KTC: KTC's adjusted totals)
   const side = (t, mv = MV, m = metric) => {
     const g = getsOf(t, mv), s = sendsOf(t, mv);
+    // KTC's value adjustment is defined for two sides only: a deal that touches three or more
+    // teams (this one, or a third-team idea being tried) uses plain KTC values, zero-sum
+    if (m === "ktc" && dealTeams(mv) > 2) { const gv = g.reduce((a, k) => a + mval(k, m), 0), sv = s.reduce((a, k) => a + mval(k, m), 0); return { gets: gv, sends: sv, net: gv - sv, raw: true }; }
     if (m === "ktc") { const r = ktcTrade(g.map((k) => mval(k, m)).filter((v) => v > 0), s.map((k) => mval(k, m)).filter((v) => v > 0), KTOP); return { gets: r.t1, sends: r.t2, net: r.t1 - r.t2, adj: r }; }
     const gv = g.reduce((a, k) => a + mval(k, m), 0), sv = s.reduce((a, k) => a + mval(k, m), 0);
     return { gets: gv, sends: sv, net: gv - sv };
@@ -2859,9 +2863,10 @@ async function calc(_a, query, live) {
         <p class="verdict">${even ? `<b>About even</b> on ${esc(x.short)}.` : `<b>${esc(winner)}</b> comes out ${x.fmt(Math.abs(gap))} ahead on ${esc(x.short)}${metric === "faab" ? ` — ${esc(pickText(B, Math.abs(gap)))}` : ""}. ${metric === "ktc" ? `KTC would say: add a player worth ~${Math.round(Math.abs(gap)).toLocaleString()} to ${esc(loser)}.` : ""}`}</p>${adjNote}`;
     }
     const rows = T.map((t) => ({ t, ...side(t) })).sort((p, q) => q.net - p.net);
+    const rawNote = metric === "ktc" ? `<p class="muted small">Plain KTC values: KTC's value adjustment only works between two sides, so it isn't applied to a ${T.length}-team trade.</p>` : "";
     const mx = Math.max(...rows.map((r) => Math.abs(r.net)), 1e-9);
     return `<table class="rk"><tbody>${rows.map((r) => `<tr><td class="l">${teamLink(r.t)}</td><td class="small muted">gets ${x.fmt(r.gets)} · sends ${x.fmt(r.sends)}</td><td style="width:35%"><div class="bar-h"><i style="width:${(100 * Math.abs(r.net) / mx).toFixed(1)}%;${r.net < 0 ? "background:var(--bad)" : ""}"></i></div></td><td class="v ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : ""}">${r.net > 0 ? "+" : r.net < 0 ? "−" : ""}${x.fmt(Math.abs(r.net))}</td></tr>`).join("")}</tbody></table>
-      <p class="verdict">${Math.abs(rows[0].net) <= evenTol(rows[0].gets, rows[0].sends) && Math.abs(rows[rows.length - 1].net) <= evenTol(rows[rows.length - 1].gets, rows[rows.length - 1].sends) ? "<b>About even</b> for everyone" : `<b>${esc(rows[0].t)}</b> comes out furthest ahead; <b>${esc(rows[rows.length - 1].t)}</b> gives up the most`} on ${esc(x.short)}.</p>`;
+      <p class="verdict">${Math.abs(rows[0].net) <= evenTol(rows[0].gets, rows[0].sends) && Math.abs(rows[rows.length - 1].net) <= evenTol(rows[rows.length - 1].gets, rows[rows.length - 1].sends) ? "<b>About even</b> for everyone" : `<b>${esc(rows[0].t)}</b> comes out furthest ahead; <b>${esc(rows[rows.length - 1].t)}</b> gives up the most`} on ${esc(x.short)}.</p>${rawNote}`;
   }
   // even it up: one more asset from the team that comes out ahead (two teams)
   function fixHtml() {
@@ -3006,7 +3011,7 @@ async function calc(_a, query, live) {
     const metricKey = (lab) => ({ "FAAB value": "faab", "KTC value": "ktc", "Projected points a week": "proj", "Rest of the regular season": "ros" })[lab] || (lab.endsWith("points a week") && lab !== "Projected points a week" ? "ppg" : "");
     add("FAAB value", `the league's stats-only board, ${esc(B.as_of)}`, money, (t) => side(t, MV, "faab").net);
     if (KT) {
-      add("KTC value", `KeepTradeCut superflex, ${esc(KT.as_of)}, with KTC's value adjustment`, (v) => Math.round(v).toLocaleString(), (t) => side(t, MV, "ktc").net);
+      add("KTC value", `KeepTradeCut superflex, ${esc(KT.as_of)}${T.length === 2 ? ", with KTC's value adjustment" : " (plain values: KTC's adjustment is for two sides only)"}`, (v) => Math.round(v).toLocaleString(), (t) => side(t, MV, "ktc").net);
       add("KTC trend", "month change in KTC value of what it gets, minus what it sends", (v) => Math.round(v).toLocaleString(), (t) => getsOf(t).concat(sendsOf(t)).reduce((a, k) => { const x = info(k); if (x.ktc == null || x.ktcAgo == null) return a; return a + (MV[k] === t ? 1 : -1) * (x.ktc - x.ktcAgo); }, 0));
     }
     add("Projected points a week", "the forecast's rate for each player, this season blended in", (v) => fmt({ d: 1 }, v), (t) => side(t, MV, "proj").net);
