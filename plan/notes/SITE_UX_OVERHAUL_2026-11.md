@@ -661,3 +661,4 @@ browser.
 599. Player pages: Recent games (last 6 played, byes and weeks out skipped) near the top, and a Game log card with season tabs, a weekly points chart and every game (league team, role, slot, opponent and result, snap %, targets, carries, xFP); every NFL game since 2020 in league scoring, rostered or not.
 600. Player Seasons table: Points (full season) and Avg points (full season) columns, and a row for every season since 2020 he spent off league rosters; the season chart uses full-season points.
 601. Player pages no longer light the Home tab.
+602. Game log: NFL weeks after the league's last week (week 18; 2020's week 17) read "After the league season", not "Not rostered".

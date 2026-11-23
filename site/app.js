@@ -1362,7 +1362,7 @@ async function player(key, _q, live) {
   if (!G) return;
   const drawLog = (y) => {
     const rows = G.rows.filter((r) => r[gc("Year")] === y).slice().reverse();
-    const roleChip = { Starter: "acc", Bench: "", "Not rostered": "", "Since the last build": "live" };
+    const roleChip = { Starter: "acc", Bench: "", "Not rostered": "", "After the league season": "", "Since the last build": "live" };
     $("#logbody").innerHTML = barChart(rows.map((r) => ({ label: String(r[gc("Week")]), v: r[gc("Points")], cls: r[gc("Role")] === "Starter" ? "" : "g", title: `${r[gc("Week Name")]}: ${stripHtml(fmt({ d: 2 }, r[gc("Points")]))} · ${r[gc("Role")]}` })), { label: `${p.name}'s points by week, ${y}`, h: 130 })
       + `<div class="legend"><span><i style="background:var(--accent)"></i>started</span><span><i style="background:var(--gold)"></i>bench or not rostered</span></div>`
       + table([
