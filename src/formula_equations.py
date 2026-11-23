@@ -845,6 +845,8 @@ EQUATIONS = {
         '[y = rookie_year(p)],  rookie_year = Sleeper metadata rookie year, else current season − yexp(p)',
     ('Injury?', 'player_week'):
         'INJ(p,w) = ro(p,·,w) ∧ pts(p,w) = 0 ∧ ¬APP(p,y,w) ∧ ¬BYE(p,w) ∧ ¬SUS(p,w) ∧ ¬[GDS(p,y,w) = active]',
+    ('Injury status', 'player_week'):
+        "IR if INJ(p,w) ∧ wr(p,y,w).status = RES; Out if INJ(p,w) ∧ ¬[wr(p,y,w).status = RES]; Healthy if ¬INJ(p,w)",
     ('Suspension?', 'player_week'):
         "SUS(p,w) = ¬BYE(p,w) ∧ (SUSP(p,y,w) ∨ injS(p) = 'NA' for week w)",
     ('Bye?', 'player_week'):

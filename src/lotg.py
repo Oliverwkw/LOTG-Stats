@@ -1281,7 +1281,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     if ("percentile" in n or "quartile" in n or "middle 50%" in n
             or n.startswith("% of starters ")):
         return "Value"
-    if n in ("injury?", "suspension?", "bye?", "loss from hardship?"):
+    if n in ("injury?", "injury status", "suspension?", "bye?", "loss from hardship?"):
         return "Hardship & Luck"
     if n == "win?":
         return "Outcome"
@@ -1804,6 +1804,8 @@ def _column_kind(col: str) -> str:
         "position",
         "position started in (if starter)",
         "starter/bench",
+        # player_week's Healthy / Out / IR (lotg_support.injury_status)
+        "injury status",
         "type of transaction",
         "assets sent",
         "assets received",
@@ -3630,6 +3632,39 @@ def build_all(repo_root: Path) -> None:
     pick_history_text: Dict[int, str] = {}
     player_history_text: Dict[str, str] = {}
 
+    def _add_injury_status(frame: pd.DataFrame) -> pd.DataFrame:
+        """player_week + "Injury status": Healthy / Out / IR from Injury?
+        (lotg_support.injury_status). IR = on nflverse's weekly roster with status
+        RES that season/week, joined by nflverse's sleeper_id, else its gsis_id
+        through pid_meta's gsis. A season whose rosters fail to load reads every
+        injured week Out (logged)."""
+        from lotg_support import injury_status as _inj_st
+        _sid_keys: set = set()
+        _gs_keys: set = set()
+        _years = sorted(set(pd.to_numeric(frame.get("Year"), errors="coerce").dropna().astype(int)))
+        for _y in _years:
+            try:
+                _wr = _safe_df(load_nflverse_weekly_rosters(ext, int(_y)))
+                _a, _b = _inj_st.reserve_keys(_wr, season=int(_y))
+                _sid_keys |= _a
+                _gs_keys |= _b
+            except Exception as e:
+                _log_exc(debug, f"injury_status_rosters_{_y}", e)
+        frame = frame.copy()
+        frame[_inj_st.COLUMN] = _inj_st.status_column(
+            frame, _sid_keys, _gs_keys,
+            gsis_of=lambda _p: (_g if _looks_like_gsis(_g := (pid_meta.get(str(_p)) or {}).get("gsis_id"))
+                                else None))
+        try:
+            _vc = frame.groupby(pd.to_numeric(frame["Year"], errors="coerce"))[_inj_st.COLUMN] \
+                .value_counts().unstack(fill_value=0)
+            for _yr, _r in _vc.iterrows():
+                _log(debug, f"[{_now_iso()}] INFO injury status {int(_yr)}: "
+                            + ", ".join(f"{k}={int(_r.get(k, 0))}" for k in _inj_st.LABELS))
+        except Exception:
+            pass
+        return frame
+
     def write_outputs(tables: List[Tuple[str, pd.DataFrame, str]]) -> None:
         out_dir = repo_root / "exports"
         out_dir.mkdir(exist_ok=True)
@@ -3688,6 +3723,13 @@ def build_all(repo_root: Path) -> None:
                                         else None))
             except Exception as e:
                 _log_exc(debug, f"player_ids_{fname}", e)
+            # player_week "Injury status" (Healthy / Out / IR) beside Injury?,
+            # from that same flag: IR = nflverse weekly roster status RES that
+            # week, by id. Injury? itself and every stat that reads it are
+            # untouched; Out or IR <=> Injury? True (lotg_support.sanity guards).
+            if fname == "player_week.csv" and isinstance(frame, pd.DataFrame) \
+                    and "Injury?" in frame.columns:
+                frame = _add_injury_status(frame)
             out = _ensure_plan_columns(frame, cols)
             out = _fill_empty_columns(out, cols)
             out = _fill_missing_values(out, cols)

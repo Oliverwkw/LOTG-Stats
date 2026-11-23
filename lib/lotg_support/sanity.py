@@ -72,6 +72,16 @@ def collect_findings(exports_dir) -> List[Finding]:
                 ex = sorted({(r.Player, r.Year, r.Week) for r in dup.itertuples()})[:5]
                 out.append(Finding("WARN", sheet, "Player",
                                    f"same-name players in one week: {len(dup)} rows, e.g. {ex}"))
+        # Injury status (Healthy / Out / IR) is a label of Injury?: Out or IR
+        # exactly when Injury? is True, row for row (lotg_support.injury_status).
+        if sheet == "player_week" and {"Injury?", "Injury status"} <= set(df.columns):
+            from lotg_support.injury_status import disagreements
+            bad = disagreements(df)
+            if not bad.empty:
+                ex = [(r["Player"], r["Year"], r["Week"], r["Injury?"], r["Injury status"])
+                      for _, r in bad.head(5).iterrows()]
+                out.append(Finding("ERROR", sheet, "Injury status",
+                                   f"disagrees with Injury? on {len(bad)} rows, e.g. {ex}"))
         for col in df.columns:
             cl = col.lower()
             vals = _num(df[col]).dropna()

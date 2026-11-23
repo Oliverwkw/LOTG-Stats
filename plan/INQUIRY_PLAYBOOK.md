@@ -1019,6 +1019,13 @@ list is here so an answer written by hand does not walk into them.
   build, the live season included. `plan/notes/MAX_PF_SLEEPER_RECONCILE.md`.
 - **Sleeper writes `"0"` for an empty start slot** (`inquiry.EMPTY_SLOT`) — a
   legal lineup, not a bug.
+- **`Injury status` (player_week) splits `Injury?` into `Healthy` / `Out` /
+  `IR`** — `IR` = nflverse's weekly roster lists him with status RES (IR / PUP /
+  NFI) that week, joined by id; `Out` = every other `Injury?` True week.
+  Out or IR ⇔ `Injury?` True, row for row (a `lotg_support.sanity` ERROR
+  otherwise). Stats still read `Injury?`; use `Injury status` only for the
+  split. It is NFL reserve, not Sleeper's IR slot. A bye / suspension week
+  reads `Healthy`. 2020-26 as of 2026 wk 11: IR 1,982, Out 1,791 of 3,773.
 - **`Injury?` means "missed the week, and it was not a bye or a suspension" —
   not "was hurt".** It is the residual bucket, per its own note in
   `formulas.csv`, so a healthy scratch that was declared Out lands in it: 13 of
