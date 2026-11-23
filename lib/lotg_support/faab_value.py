@@ -599,6 +599,7 @@ CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = 0.0, 22.5,
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
+CUFF_SHORT = 0.0
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
@@ -884,6 +885,13 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
+        if CUFF_SHORT:   # (Oliver 2026-11-23, Emmett Johnson behind Kenneth Walker's Out tag): the backup's bump is for a
+            # long absence; when his team's lead RB (depth chart 1 now or last week) is not on IR/PUP the starter is week to week, keep 1 - CUFF_SHORT
+            tm_ = pd.Series(np.nan_to_num(col(R, "e_x_dc_team"), nan=-1)); dt_ = pd.Series(R["date"].values if "date" in R else np.zeros(len(R)))
+            lead_ = (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) <= 1) | (np.nan_to_num(col(R, "e_x_dc_prev"), nan=9) <= 1)   # the lead back
+            lir = pd.Series(((pos == "RB") & lead_ & R.injury.fillna("").isin(["IR", "PUP"]).values).astype(float))
+            long_ = lir.groupby([dt_, tm_]).transform("max").values * (tm_.values >= 0)
+            T_["cuff_act"] = T_["cuff_act"] * (1 - CUFF_SHORT * (1 - long_))
     if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
         nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
             * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0) \
