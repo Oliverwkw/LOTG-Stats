@@ -662,3 +662,5 @@ browser.
 600. Player Seasons table: Points (full season) and Avg points (full season) columns, and a row for every season since 2020 he spent off league rosters; the season chart uses full-season points.
 601. Player pages no longer light the Home tab.
 602. Game log: NFL weeks after the league's last week (week 18; 2020's week 17) read "After the league season", not "Not rostered".
+603. Player pages: the career stat boxes are removed (user); the numbers stay in the Seasons and Career tables.
+604. Points (full season) and Avg points (full season) get green / red best / worst marks.
