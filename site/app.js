@@ -861,10 +861,16 @@ async function recordWatch(meta) {
     S.spread = sv.length ? S.hist - S.lost : null;
     const pv = LW.prev && LW.prev[t.team];
     S.inc = pv && pv[0] === wk - 1 && pv[1] != null ? S.pf - pv[1] : null;
+    const rtot = ro.reduce((a, x) => a + x.v, 0);
     for (const P of POS) {
       S["from_" + P] = st.reduce((a, x) => a + (x.p.pos === P ? x.v : 0), 0);
       S["pct_" + P] = S.pf ? S["from_" + P] / S.pf : null;
       S["nst_" + P] = cnt(st, (x) => x.p.pos === P); S["nro_" + P] = cnt(ro, (x) => x.p.pos === P);
+      S["avg_" + P] = S["nst_" + P] ? S["from_" + P] / S["nst_" + P] : null;
+      S["rfrom_" + P] = ro.reduce((a, x) => a + (x.p.pos === P ? x.v : 0), 0);
+      const npl = cnt(ro, (x) => x.p.pos === P && (x.p.st || !x.p.absent));   // played: starters + bench not out / on bye
+      S["ravg_" + P] = npl ? S["rfrom_" + P] / npl : null;
+      S["rpct_" + P] = rtot ? S["rfrom_" + P] / rtot : null;
     }
     const rc = ro.filter((x) => x.p.st || !x.p.absent);
     S.don_st = cnt(st, (x) => x.v === 0); S.don_ro = cnt(rc, (x) => x.v === 0);
