@@ -504,6 +504,7 @@ W_FAROFF, FAR_AT, W_CALLS, FAR_OK_RISE = 0.0, 1.8, 1.0, 0.5     # the fit's far-
 RB_JOB_FLOOR = 40.0
 PROVEN_FLOOR, PROVEN_PPG, PROVEN_AGE = 0.0, 10.0, 34.0
 LOW_ADD, LOW_S, LOW_PPG = 0.0, 60.0, 0.0
+SUMMER_MOVE = 0.0                 # share of the summer shift lifted for a player who moved teams that offseason (e_x_moved_off)
 SUMMER_LOW, SUMMER_LOW_V = 0.0, (40.0, 150.0)
 DC2_FLOOR, DC2_IMPL = 0.0, 26.0     # depth chart: an RB listed second on a top offense (implied points) is worth at least this (the handcuff)
 DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a contender (win % so far, 6+ team games) is worth at least this
@@ -562,6 +563,8 @@ CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
 VAC_UP, VAC_LO, VAC_HI, VAC_BAND = 1.0, 0.05, 0.2, (-2.0, -1.0, 300.0, 500.0)
 VAC_STACK = 1.0
+VAC_WR_RANK = (24, 0.0)   # (best position rank, weight of vac_up for a WR/TE never that good; 1 = off)
+VAC_POS = (1.0, 1.0, 1.0)   # vac_up weight for RB, WR, TE (Oliver 2026-11-23: test RB-only / half for WRs)
 VAC_LESS = False   # vac_up only when his own share of his team's expected points last season is under the share that left
 VAC_IMPL = (18.0, 22.0)  # vac_up fades in with his team's implied points last season (none at [0], full from [1]; (0, 1) = always full)
 # far-off #14 (Oliver 2026-11-22, Pacheco to Detroit: "removing some docks from RBs in a range under a certain age when
@@ -759,9 +762,13 @@ def apply_rules(R, p, X=None, explain=False):
     if PROD_LO:
         T_["prod_lo"] = PROD_LO * ((np.nan_to_num(col(R, "e_x_ppg_l0")) >= PROD_L0) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= PROD_CUR) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= PROD_G) & np.isin(pos, PROD_POS)) * np.interp(raw, PROD_BAND, [0, 1, 1, 0])
     if VAC_UP:
-        T_["vac_up"] = VAC_UP * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= 1) * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) >= VAC_OWN) | (np.nan_to_num(col(R, "e_x_l0_games")) < 8)) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - VAC_LO) / (VAC_HI - VAC_LO), 0, 1) * np.interp(raw, VAC_BAND, [0, 1, 1, 0]) \
+        T_["vac_up"] = VAC_UP * np.select([pos == "RB", pos == "WR", pos == "TE"], [float(v) for v in VAC_POS], 0.0) * (np.nan_to_num(col(R, "exp")) >= 1) * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) >= VAC_OWN) | (np.nan_to_num(col(R, "e_x_l0_games")) < 8)) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - VAC_LO) / (VAC_HI - VAC_LO), 0, 1) * np.interp(raw, VAC_BAND, [0, 1, 1, 0]) \
             * np.interp(np.nan_to_num(col(R, "e_x_team_implied_l0"), nan=99), VAC_IMPL, [0, 1]) \
             * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) < np.nan_to_num(col(R, "e_x_vacated"))) | (not VAC_LESS))
+        if float(VAC_WR_RANK[1]) < 1:   # a WR/TE who has never finished in the top VAC_WR_RANK[0] at his position (last 4 seasons) is
+            # not yet proven in a lead role: only VAC_WR_RANK[1] of the raise (Oliver 2026-11-23, Gabe Davis / Xavier Worthy vs Curtis Samuel / Cooper Kupp)
+            un_ = np.isin(pos, ["WR", "TE"]) & ~(np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=999) <= float(VAC_WR_RANK[0]))
+            T_["vac_up"] = np.where(un_, T_["vac_up"] * float(VAC_WR_RANK[1]), T_["vac_up"])
         # ... fading out on a bad offense (his new team's, TEAM_NOW), and (VAC_LESS, Oliver) only into a bigger role than his own
     if XFP_JUMP:
         xj = np.nan_to_num(col(R, "e_x_cur_xfp_share")) - np.nan_to_num(col(R, "e_x_l0_xfp_share"), nan=1)
@@ -980,6 +987,10 @@ def apply_rules(R, p, X=None, explain=False):
     if REPL_TOP2 and "replacement line" in T_:   # (Oliver 2026-11-23) a former top-2 finisher at his position (NFL, last 4 seasons) is no replacement body
         t2 = np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=99) <= REPL_TOP_RANK
         T_["replacement line"] = np.where(t2, T_["replacement line"] * (1 - REPL_TOP2), T_["replacement line"])
+    if SUMMER_MOVE and "summer" in T_:   # (Oliver, Curtis Samuel 2024) a player who changed teams this offseason: the new
+        # team has just paid for him, so the summer cut on him is smaller
+        mo_ = np.nan_to_num(col(R, "e_x_moved_off")) > 0
+        T_["summer"] = np.where(mo_, T_["summer"] * (1 - SUMMER_MOVE), T_["summer"])
     if SUMMER_LOW and "summer" in T_:
         pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
         T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))
