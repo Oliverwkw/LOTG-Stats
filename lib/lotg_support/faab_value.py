@@ -727,10 +727,11 @@ def final_terms(R, v, p, X):
 # Targeted rules (Oliver 2026-11-23: "a targeted attach for each of the 9 ... something unique or nearly-unique"). Each keys
 # on stats only (any player can meet it in any season); strengths 0 = off. AT_* names the trade that prompted it.
 AW_ELITE, AW_ELITE_BAND, AW_ELITE_POS = 0.45, (2000.0, 4000.0), ("RB",)   # share of the NFL-award boost removed for a top base (0 = off)
-AT_EX_ELITE = 2.5  # Saquon Barkley 2026: a 28+ RB/WR who finished top 3 at his position in the last 4 seasons and is still his
+AT_EX_ELITE = 2.72 # Saquon Barkley 2026: a 28+ RB/WR who finished top 3 at his position in the last 4 seasons and is still his
                    # team's depth-chart starter (not on IR / PUP: Oliver, a short-term Out keeps it): a former elite starter is not a cheap aging body yet
 WR_TOP, WR_TOP_AT = 0.4, 3600.0   # a WR's final value above WR_TOP_AT keeps only this share of the excess (1 = off)
-AT_EX_ELITE_IR = 1.12  # AT_EX_ELITE on IR / PUP x this (Oliver 2026-11-23: still about a 2.08 on IR; over 1 because the IR docks still apply)
+AT_EX_ELITE_IR = 1.03  # AT_EX_ELITE on IR / PUP x this (Oliver 2026-11-23: still about a 2.08 on IR; over 1 because the IR docks still apply)
+AT_EX_ELITE_OUT = 1.17 # AT_EX_ELITE on Out / Doubtful x this (Oliver: 2.05 healthy, 2.06 Out, 2.08 IR)
 AT_TE_TD = 1.3     # Cole Kmet 2022: a young TE (under 26) with a 16%+ target share and no touchdowns last season (14+ games): TDs follow volume
 AT_PAID_BRK = 0.6  # Mike Williams 2022: a WR just paid 9%+ of the cap after a breakout (14+ PPG, 4+ over the year before): the team bet on him
 AT_CROWD = -0.5     # Hunter Renfrow 2022 (Davante Adams arrives): offseason, after a one-year jump (5+ PPG over the year before) his team added
@@ -773,7 +774,7 @@ def _attach(R, T_, pos, raw):
         T_["at_lead_cheap"] = AT_LEAD_CHEAP * ((pos == "WR") & (c_("e_x_tgt_lead_w") >= 1) & (c_("e_x_l0_tgt_share") >= 0.24) & (raw < 100) & (c_("exp") >= 1))
     if AT_EX_ELITE:
         T_["at_ex_elite"] = AT_EX_ELITE * (np.isin(pos, ["RB", "WR"]) & (c_("age") >= 28) & (c_("e_x_best_rank_4y", 99) <= 3) & (c_("e_x_dc_rank", 9) == 1) & (raw < 400)) \
-            * np.where(np.isin(R.injury.fillna("").values, ["IR", "PUP"]), AT_EX_ELITE_IR, 1.0)   # (Oliver) IR/PUP: a share of the raise
+            * np.select([np.isin(R.injury.fillna("").values, ["IR", "PUP"]), np.isin(R.injury.fillna("").values, ["Out", "Doubtful"])], [AT_EX_ELITE_IR, AT_EX_ELITE_OUT], 1.0)   # (Oliver) IR/PUP: a share of the raise
     if AT_WON_JOB:
         m = (pos == "RB") & (c_("exp") >= 2) & (c_("e_x_rookie_backup") > 0) & (c_("e_x_gp_cur") >= 1) & (c_("e_x_gp_cur") <= 2) & (c_("e_x_cur_big") >= 1) & (c_("e_x_cur_xfp_share") >= 0.2) & (raw < 100)
         for k in ("rookie_backup", "share_talent", "replacement line"): spare(k, m, 1.0)
