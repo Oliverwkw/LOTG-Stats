@@ -1269,7 +1269,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     # from QBs" companion) is a breakdown of PF, so band the whole block with
     # Scoring — otherwise the share half falls into Value on the generic
     # "% of points" keyword and the eight columns come out two colours.
-    if n.startswith("points from ") or n.startswith("% of points from "):
+    if n.startswith(("points from ", "% of points from ", "avg points from ")):
         return "Scoring"
     # Positional scoring tiers + scoring percentiles band with the other
     # scoring-value stats, next to boom/bust: the weekly "Positional scoring
@@ -6919,6 +6919,21 @@ def build_all(repo_root: Path) -> None:
                         points_pos(starters, "WR"), points_pos(starters, "TE"),
                     )
                     starter_pts_total = float(sum(starter_points))
+                    # The same split over the WHOLE roster (starters + every
+                    # non-starter, taxi and IR included), and the per-player
+                    # averages: position points ÷ players started / rostered at
+                    # that position, N/A when there were none.
+                    qb_rpts, rb_rpts, wr_rpts, te_rpts = (
+                        points_pos(players, "QB"), points_pos(players, "RB"),
+                        points_pos(players, "WR"), points_pos(players, "TE"),
+                    )
+                    roster_pts_total = float(sum(roster_points))
+
+                    def _pos_share_roster(v: float) -> Optional[float]:
+                        return round(v / roster_pts_total, 4) if roster_pts_total else None
+
+                    def _pos_avg(v: float, n: int) -> Optional[float]:
+                        return round(v / n, 2) if n else None
 
                     def _pos_share(v: float) -> Optional[float]:
                         # No points at all -> N/A, not 0%: there is no pie to take
@@ -7107,6 +7122,22 @@ def build_all(repo_root: Path) -> None:
                         "% of points from WRs": _pos_share(wr_pts),
                         "% of points from TEs": _pos_share(te_pts),
                         "% of points from RBs": _pos_share(rb_pts),
+                        "Avg points from QBs": _pos_avg(qb_pts, qb_s),
+                        "Avg points from WRs": _pos_avg(wr_pts, wr_s),
+                        "Avg points from TEs": _pos_avg(te_pts, te_s),
+                        "Avg points from RBs": _pos_avg(rb_pts, rb_s),
+                        "Points from QBs (roster)": round(qb_rpts, 2),
+                        "Points from WRs (roster)": round(wr_rpts, 2),
+                        "Points from TEs (roster)": round(te_rpts, 2),
+                        "Points from RBs (roster)": round(rb_rpts, 2),
+                        "% of points from QBs (roster)": _pos_share_roster(qb_rpts),
+                        "% of points from WRs (roster)": _pos_share_roster(wr_rpts),
+                        "% of points from TEs (roster)": _pos_share_roster(te_rpts),
+                        "% of points from RBs (roster)": _pos_share_roster(rb_rpts),
+                        "Avg points from QBs (roster)": _pos_avg(qb_rpts, qb_r),
+                        "Avg points from WRs (roster)": _pos_avg(wr_rpts, wr_r),
+                        "Avg points from TEs (roster)": _pos_avg(te_rpts, te_r),
+                        "Avg points from RBs (roster)": _pos_avg(rb_rpts, rb_r),
                         # Internal-only (filtered from CSV by the plan catalog):
                         # the denominator behind the four shares = this week's
                         # starter point total. team_year / team_all_time sum it so

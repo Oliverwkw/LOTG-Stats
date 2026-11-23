@@ -106,6 +106,34 @@ def reconcile(frames) -> list:
         out.append(("team_week positional shares sum to 1",
                     bool(shares.empty or d.max() <= 0.001), f"max Δ {d.max():.4f}", False))
 
+        # The per-player averages and the whole-roster versions (team_week only).
+        # Avg = points ÷ players at the position (started / rostered), N/A
+        # exactly when there were none; the roster split adds the bench to the
+        # starter split (bench = every non-starter, taxi and IR included).
+        _pos = [("QBs", "QB"), ("WRs", "WR"), ("TEs", "TE"), ("RBs", "RB")]
+        _roster = [f"Points from {p} (roster)" for p, _ in _pos]
+        _new = ([f"Avg points from {p}" for p, _ in _pos] + _roster
+                + [f"% of points from {p} (roster)" for p, _ in _pos]
+                + [f"Avg points from {p} (roster)" for p, _ in _pos])
+        if all(c in tw.columns for c in _new):
+            for p, s in _pos:
+                for suf, n_col in (("", f"Number of {s} started"), (" (roster)", f"Number of {s} rostered")):
+                    pts, avg, n = (_num(tw[f"Points from {p}{suf}"]), _num(tw[f"Avg points from {p}{suf}"]),
+                                   _num(tw[n_col]).fillna(0))
+                    has = n > 0
+                    d = (avg[has] - pts[has] / n[has]).abs()
+                    ok = bool(d.max() <= 0.006) and bool(avg[~has].isna().all()) and bool(avg[has].notna().all())
+                    out.append((f"team_week Avg points from {p}{suf} = points ÷ {n_col}", ok,
+                                f"max Δ {d.max():.4f}, {int(avg[~has].notna().sum())} non-N/A with none", False))
+            split_r = sum(_num(tw[c]).fillna(0) for c in _roster)
+            d = (split_r - split - _num(tw["Bench points"]).fillna(0)).abs()
+            out.append(("team_week Σ positional roster points = starter split + Bench points",
+                        bool(d.max() <= 0.05), f"max Δ {d.max():.3f}", False))
+            shares = sum(_num(tw[f"% of points from {p} (roster)"]) for p, _ in _pos).dropna()
+            d = (shares - 1.0).abs()
+            out.append(("team_week positional roster shares sum to 1",
+                        bool(shares.empty or d.max() <= 0.001), f"max Δ {d.max():.4f}", False))
+
         for col in _pos_pts:
             g = tw.groupby(["Team", "Year"])[col].apply(lambda s: _num(s).sum()).reset_index()
             m = ty.merge(g, on=["Team", "Year"], suffixes=("_y", "_w"))

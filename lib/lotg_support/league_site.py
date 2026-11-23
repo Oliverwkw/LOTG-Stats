@@ -1263,6 +1263,10 @@ class Site:
          ("hist", "Highest starter score", "hl"), ("lost", "Lowest starter score", "hl")]
         + [(f"from_{p}", f"Points from {p}s", "hl") for p in ("QB", "RB", "WR", "TE")]
         + [(f"pct_{p}", f"% of points from {p}s", "hl") for p in ("QB", "RB", "WR", "TE")]
+        + [(f"avg_{p}", f"Avg points from {p}s", "hl") for p in ("QB", "RB", "WR", "TE")]
+        + [(f"r{k}_{p}", f"{c} from {p}s (roster)", "hl") for k, c in (("from", "Points"), ("pct", "% of points"),
+                                                                        ("avg", "Avg points"))
+           for p in ("QB", "RB", "WR", "TE")]
         + [(f"{a}_{w}", f"{c} ({w2})", "h") for a, c in (("don", "Donuts"), ("u10", "Players under 10 pts"),
                                                            ("o20", "Players over 20 pts"), ("o30", "Players over 30 pts"),
                                                            ("o40", "Players over 40 pts"), ("o50", "Players over 50 pts"))
