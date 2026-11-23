@@ -7,6 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -180,6 +181,33 @@ def test_committed_history_matches_the_inputs():
     assert len(m) > 0.5 * len(a), (len(m), len(a))
     bad = m[(m.v.round(1) - m.value).abs() > 0.15]
     assert len(bad) <= 0.01 * len(m), bad.head(10)
+
+
+def test_history_path_values_rows_like_load_inputs():
+    """finished_values (history.csv) values a row exactly as with_links(load_inputs()) does, load-time column swaps
+    (TEAM_NOW) included: round 6 swapped e_x_team_*_l0 for e_x_tnow_*_l0 in load_inputs only, and 582 history rows
+    drifted from the committed inputs. The feature-store steps (qb_base, wr_mates, the backup columns) read the
+    committed inputs' own columns here, so this runs offline."""
+    from lotg_support import faab_value as V
+    from lotg_support import faab_pipeline as P
+    f = V.DATA / "inputs.csv"
+    if not f.exists():
+        print("skip: no committed inputs.csv")
+        return
+    R0 = pd.read_csv(f, dtype={"sid": str, "injury": str, "wr_mate": str}, keep_default_na=False, na_values=[""])
+    R0["date"] = pd.to_datetime(R0.date)
+    key = {(s, d): i for i, (s, d) in enumerate(zip(R0.sid, R0.date))}
+    saved = P.qb_base, P.wr_mates, P.take_backup
+    try:
+        P.qb_base = lambda R, idx: R0.e_x_qb_base.values[idx]
+        P.wr_mates = lambda R, idx: {i: key[(m, d)] for i, (m, d) in enumerate(zip(R0.wr_mate.fillna(""), R0.date)) if (m, d) in key}
+        P.take_backup = lambda E, g, pa, t: E.assign(**{c: R0[c].values for c in R0.columns if c not in E})
+        H = FH.finished_values(R0.assign(gsis="x"), pd.DataFrame(), V.load_params())
+    finally:
+        P.qb_base, P.wr_mates, P.take_backup = saved
+    a = np.round(np.asarray(V.with_links(V.load_inputs(), V.load_params()), dtype=float), 1)
+    bad = np.abs(H.value.values - a) > 0.15
+    assert not bad.any(), H[bad].head(10)
 
 
 if __name__ == "__main__":

@@ -1214,9 +1214,14 @@ W_TRADES, W_CUTS = 3.0, 3.0      # trade/cut history counts more than one person
 def load_inputs(data=DATA):
     R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str, "wr_mate": str}, keep_default_na=False, na_values=[""])
     R["injury"] = R.injury.fillna("")
-    # round 6 (Samuel 2024 read Washington's 4-13): last season's team quality is the team he is on now, not the one
-    # he played for (a player who moved in the offseason is judged by his new team; once he has played this season the
-    # team he played for stands, as before)
+    return team_now(R)
+
+
+def team_now(R):
+    """round 6 (Samuel 2024 read Washington's 4-13): last season's team quality is the team he is on now, not the one
+    he played for (a player who moved in the offseason is judged by his new team; once he has played this season the
+    team he played for stands, as before). Every path that values rows applies it: load_inputs (the fit, the board)
+    and faab_history.finished_values (history.csv, the build's FAAB Value columns); R is changed in place."""
     if TEAM_NOW:
         for a, b in (("e_x_team_win_l0", "e_x_tnow_win_l0"), ("e_x_team_implied_l0", "e_x_tnow_implied_l0")):
             if a in R and b in R: R[a] = R[b].where(R[b].notna() & (R[a].notna() | TEAM_NOW_ROOKIE) & ~(R.get("e_x_gp_cur", pd.Series(0, index=R.index)).fillna(0) > 0), R[a])   # a rookie (no team last season) keeps none unless TEAM_NOW_ROOKIE

@@ -566,6 +566,12 @@ Blank before 2021. A merged refit re-values the history with `scripts/faab_rebui
 workflow runs it on a push that changes `params.json`; a manual dispatch can too). A draftee's first value lands on
 the grid date after the league draft, so the draft-day columns take it (`FaabIndex.player_entering`).
 
+**One valuation path** (2026-11-23): a column change made when the inputs are loaded must reach the history too.
+Round 6's `TEAM_NOW` swap (last season's team quality from his current team) lived only in `load_inputs`, so
+`faab_history.finished_values` kept the old columns and 582 history rows drifted from the board after #636. The swap
+is now `faab_value.team_now`, called by both; `tests/test_faab_history.py::test_history_path_values_rows_like_load_inputs`
+values the committed inputs through the history path offline and must match `with_links(load_inputs())` exactly.
+
 **Pick slots fade in** (2026-11-10, Oliver: "pick number is not known until the end of the season"):
 `faab_inputs.Picks.value` and `FaabIndex.pick` (so the fit's trade evidence, the build's FAAB Value twins and the
 off-build columns alike) price a pick through `lotg_support.faab_pick_slots`. Before, a pick was its round's average

@@ -62,7 +62,7 @@ def finished_values(R: pd.DataFrame, pa: pd.DataFrame, params: dict, backup=None
     for c in E.columns:          # the same rounding the committed inputs get, so a row values the same either way
         if E[c].dtype.kind == "f":
             E[c] = E[c].astype("float64").round(5)
-    E = E.reset_index(drop=True)
+    E = V.team_now(E.reset_index(drop=True))     # the load-time column swaps load_inputs applies (TEAM_NOW)
     v = V.with_links(E, params)
     return pd.DataFrame(dict(sid=E.sid.astype(str).values, date=E.date.dt.strftime("%Y-%m-%d").values,
                              value=np.round(np.asarray(v, dtype=float), 1)))
