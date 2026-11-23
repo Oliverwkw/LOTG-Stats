@@ -2595,17 +2595,32 @@ _POS_POINT_COLUMNS = (
 
 
 def _pos_points_rollup(g: pd.DataFrame) -> Dict[str, Any]:
-    """Roll the team_week positional starter-scoring split up to a season or a
-    career: points SUM over the period's weeks, and each share re-divided by the
-    period's TOTAL starter points. Deliberately not a mean of the weekly shares,
-    which would weight a 60-point week the same as a 160-point one. The share is
-    N/A when the period scored nothing at all (no pie to slice)."""
-    total = float(pd.to_numeric(g.get("_StarterPointsTotal"), errors="coerce").fillna(0.0).sum())
+    """Roll the team_week positional scoring split up to a season or a career:
+    points SUM over the period's weeks, and each share re-divided by the
+    period's TOTAL points. Deliberately not a mean of the weekly shares, which
+    would weight a 60-point week the same as a 160-point one. The share is N/A
+    when the period scored nothing at all (no pie to slice).
+
+    Two versions: starters only ("Points from QBs") and the whole roster
+    ("Points from QBs (roster)", bench = every non-starter). "Avg points from
+    QBs" (and its roster twin) is points per START (per rostered week): the
+    summed points over the summed weekly "Number of QB started" ("... rostered")
+    — NOT over the year sheet's own Number of QB started, which counts DISTINCT
+    players. N/A when the period had none."""
+    def _sum(col: str) -> float:
+        return float(pd.to_numeric(g.get(col), errors="coerce").fillna(0.0).sum())
+
     out: Dict[str, Any] = {}
-    for pts_col, pct_col in _POS_POINT_COLUMNS:
-        v = float(pd.to_numeric(g.get(pts_col), errors="coerce").fillna(0.0).sum())
-        out[pts_col] = round(v, 2)
-        out[pct_col] = round(v / total, 4) if total else None
+    for suf, total_col, n_word in (("", "_StarterPointsTotal", "started"),
+                                   (" (roster)", "_RosterPointsTotal", "rostered")):
+        total = _sum(total_col)
+        for pts_col, pct_col in _POS_POINT_COLUMNS:
+            pos = pts_col[len("Points from "):]                 # "QBs"
+            v = _sum(pts_col + suf)
+            n = _sum(f"Number of {pos[:-1]} {n_word}")
+            out[pts_col + suf] = round(v, 2)
+            out[pct_col + suf] = round(v / total, 4) if total else None
+            out[f"Avg points from {pos}{suf}"] = round(v / n, 2) if n else None
     return out
 
 
@@ -7143,6 +7158,7 @@ def build_all(repo_root: Path) -> None:
                         # starter point total. team_year / team_all_time sum it so
                         # their shares divide by the same base the weekly ones did.
                         "_StarterPointsTotal": round(starter_pts_total, 2),
+                        "_RosterPointsTotal": round(roster_pts_total, 2),
                         "Number of Add/Drops": int(add_drop_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
                         "Amount of FAAB spent": (

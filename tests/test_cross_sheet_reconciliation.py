@@ -133,6 +133,27 @@ def reconcile(frames) -> list:
             d = (shares - 1.0).abs()
             out.append(("team_week positional roster shares sum to 1",
                         bool(shares.empty or d.max() <= 0.001), f"max Δ {d.max():.4f}", False))
+            if all(c in ty.columns and c in ta.columns for c in _new):
+                for col in _roster:
+                    g = tw.groupby(["Team", "Year"])[col].apply(lambda s: _num(s).sum()).reset_index()
+                    m = ty.merge(g, on=["Team", "Year"], suffixes=("_y", "_w"))
+                    d = (_num(m[f"{col}_y"]) - _num(m[f"{col}_w"])).abs()
+                    out.append((f"team_year {col} = Σ team_week", bool(d.max() <= 0.05),
+                                f"max Δ {d.max():.3f}", False))
+                    cmp_group(ty, "Team", col, ta, "Team", 0.05, f"team_all {col} = Σ team_year")
+                # Year / all-time averages are per START (per rostered week):
+                # Σ weekly points ÷ Σ weekly counts — not the distinct-player count.
+                for p, s in _pos:
+                    for suf, n_col in (("", f"Number of {s} started"), (" (roster)", f"Number of {s} rostered")):
+                        a = tw.assign(_p=_num(tw[f"Points from {p}{suf}"]).fillna(0), _n=_num(tw[n_col]).fillna(0))
+                        for keys, big in ((["Team", "Year"], ty), (["Team"], ta)):
+                            g = a.groupby(keys)[["_p", "_n"]].sum().reset_index()
+                            m = big.merge(g, on=keys)
+                            has = m["_n"] > 0
+                            d = (_num(m[f"Avg points from {p}{suf}"])[has] - m["_p"][has] / m["_n"][has]).abs()
+                            out.append((f"{'team_year' if len(keys) == 2 else 'team_all'} Avg points from {p}{suf}"
+                                        f" = Σ points ÷ Σ weekly {n_col}", bool(d.max() <= 0.006),
+                                        f"max Δ {d.max():.4f}", False))
 
         for col in _pos_pts:
             g = tw.groupby(["Team", "Year"])[col].apply(lambda s: _num(s).sum()).reset_index()
