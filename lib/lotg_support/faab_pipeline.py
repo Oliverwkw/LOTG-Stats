@@ -300,7 +300,8 @@ def backup_columns(E, gsis, pa, workers=None):
     def contracts():
         try:
             from . import contracts as CT
-            return X.vet_deal_cap(rows, CT.load_contracts())
+            c = CT.load_contracts()
+            return X.vet_deal_cap(rows, c), X.contract_left(rows, c)
         except Exception as e:      # no contracts file (offline, no pyarrow): the rule reads NaN and stays off
             return e
     jobs = dict(spend=lambda: X.rookie_backup_spend(rows, adds, info, X.RW, X.GL),
@@ -308,7 +309,9 @@ def backup_columns(E, gsis, pa, workers=None):
                 dc1=lambda: X.nfl_draft_comp(rows, dp, X.RW, max_round=1, gone=gone()),
                 undrafted=lambda: X.league_undrafted(rows, adds),
                 draft_done=lambda: X.league_draft_done(rows, adds),
-                contracts=contracts)
+                contracts=contracts, ceiling=lambda: X.game_ceiling(rows), qb_change=lambda: X.qb_change_form(rows), vacated=lambda: X.vacated_role(rows),
+                cuff=lambda: X.activated_cuff(rows), rqb=lambda: X.rookie_qb_pick(rows, X.RW), nyg=lambda: X.on_team(rows, X.RW, "NYG"), dch=lambda: X.depth_chart(rows), tnow=lambda: X.team_now_l0(rows, X.RW), ncoach=lambda: X.new_coach(rows, X.RW), frk=lambda: X.finish_ranks(rows),
+                susp=lambda: X.suspended_last(rows, X.SUSP))
     if X.GL is not None:
         jobs.update(te_one_off=lambda: X.te_one_off(rows, X.GL, X.RW), ypc=lambda: X.ypc_with_current(rows, X.GL),
                     overtaken=lambda: X.overtaken_by_rookie(rows, X.GL, X.RW, dp), te_top3=lambda: X.te_top3(rows, X.GL, pos=pos_of),
@@ -324,10 +327,13 @@ def backup_columns(E, gsis, pa, workers=None):
         E = E.assign(**{k: (np.round(v, 5) if np.asarray(v).dtype.kind == "f" else v) for k, v in J["round5"].items()})
         rk, cp = J["rb_room"]
         E = E.assign(e_x_rb_prev_rank=rk, e_x_rb_comp=cp)
+    E = E.assign(**{f"e_x_{k}": v for k, v in J["ceiling"].items()})
+    E = E.assign(e_x_vacated=J["vacated"], e_x_cuff_act=J["cuff"], e_x_rookie_qb_pick=J["rqb"], e_x_nyg=J["nyg"], e_x_susp_last=J["susp"], e_x_dc_rank=J["dch"][0], e_x_dc_prev=J["dch"][1], e_x_tnow_win_l0=J["tnow"][0], e_x_tnow_implied_l0=J["tnow"][1], e_x_new_coach=J["ncoach"], e_x_best_rank_4y=J["frk"][0], e_x_team_rank_l0=J["frk"][1])
+    E = E.assign(e_x_ppg_alt_qb=J["qb_change"][0], e_x_n_alt_qb=J["qb_change"][1], e_x_ppg_main_qb=J["qb_change"][2])
     if isinstance(J["contracts"], Exception):
         print(f"contracts unavailable ({type(J['contracts']).__name__}): e_x_vet_deal_cap left empty")
     else:
-        E = E.assign(e_x_vet_deal_cap=J["contracts"])
+        E = E.assign(e_x_vet_deal_cap=J["contracts"][0], e_x_contract_left=J["contracts"][1])
     return E
 
 

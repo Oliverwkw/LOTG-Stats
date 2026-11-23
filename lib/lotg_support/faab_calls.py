@@ -13,9 +13,10 @@ full board for a call's date, the latest full board before it stands in (see `fa
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
-CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20")
+CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20", "2026-11-22")
 # first review, second review, league chat consensus (10-26), chat (TLaw/Lamar, 11-03), votes (11-18), chat (top WRs / Ladd, 11-20)
 # Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
 # in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
@@ -51,13 +52,26 @@ RANGE_TOL = float(np.log(1.05))
 PAIR_TOL = float(np.log(1.01))
 CALL_CAP = 0.5
 
+MISSING = set()
+SUFFIXES = (" Jr.", " Sr.", " II", " III", " IV", " V")
+
+def resolve(n, index):
+    """the board's spelling of a call's name: exact, else the one board name that is it plus a suffix (Jr., II, III:
+    Sleeper's names carry them, the calls were written without; a silent miss skipped the call, found 2026-11-22)"""
+    if n in index: return n
+    m = [n + s for s in SUFFIXES if n + s in index]
+    return m[0] if len(m) == 1 else n
+
 def calls(v, ref=None, qbs=()):
     """v: Series name -> value (one board for every call), or {call date: Series} (each group on the board of the
     day it was made; a date with no board uses the latest earlier one). ref: Series of the board Oliver reviewed
     (for 'looks alright'). Returns list of (call, loss)."""
     on = lambda d: v if not isinstance(v, dict) else v[max([k for k in v if k <= d] or [min(v)])]
     B = on(CALL_DATES[0])
-    g = lambda n: float(B.get(n, np.nan))
+    def g(n):
+        x = float(B.get(resolve(n, B.index), np.nan))
+        if np.isnan(x): MISSING.add(n)     # a call naming a player not on the board is skipped: check_names() lists them
+        return x
     def gt(a, b, m=0.03): return max(0.0, np.log(g(b)) - np.log(g(a)) + m - PAIR_TOL) if not (np.isnan(g(a)) or np.isnan(g(b))) else 0.0
     def h(x, tol): return max(0.0, x - tol)          # a hinge with its dead zone
     def rng(n, lo, hi): x = g(n); return 0.0 if np.isnan(x) else max(0.0, np.log(lo) - np.log(x) - RANGE_TOL) + max(0.0, np.log(x) - np.log(hi) - RANGE_TOL)
@@ -123,7 +137,7 @@ def calls(v, ref=None, qbs=()):
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
     # Hampton at least Bucky, Henderson at least a high second
     B = on(CALL_DATES[2])
-    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-340)", rng("Kyle Monangai", 180, 340)),
+    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-360; Oliver 2026-11-22: extended to take in $361)", rng("Kyle Monangai", 180, 360)),
           ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999)),
           ("Bucky a 1.06-1.07 ($783-875)", rng("Bucky Irving", 783, 875))]                  # Shmuel 1.07, Oliver 1.06, Ben 1.07
     # league chat 2026-11-03 (the TLaw trade-block thread): Lawrence at least Lamar (Ben, Peter, Sam's offer, Oliver)
@@ -138,6 +152,15 @@ def calls(v, ref=None, qbs=()):
     t += [(f"{n} above CeeDee/Jefferson/Nabers (chat 2026-11-20)", h(np.log(nxt) - np.log(g(n)) + 0.03, PAIR_TOL))
           for n in ["Jaxon Smith-Njigba", "Ja'Marr Chase", "Puka Nacua"]]
     t += [(f"Ladd below {n} (chat 2026-11-20)", gt(n, "Ladd McConkey")) for n in ["Parker Washington", "Nico Collins", "George Pickens", "Christian Watson"]]
+    # Oliver 2026-11-22: Chase Brown is too high: streaks of single-digit games and a pass-first offense; at most $1,500
+    B = on(CALL_DATES[6])
+    t += [("Chase Brown <= $1,500 (Oliver 2026-11-22)", rng("Chase Brown", 1, 1500))]
+    # Oliver 2026-11-22: Kenneth Walker too low: a big year in a new place (Seattle -> Kansas City)
+    t += [("Kenneth Walker above the $2,294 flagged as too low (Oliver 2026-11-22)", rng("Kenneth Walker", 1.15 * 2294, 99999))]
+    # Oliver 2026-11-22: Penix "worth at least a 3rd or two" (a late 3rd, 3.08, is $58 on the 2026-11-21 board)
+    t += [("Penix at least a 3rd (>= $58; Oliver 2026-11-22)", rng("Michael Penix", 58, 99999))]
+    # Oliver 2026-11-22: Fannin too high: run-first offense, low ceiling (boom weeks only so big), inconsistent
+    t += [("Harold Fannin below the $1,901 flagged as too high (Oliver 2026-11-22)", rng("Harold Fannin Jr.", 1, 0.85 * 1901))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)
@@ -149,7 +172,8 @@ def calls(v, ref=None, qbs=()):
     if ref is not None:
         for n in MID_TE + ["Brock Purdy", "Jared Goff"]:   # "middle TEs good", "Purdy & Goff fine"
             r = REVIEW_AT.get(n, ref[n] if n in ref.index else None)
-            if r is not None: t += [(f"{n} stays near the reviewed ${r:,.0f}", rng(n, 0.75 * r, 1.3 * r))]
+            m = resolve(n, B.index)   # renamed since (Harold Fannin -> Harold Fannin Jr.)
+            if r is not None: t += [(f"{n} stays near the reviewed ${r:,.0f}", rng(m, 0.75 * r, 1.3 * r))]
     return [(n, min(x, CALL_CAP)) for n, x in t]
 
 BUBBLE = (93, 222)   # Oliver 2026-11-09: the bubble is a mid-late second to an early third (2.05 $222 .. 3.03 $93), was $50-300
@@ -158,6 +182,27 @@ def vet_bubble(v, exp):
     e = exp.reindex(v.index); vets = v[e >= 3]
     frac = float(vets.between(*BUBBLE).mean()) if len(vets) else 0.0
     return (f"few veterans valued ${BUBBLE[0]}-{BUBBLE[1]} (replacement level)", max(0.0, frac - 0.03) * 10)
+# calls on one player's row on a past date (the inputs keep every trade side's row): (date, name, lo, hi, label). A row
+# dated on or up to 7 days before the date stands in (a trade's row is the day before it). Oliver 2026-11-22: Jefferson
+# was at his peak at the 2022-09-27 trade ("Chase is worth like 3800 today ... at least 3500 at the time")
+ROW_CALLS = (("2022-09-27", "Justin Jefferson", 3500, 99999, "Jefferson >= $3,500 at the 2022-09-27 trade (Oliver 2026-11-22)"),)
+
+
+def row_calls(R, V):
+    """[(label, loss)] for ROW_CALLS on the inputs rows R (values V, aligned with R)"""
+    out = []
+    d = pd.to_datetime(R.date)
+    names = set(R.name.values)
+    for day, name, lo, hi, label in ROW_CALLS:
+        name = resolve(name, names)
+        if name not in names: MISSING.add(name)
+        t = pd.Timestamp(day); m = np.where((R.name.values == name) & (d <= t) & (d >= t - pd.Timedelta(days=7)))[0]
+        if not len(m): continue
+        x = float(V[m[np.argmax(d.values[m])]])
+        out.append((label, max(0.0, np.log(lo) - np.log(x) - RANGE_TOL) + max(0.0, np.log(x) - np.log(hi) - RANGE_TOL)))
+    return out
+
+
 def score(v, ref=None, qbs=(), others_w=0.15, exp=None):
     """sum of call losses + a light pull of everyone else toward the reviewed board ('a lot of the rest looks alright')"""
     t = calls(v, ref, qbs)
@@ -165,7 +210,7 @@ def score(v, ref=None, qbs=(), others_w=0.15, exp=None):
     if exp is not None: t.append(vet_bubble(v, exp))
     loss = sum(x for _, x in t)
     if ref is not None:
-        named = set(LOW_FIRST + UNDER_FIRST + MID_TE + TOP3 + ["Derrick Henry"])
+        named = {resolve(n, v.index) for n in LOW_FIRST + UNDER_FIRST + MID_TE + TOP3 + ["Derrick Henry"]}
         o = [n for n in ref.index if n in v.index and n not in named and ref[n] >= 50]
         loss += others_w * float(np.mean(np.abs(np.log(v[o].values) - np.log(ref[o].values))))
     return loss, t
