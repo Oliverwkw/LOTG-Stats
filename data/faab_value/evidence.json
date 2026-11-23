@@ -1,5 +1,5 @@
 {
-"as_of": "2026-11-22",
+"as_of": "2026-11-23",
 "calls_date": "2026-10-24",
 "call_dates": {
 "2026-10-24": "2026-10-24",
@@ -240,7 +240,7 @@
 ]
 },
 {
-"other_value": 417.933,
+"other_value": 451.111,
 "players": [
 [
 "5045",
@@ -254,7 +254,7 @@
 "date": "2022-10-19",
 "sides": [
 {
-"other_value": 766.035,
+"other_value": 835.34,
 "players": []
 },
 {
@@ -317,7 +317,7 @@
 "date": "2023-08-04",
 "sides": [
 {
-"other_value": 184.852,
+"other_value": 182.396,
 "players": [
 [
 "4985",
@@ -3061,7 +3061,7 @@
 "date": "2025-08-11",
 "sides": [
 {
-"other_value": 524.763,
+"other_value": 529.214,
 "players": [
 [
 "12505",
@@ -3363,7 +3363,7 @@
 "date": "2022-07-25",
 "sides": [
 {
-"other_value": 1203.585,
+"other_value": 1207.152,
 "players": [
 [
 "4663",
@@ -3444,7 +3444,7 @@
 "date": "2023-01-21",
 "sides": [
 {
-"other_value": 74.843,
+"other_value": 72.515,
 "players": []
 },
 {
@@ -4255,7 +4255,7 @@
 "date": "2022-10-23",
 "sides": [
 {
-"other_value": 1604.228,
+"other_value": 1543.57,
 "players": [
 [
 "7588",
@@ -4568,7 +4568,7 @@
 ]
 },
 {
-"other_value": 72.286,
+"other_value": 76.737,
 "players": []
 }
 ]
@@ -4971,7 +4971,7 @@
 "date": "2025-03-17",
 "sides": [
 {
-"other_value": 287.93,
+"other_value": 293.036,
 "players": []
 },
 {
