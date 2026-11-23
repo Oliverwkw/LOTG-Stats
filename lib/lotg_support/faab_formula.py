@@ -61,6 +61,11 @@ def yqb_exp(d, size):
 
 
 STARTUP_SEASON = 2020    # the startup draft priced veterans and rookies on one board: not a rookie-draft price
+# (Oliver 2026-11-23, TreVeyon Henderson: Out/IR after six healthy games of a shrinking role took his base from $220
+# back to his preseason $1,036) an injured player's base is the best of now, just before the injury and preseason;
+# preseason stands in only while he has fewer than INJ_PRESEASON_G games this season (a camp or early injury: no
+# sample yet). After that his healthy games are the evidence, and an injury tag must not erase them. 99 = old behaviour.
+INJ_PRESEASON_G = 4
 UNDRAFTED_PICK = 300.0     # NFL overall pick an undrafted rookie counts as (past the 7th round)
 
 
@@ -202,7 +207,8 @@ class Formula:
             lf = d.Lf; new = {}
             for sid, t0 in start.items():
                 hd, hl = self._hist.get(sid, (np.array([], "datetime64[ns]"), None)); v = lf.loc[sid]
-                for t_ in (t0, s_ko - pd.Timedelta(days=1)):
+                gp_ = d.c_gp.get(sid, np.nan); pre_ok = not (gp_ >= INJ_PRESEASON_G)
+                for t_ in ((t0, s_ko - pd.Timedelta(days=1)) if pre_ok else (t0,)):
                     j = np.searchsorted(hd, np.datetime64(t_), side="right") - 1
                     if j >= 0: v = max(v, hl[j])
                 new[sid] = v
