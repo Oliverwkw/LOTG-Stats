@@ -67,7 +67,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install minimal deps
-        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "numpy==2.4.6"
+        # pyyaml / python-dateutil / requests: the player game logs score nflverse weeks with the
+        # build's own scorer (src/lotg.py), and download the nflverse files the site has no cache of
+        run: pip install -c requirements.lock --no-cache-dir "pandas==3.0.6" "numpy==2.4.6" pyyaml python-dateutil requests
 
       - name: Fetch the build workbook (asset-history comments)
         # The player and pick history notes exist only as hover comments in the build's

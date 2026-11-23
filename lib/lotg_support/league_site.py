@@ -360,7 +360,8 @@ PLAYER_SUMMARY_COLUMNS = [
     "Win % as starter", "xFP", "Points minus xFP",
 ]
 PLAYER_SEASON_COLUMNS = [
-    "Year", "Top Team", "Last team", "Age", "Points", "Total points as starter", "PPG starter",
+    "Year", "Top Team", "Last team", "Age", "Points (full season)", "Avg points (full season)",
+    "Points", "Total points as starter", "PPG starter",
     "Weeks as starter", "Weeks rostered", "Starter PAR", "Rostered by champion?",
     "Started in championship game?",
 ]
@@ -1763,6 +1764,75 @@ class Site:
         n = pd.to_numeric(g["Weeks with usage data"], errors="coerce").fillna(0)
         return g[n > 0].sort_values("Year", ascending=False)
 
+    # -- every NFL game since 2020 in league scoring, for the game logs and full-season rows
+    NFL_LOG_FROM = 2020
+    LOG_COLS = ["Year", "Week", "Week Name", "Team", "Starter/Bench", "Position started in (if starter)",
+                "Points", "Snap %", "Targets", "Carries", "xFP"]
+
+    def nfl_points(self) -> Dict[str, Dict[Tuple[int, int], float]]:
+        """League-scored nflverse points by Sleeper id and (season, week): the build's own
+        scorer (wins_added.nflverse_points_from_cache). The site workflow has no build
+        cache, so missing seasons are downloaded first. Any failure: {} (game logs then
+        show rostered weeks only)."""
+        if getattr(self, "_nfl_pts", None) is not None:
+            return self._nfl_pts
+        self._nfl_pts = {}
+        try:
+            from . import external as X
+            from . import wins_added as WA
+            cache = ROOT / ".cache"
+            cache.mkdir(exist_ok=True)
+            cfg = X.ExternalConfig(cache_dir=cache)
+            seasons = list(range(self.NFL_LOG_FROM, int(self.season) + 1))
+            for y in seasons:
+                f = cache / f"nflverse_stats_player_week_{y}.csv"
+                if not f.exists() or (y == int(self.season) and time.time() - f.stat().st_mtime > 6 * 3600):
+                    X.load_nflverse_stats_player_week(cfg, y, force_refresh=f.exists())
+            self._nfl_pts = WA.nflverse_points_from_cache(seasons) or {}
+        except Exception as e:      # network, bridge or format trouble: rostered weeks only
+            print(f"league_site: nflverse game logs unavailable ({type(e).__name__}: {e})")
+            self._nfl_pts = {}
+        return self._nfl_pts
+
+    def game_log(self, name: str, sid: Optional[str], g: Optional[pd.DataFrame], res: Dict) -> Dict[str, object]:
+        """Every game: his rostered weeks (team, role, slot, points, the team's opponent and
+        result, usage) plus every other NFL game since 2020 he played, newest first."""
+        nfl = self.nfl_points().get(str(sid), {}) if sid else {}
+        rows = {}
+        if g is not None:
+            for yr, wk, wn, team, role, slot, pts, snap, tg, ca, xfp in g[self.LOG_COLS].values:
+                if pd.isna(yr) or pd.isna(wk):
+                    continue
+                y, w = int(yr), int(wk)
+                rr = res.get((str(team), y, w), (None, None))
+                rows[(y, w)] = [y, w, str(wn), str(team), str(role),
+                                (None if pd.isna(slot) else str(slot)), _clean(pd.to_numeric(pts, errors="coerce"), 2),
+                                rr[0], rr[1], _clean(nfl.get((y, w)), 2),
+                                _clean(pd.to_numeric(snap, errors="coerce"), 4), _clean(pd.to_numeric(tg, errors="coerce"), 0),
+                                _clean(pd.to_numeric(ca, errors="coerce"), 0), _clean(pd.to_numeric(xfp, errors="coerce"), 2)]
+        for (y, w), pts in nfl.items():
+            if (y, w) not in rows:
+                # a week the exports don't reach yet isn't "not rostered": it's after the build
+                after = y == int(self.season) and w > int(self.week)
+                rows[(y, w)] = [y, w, f"Week {w}", None, "Since the last build" if after else "Not rostered", None, _clean(pts, 2),
+                                None, None, _clean(pts, 2), None, None, None, None]
+        cols = ["Year", "Week", "Week Name", "Team", "Role", "Slot", "Points", "Opponent", "Win?",
+                "NFL points", "Snap %", "Targets", "Carries", "xFP"]
+        return {"cols": cols, "rows": [rows[k] for k in sorted(rows, reverse=True)],
+                "fmt": {"Points": {"d": 2}, "NFL points": {"d": 2}, "Snap %": {"d": 1, "p": "x"},
+                        "Targets": {"d": 0}, "Carries": {"d": 0}, "xFP": {"d": 2}}}
+
+    def full_seasons(self, sid: Optional[str], have: set) -> pd.DataFrame:
+        """Season rows since 2020 for seasons he wasn't on a league roster: the whole NFL
+        season's league-scored points (Points (full season) / Avg points (full season))."""
+        nfl = self.nfl_points().get(str(sid), {}) if sid else {}
+        by: Dict[int, List[float]] = {}
+        for (y, w), pts in nfl.items():
+            if y not in have and pts is not None:
+                by.setdefault(y, []).append(float(pts))
+        return pd.DataFrame([{"Year": y, "Top Team": "Not rostered", "Points (full season)": round(sum(v), 2),
+                              "Avg points (full season)": round(sum(v) / len(v), 2)} for y, v in sorted(by.items())])
+
     # -- player pages
     def players(self) -> Dict[str, dict]:
         pos = self._positions()
@@ -1793,6 +1863,22 @@ class Site:
                     trade_hits.setdefault(a, []).append(t["id"])
         drafted = {str(r["Player Picked"]): r for _, r in self.rookie.iterrows()}
         hist = self.player_histories()
+        log = pw.copy()
+        for c in self.LOG_COLS:
+            if c not in log.columns:
+                log[c] = None
+        logs = log.groupby("Player")
+        sid_of = {}
+        if "Player ID" in pw.columns:
+            for nm, v in pw.dropna(subset=["Player ID"]).groupby("Player")["Player ID"].last().items():
+                sid_of[nm] = str(v).split(".")[0]
+        # each team-week's opponent and result, for the log
+        res = {}
+        for team, yr, wk, opp, won in self.tw[["Team", "Year", "Week", "Opponent", "Win?"]].values:
+            y, w = pd.to_numeric(yr, errors="coerce"), pd.to_numeric(wk, errors="coerce")
+            if pd.notna(y) and pd.notna(w):
+                res[(str(team), int(y), int(w))] = (None if pd.isna(opp) else str(opp),
+                                                    None if pd.isna(won) else str(won).strip().lower() in ("true", "1", "yes"))
         out = {}
         for name, key in self.slugs.items():
             summary = {}
@@ -1811,9 +1897,11 @@ class Site:
                 "summary_labels": {c: _display(c, "player_all_time") for c in summary},
                 "summary_fmt": {c: column_format(c) for c in summary},
                 "teams": by_team.get(name, []),
-                "seasons": _table(py.get_group(name).sort_values("Year", ascending=False)
-                                  if name in py.groups else self.py.iloc[0:0],
+                "seasons": _table(pd.concat([py.get_group(name) if name in py.groups else self.py.iloc[0:0],
+                                             self.full_seasons(sid_of.get(name), set(pd.to_numeric(py.get_group(name).Year, errors="coerce").dropna().astype(int)) if name in py.groups else set())],
+                                            ignore_index=True).sort_values("Year", ascending=False),
                                   PLAYER_SEASON_COLUMNS, "player_year"),
+                "games": self.game_log(name, sid_of.get(name), logs.get_group(name) if name in logs.groups else None, res),
                 "usage": _table(self._usage_seasons(py.get_group(name)) if name in py.groups
                                 else self.py.iloc[0:0], PLAYER_USAGE_COLUMNS, "player_year"),
                 "stints": _table(adds.get_group(name).sort_values("Date")

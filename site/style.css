@@ -554,3 +554,8 @@ table.lens td .muted.small{font-weight:400;margin-top:2px}
 .ideas{display:grid;gap:8px}
 .idea{background:var(--bg2);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
 table.lens tr.me td{background:color-mix(in srgb,var(--accent) 10%,transparent)!important;box-shadow:none}
+/* player page: recent games */
+.gtiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.gtile{display:flex;flex-direction:column;gap:2px;background:var(--bg2);border-radius:12px;padding:9px 11px;border:1px solid var(--line)}
+.gtile b{font:700 22px var(--display);letter-spacing:-.01em}
+.gtile.st{border-color:var(--accent-line)}
