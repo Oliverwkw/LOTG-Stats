@@ -658,3 +658,9 @@ browser.
 596. Predictions: when no simulated season has a team missing (making) the playoffs, the way-out (way-in) button says whether it has clinched (is eliminated); if it hasn't, it fills the most likely set of results that still does it, with the team's odds under them ("all but clinched" when its points-for edge makes the tiebreak near-impossible).
 597. Predictions: the 1st-seed column is exact too — 0% for a team that can't finish first however the open games go, 100% for one that can't be caught (a tie in wins counts as possibly lost on points for).
 598. Trade calculator: KTC's value adjustment checked against keeptradecut.com's own calculator (2,698 v 2,801; 7,943 v 4,998 + 3,992; 6,022 v 3,001 + 1,501 + 2,698: same adjustment, "add" within 2). Three- and four-team deals (and third-team ideas) use plain KTC values: the adjustment is defined for two sides only, and per-team adjustments made the deal not add up.
+599. Player pages: Recent games (last 6 played, byes and weeks out skipped) near the top, and a Game log card with season tabs, a weekly points chart and every game (league team, role, slot, opponent and result, snap %, targets, carries, xFP); every NFL game since 2020 in league scoring, rostered or not.
+600. Player Seasons table: Points (full season) and Avg points (full season) columns, and a row for every season since 2020 he spent off league rosters; the season chart uses full-season points.
+601. Player pages no longer light the Home tab.
+602. Game log: NFL weeks after the league's last week (week 18; 2020's week 17) read "After the league season", not "Not rostered".
+603. Player pages: the career stat boxes are removed (user); the numbers stay in the Seasons and Career tables.
+604. Points (full season) and Avg points (full season) get green / red best / worst marks.

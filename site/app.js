@@ -276,7 +276,7 @@ function downloadText(name, text, type = "text/csv") {
 // marked; shares, counts, ages, tenure, swing, riskiness, projections and the like aren't
 // good or bad, so they stay plain.
 const X_LOW = /^(pa|avg pa|points against|avg points against|points left on bench|avg points left on bench|bust week %|times lowest score|times least efficient|times underachiever.*|number of last place finishes|losses from hardship.*|hardship.*|starter-adjusted hardship.*|donuts.*|empty slots|weeks of (starter )?injuries)$/i;
-const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts|avg snap %|snap %|targets|carries|avg target share|target share|red-zone opportunities|air yards|draft value|all-time draft capital|toilet bowl win %|playoff win %|3rd place game win %|times player of the week\??|points per game|ppg|avg ppg|avg points added|career ppg|pts|points for|max points)$/i;
+const X_GOOD = /^(pf|avg pf|points|avg points|total points as starter|playoff points|regular-season points|max pf|avg max pf|w-l|win %|all time win %|regular season win %|playoff win %|all-play|all-play win %|diff|differential|avg differential|margin|efficiency|titles|championships|finals|playoffs|regular|final|3rd place|toilet|toilet losers|number of (playoff|championship) appearances|.*skill|drafting|trading|add\/drop|starter par|ppg starter|avg ppg on team|points added|player addition value|o-score|xfp|avg xfp|starters' xfp|avg starters' xfp|points minus xfp|avg points minus xfp|starters' points minus xfp|points above .*projection|avg points above .*projection|times (highest score|most efficient|podium|top half of league|overachiever.*|largest blowout)|win % vs .*|underdog win %.*|value|total|players|qb|rb|wr|te|picks \d.*|ktc( on| \d| at).*|faab value( on| \d| at).*|pick-adjusted difference in .*|avg weekly score.*|top starter score|playoff pf minus regular-season pf|proj\. wins|title|1st seed|pts\/wk|proj\.\/wk|best week|pts as starter|start %|weeks|starts|points \(full season\)|avg points \(full season\)|avg snap %|snap %|targets|carries|avg target share|target share|red-zone opportunities|air yards|draft value|all-time draft capital|toilet bowl win %|playoff win %|3rd place game win %|times player of the week\??|points per game|ppg|avg ppg|avg points added|career ppg|pts|points for|max points)$/i;
 function extremesOf(cols, rows, val) {
   const out = cols.map(() => null);
   if (rows.length < 3) return out;
@@ -1317,7 +1317,19 @@ async function player(key, _q, live) {
   const enc = encodeURIComponent(p.name);
   const nowTeam = live && /^\d+$/.test(key) ? live.owner[key] : p.team;
   const S = p.seasons, sc = (c) => (S ? S.cols.indexOf(c) : -1);
-  const chart = S && S.rows && S.rows.length > 1 && sc("Points") >= 0 ? barChart(S.rows.slice().sort((a, b) => a[sc("Year")] - b[sc("Year")]).map((r) => ({ label: String(r[sc("Year")]), v: r[sc("Points")], title: `${r[sc("Year")]}: ${stripHtml(fmt({ d: 2 }, r[sc("Points")]))} points${r[sc("Top Team")] ? " · " + r[sc("Top Team")] : ""}` })), { label: `${p.name}'s points per season`, h: 140 }) : "";
+  const fullC = sc("Points (full season)") >= 0 ? "Points (full season)" : "Points";
+  const chart = S && S.rows && S.rows.length > 1 && sc(fullC) >= 0 ? barChart(S.rows.slice().sort((a, b) => a[sc("Year")] - b[sc("Year")]).map((r) => ({ label: String(r[sc("Year")]), v: r[sc(fullC)] ?? r[sc("Points")], cls: r[sc("Top Team")] === "Not rostered" ? "g" : "", title: `${r[sc("Year")]}: ${stripHtml(fmt({ d: 2 }, r[sc(fullC)] ?? r[sc("Points")]))} points${r[sc("Top Team")] ? " · " + r[sc("Top Team")] : ""}` })), { label: `${p.name}'s points per season`, h: 140 }) : "";
+  // the game log: every NFL game since 2020 (rostered weeks with his league team and role)
+  const G = p.games && p.games.rows && p.games.rows.length ? p.games : null, gc = (c) => (G ? G.cols.indexOf(c) : -1);
+  // a game he played: nflverse has a stat line (a bye or a week out has none); without nflverse, any rostered week
+  const hasNfl = G && G.rows.some((r) => r[gc("NFL points")] != null);
+  const played = G ? G.rows.filter((r) => hasNfl ? r[gc("NFL points")] != null : r[gc("Points")] != null) : [];
+  const recent = played.slice(0, 6);
+  const gameTile = (r) => { const pts = r[gc("Points")], role = r[gc("Role")], team = r[gc("Team")], opp = r[gc("Opponent")], won = r[gc("Win?")];
+    return `<div class="gtile ${role === "Starter" ? "st" : ""}"><span class="muted small">${r[gc("Year")]} ${esc(String(r[gc("Week Name")]).replace("Week ", "Wk "))}</span><b>${fmt({ d: 2 }, pts)}</b>
+      <span class="small">${team ? `${esc(role)}${r[gc("Slot")] ? " · " + esc(r[gc("Slot")]) : ""}` : `<span class="muted">${esc(role)}</span>`}</span>
+      ${team && opp ? `<span class="small muted">${esc(team)} ${won === true ? '<span class="w">W</span>' : won === false ? '<span class="lo">L</span>' : ""} v ${esc(opp)}</span>` : ""}</div>`; };
+  const logYears = G ? [...new Set(G.rows.map((r) => r[gc("Year")]))] : [];
   setTitle(p.name);
   $app.innerHTML = `${crumbs(["Players", "search/" + enc], [p.name])}
     <div class="page-head"><div><h1>${esc(p.name)} ${posBadge(p.pos)}</h1>
@@ -1325,9 +1337,16 @@ async function player(key, _q, live) {
       ${d ? `<br>Drafted ${esc(d.year)} pick ${esc(d.pick)} by ${teamLink(d.team)}${typeof d.faab === "number" ? ` (FAAB value on draft day ${money(d.faab)})` : ""}` : ""}</p></div>
       <div class="actions"><a class="btn sec" href="#/compare?a=p:${encodeURIComponent(key)}">⚖️ Compare</a>${shareBtn()}</div></div>
     ${fv ? `<div class="card note info nocv" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:18px">${money(fv.value)}</b> <span>FAAB value · #${fv.rank} on the board of ${esc(B.as_of)} · ${esc(pickText(B, fv.value))}</span><span style="flex:1"></span><a href="#/faab?q=${enc}">board</a> · <a href="rate/">rate it</a></div>` : ""}
-    ${tiles(p.summary, p.summary_labels, p.summary_fmt, null, "player_all_time")}
+    ${recent.length ? `<div class="card nocv"><div class="chead"><h2>Recent games</h2><a class="small" href="#gamelog" id="toLog">Full game log ↓</a></div><div class="gtiles">${recent.map(gameTile).join("")}</div>
+      <p class="muted small">His last ${recent.length} games, newest first: fantasy points in league scoring; the role and result are his league team's when he was rostered.</p></div>` : ""}
     <p class="small">Every row: ${[["player_week", "weeks", "&y=all"], ["player_year", "seasons", ""], ["player_all_time", "career", ""], ["player_additions", "acquisitions", ""]].map(([s, n, x]) => `<a class="chip" href="#/data/${s}?c=Player&v=${enc}${x}">${n}</a>`).join("")}<a class="chip" href="#/data/add_drops?q=${enc}">add/drops</a><a class="chip" href="#/records?find=${enc}">record boards</a></p>
-    ${chart ? `<div class="card"><h2>Points by season</h2>${chart}<p class="muted small">Points while on a league roster, each season.</p></div>` : ""}
+    ${chart ? `<div class="card"><h2>Points by season</h2>${chart}<p class="muted small">Every NFL game each season in league scoring${S.rows.some((r) => r[sc("Top Team")] === "Not rostered") ? "; gold = a season he spent off league rosters" : ""}.</p></div>` : ""}
+    ${G ? `<div class="card nocv" id="gamelog"><div class="chead"><h2>Game log</h2></div>
+      <div class="seg tabs" role="tablist">${logYears.map((y, i) => `<button role="tab" data-ly="${y}" aria-pressed="${i === 0}">${y}</button>`).join("")}</div>
+      <div id="logbody"></div>
+      <p class="muted small">Every NFL game since 2020 in this league's scoring (nflverse stats), with his league team, role and slot, and that team's opponent and result when he was rostered. "Not rostered" weeks still count his points. Snap %, targets, carries and xFP are for rostered weeks.</p></div>` : ""}
+    <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { defs: "player_year", links: { "Top Team": (v) => v === "Not rostered" ? '<span class="muted">Not rostered</span>' : teamLink(v), "Last team": (v) => teamLink(v) } })}
+      <p class="muted small">Points (full season) = every NFL game that season in league scoring, rostered or not; Points = only while on a league roster. Seasons since 2020 he spent off league rosters are included.</p></div>
     <div class="card"><h2>Career by team</h2>${table([
       { k: "team", label: "Team", left: true, html: (r) => teamLink(r.team) },
       { k: "from", label: "From", left: true }, { k: "to", label: "To", left: true },
@@ -1336,10 +1355,29 @@ async function player(key, _q, live) {
       { k: "pts", label: "Pts as starter", spec: { d: 2 } }, { k: "ppg", label: "PPG starter", spec: { d: 2 } },
       { k: "best", label: "Best week", spec: { d: 2 } }], p.teams, { tools: false, teamOf: (r) => r.team, rowLink: (r) => `team/${tslug(r.team)}` })}</div>
     <div class="card"><h2>Acquisitions</h2>${dataTable(p.stints, { pin: 2, defs: "player_additions", links: { Team: (v) => teamLink(v) } })}</div>
-    <div class="card"><h2>Seasons</h2>${dataTable(p.seasons, { defs: "player_year", links: { "Top Team": (v) => teamLink(v), "Last team": (v) => teamLink(v) } })}</div>
     ${p.usage && p.usage.rows.length ? `<div class="card"><h2>Usage</h2><p class="muted small">Snaps, targets, carries and red-zone looks while rostered. xFP = the points his targets and carries usually produce in this league's scoring; points minus xFP above 0 = scoring beyond the opportunity (rarely sticky), rising xFP = a bigger role.</p>${dataTable(p.usage)}</div>` : ""}
     ${p.history ? `<div class="card"><h2>History</h2>${historyList(p.history)}<p class="muted small">Every draft, add, drop and trade, as the workbook's history note has it. Tap a trade to open it.</p></div>` : ""}
     ${p.trades.length ? `<div class="card"><h2>Trades (${p.trades.length})</h2>${p.trades.map((id) => byId[id] && tradeCard(byId[id], tr.meta)).join("")}</div>` : ""}`;
+  if (!G) return;
+  const drawLog = (y) => {
+    const rows = G.rows.filter((r) => r[gc("Year")] === y).slice().reverse();
+    const roleChip = { Starter: "acc", Bench: "", "Not rostered": "", "After the league season": "", "Since the last build": "live" };
+    $("#logbody").innerHTML = barChart(rows.map((r) => ({ label: String(r[gc("Week")]), v: r[gc("Points")], cls: r[gc("Role")] === "Starter" ? "" : "g", title: `${r[gc("Week Name")]}: ${stripHtml(fmt({ d: 2 }, r[gc("Points")]))} · ${r[gc("Role")]}` })), { label: `${p.name}'s points by week, ${y}`, h: 130 })
+      + `<div class="legend"><span><i style="background:var(--accent)"></i>started</span><span><i style="background:var(--gold)"></i>bench or not rostered</span></div>`
+      + table([
+        { k: gc("Week"), label: "Week", html: (r) => r[gc("Team")] ? `<a href="#/game/${r[gc("Year")]}/${r[gc("Week")]}/${tslug(r[gc("Team")])}">${esc(r[gc("Week Name")])}</a>` : esc(r[gc("Week Name")]) },
+        { k: gc("Points"), label: "Pts", html: (r) => hasNfl && r[gc("NFL points")] == null ? '<span class="muted small">didn\'t play</span>' : `<b>${fmt({ d: 2 }, r[gc("Points")])}</b>` },
+        { k: gc("Role"), label: "Role", left: true, html: (r) => `<span class="chip ${roleChip[r[gc("Role")]] || ""}">${esc(r[gc("Role")])}</span>${r[gc("Slot")] ? ` <span class="muted small">${esc(r[gc("Slot")])}</span>` : ""}` },
+        { k: gc("Team"), label: "League team", left: true, html: (r) => r[gc("Team")] ? teamLink(r[gc("Team")]) : '<span class="muted">—</span>' },
+        { k: gc("Opponent"), label: "Opponent", left: true, html: (r) => r[gc("Opponent")] ? `${r[gc("Win?")] === true ? '<span class="w">W</span>' : r[gc("Win?")] === false ? '<span class="lo">L</span>' : ""} v ${teamLink(r[gc("Opponent")], false)}` : '<span class="muted">—</span>' },
+        { k: gc("Snap %"), label: "Snap %", spec: { d: 1, p: "x" } }, { k: gc("Targets"), label: "Targets", spec: { d: 0 } },
+        { k: gc("Carries"), label: "Carries", spec: { d: 0 } }, { k: gc("xFP"), label: "xFP", spec: { d: 2 } },
+      ], rows, { sort: 0, asc: true, tools: rows.length > 15, extremes: false, name: `${p.name}_${y}_games` });
+    refreshAvatars();
+  };
+  $$("[data-ly]", $app).forEach((b) => (b.onclick = () => { $$("[data-ly]", $app).forEach((x) => x.setAttribute("aria-pressed", x === b)); drawLog(+b.dataset.ly); }));
+  const tl = $("#toLog"); if (tl) tl.onclick = (e) => { e.preventDefault(); $("#gamelog").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  drawLog(logYears[0]);
 }
 
 const SHEETS = [
@@ -3219,7 +3257,7 @@ async function compare(_a, query) {
 }
 
 // ---------- router
-const NAV_OF = { team: "teams", calc: "calc", game: "weeks", week: "weeks", pick: "draft", player: "", nfl: "", search: "" };
+const NAV_OF = { team: "teams", calc: "calc", game: "weeks", week: "weeks", pick: "draft", player: null, nfl: null, search: null };
 const TITLES = { "": "Home", teams: "All-time standings", records: "Record book", h2h: "Head to head", trades: "Trades", draft: "Draft history",
   predict: "Predictions", calc: "Trade calculator", faab: "FAAB values", data: "Data", weeks: "Weeks", compare: "Compare", search: "Search" };
 // scroll positions by history entry: back / forward lands where you were, a new page at the top
@@ -3240,7 +3278,7 @@ async function route() {
   if (page !== "search" && document.activeElement !== $q) $q.value = "";
   const navKey = page in NAV_OF ? NAV_OF[page] : page;
   for (const a of $$("#nav a")) {
-    const on = a.getAttribute("href") === "#/" + navKey || (page === "team" && ME && a.id === "navMine" && rest[0] === tslug(ME));
+    const on = (navKey !== null && a.getAttribute("href") === "#/" + navKey) || (page === "team" && ME && a.id === "navMine" && rest[0] === tslug(ME));
     a.classList.toggle("on", on);
     if (on) { a.setAttribute("aria-current", "page"); a.scrollIntoView({ block: "nearest", inline: "nearest" }); } else a.removeAttribute("aria-current");
   }

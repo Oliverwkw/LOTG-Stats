@@ -553,6 +553,29 @@ def test_shell_assets_are_versioned():
     assert re.search(r'window\.SITE_BUILD="\d{14}"</script>\s*<script src="app\.js', html_text)
 
 
+def test_player_pages_carry_game_logs_and_full_seasons():
+    """Player pages: a game log newest first (rostered weeks carry the league team and role),
+    and the seasons table has the whole NFL season's points."""
+    out = _built()
+    if out is None:
+        return
+    pages = list((out / "data" / "player").glob("*.json"))
+    assert pages
+    seen_log = 0
+    for f in pages[:200]:
+        p = json.loads(f.read_text(encoding="utf-8"))
+        g = p.get("games")
+        assert g is not None and "Points" in g["cols"] and "Role" in g["cols"], f.name
+        keys = [(r[0], r[1]) for r in g["rows"]]
+        assert keys == sorted(keys, reverse=True), f.name
+        ri, ti = g["cols"].index("Role"), g["cols"].index("Team")
+        for r in g["rows"]:
+            assert (r[ti] is not None) == (r[ri] in ("Starter", "Bench")), (f.name, r)
+        seen_log += bool(g["rows"])
+        assert "Points (full season)" in p["seasons"]["cols"], f.name
+    assert seen_log
+
+
 def test_ktc_snapshot_keeps_players_and_generic_picks():
     """The trade calculator's KTC file: superflex value, month-ago value and position rank
     by Sleeper id; only the Early / Mid / Late round picks (not slot or 'pickNNNpi' rows)."""
