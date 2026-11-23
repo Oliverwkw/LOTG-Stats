@@ -2,7 +2,7 @@
 
 862 answers (2529 signals: picks and price checks) from 5 teams; 2529 signals on board dates the inputs hold, vote term weight 1.37 of max 1.5 (trades and cuts weigh 3.0 each).
 
-1132 of 1960 checks agree with the board.
+1142 of 1960 checks agree with the board.
 
 - 2026-10-28: **Courtland Sutton** $32 vs **Emanuel Wilson** $4: votes say Emanuel Wilson (s -1.00, 1 answers) — DISAGREES
   - Courtland Sutton: replacement line x0.61, position curve x1.16, team_q x1.16, share_talent x1.10
@@ -10,9 +10,11 @@
 - 2026-10-28: **Nicholas Singleton** $160 vs **Quentin Johnston** $29: votes say Quentin Johnston (s -1.00, 1 answers) — DISAGREES
   - Nicholas Singleton: young_upside x2.40, rookie_day3 x0.61, inj_out x0.72, usage x0.78
   - Quentin Johnston: replacement line x0.61, team_q_lo x0.77, position curve x1.16, usage x0.89
-- 2026-10-28: **Chuba Hubbard** $188 vs **C.J. Stroud** $895: votes say Chuba Hubbard (s +1.00, 1 answers) — DISAGREES
-  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
+- 2026-10-28: **Chuba Hubbard** $191 vs **C.J. Stroud** $895: votes say Chuba Hubbard (s +1.00, 1 answers) — DISAGREES
+  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
   - C.J. Stroud: availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
+- 2026-10-24: **Saquon Barkley** board $69, votes: too low 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, inj_out x0.51, rb_band x1.82, rb_hold x1.82
 - 2026-11-09: **Matthew Stafford** $470 vs **Brian Thomas Jr.** $112: votes say Brian Thomas Jr. (s -1.00, 1 answers) — DISAGREES
   - Matthew Stafford: aw_nfl x2.15, availability x1.30, team_q x1.19, usage x1.16
   - Brian Thomas Jr.: soph_fall x0.55, team_q x1.17, position curve x1.16, efficiency x0.90
@@ -21,13 +23,17 @@
 - 2026-11-09: **Eli Stowers** $461 vs **Brian Thomas Jr.** $112: votes say Brian Thomas Jr. (s -1.00, 2 answers) — DISAGREES
   - Eli Stowers: wr_talent x1.40, usage x0.78, share_talent x0.85, position curve x0.86
   - Brian Thomas Jr.: soph_fall x0.55, team_q x1.17, position curve x1.16, efficiency x0.90
-- 2026-10-24: **Saquon Barkley** board $77, votes: too low 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, inj_out x0.51, rb_band x1.82, rb_hold x1.82
-- 2026-10-28: **Chuba Hubbard** board $188, votes: too low 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
-- 2026-10-28: **Jadarian Price** $895 vs **Chuba Hubbard** $188: votes say even (s +0.00, 1 answers) — DISAGREES
+- 2026-11-11: **Nicholas Singleton** $270 vs **Sam Darnold** $67: votes say Sam Darnold (s -1.00, 1 answers) — DISAGREES
+  - Nicholas Singleton: young_upside x2.40, rookie_day3 x0.61, usage x0.78, team_q x0.80
+  - Sam Darnold: inj_out x0.51, replacement line x0.67, availability x1.30, team_q x1.20
+- 2026-11-18: **Sam Darnold** $64 vs **Eli Stowers** $240: votes say Sam Darnold (s +1.00, 1 answers) — DISAGREES
+  - Sam Darnold: inj_out x0.51, replacement line x0.67, availability x1.23, team_q x1.21
+  - Eli Stowers: share_talent x0.58, wr_talent x1.40, usage x0.78, position curve x0.84
+- 2026-10-28: **Chuba Hubbard** board $191, votes: too low 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
+- 2026-10-28: **Jadarian Price** $895 vs **Chuba Hubbard** $191: votes say even (s +0.00, 1 answers) — DISAGREES
   - Jadarian Price: young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
-  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
+  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
 - 2026-11-09: **De'Zhaun Stribling** board $37, votes: ; typed $150 (1 answers) — DISAGREES
   - rookie_lost x0.67, inj_ir x0.69, rookie_capital x1.36, usage x0.85
 - 2026-10-28: **Kyle Pitts Sr.** board $1,018, votes: about right 1 (1 answers) — DISAGREES
@@ -43,62 +49,69 @@
 - 2026-10-28: **Bhayshul Tuten** $404 vs **Rashee Rice** $1,257: votes say Bhayshul Tuten (s +1.00, 1 answers) — DISAGREES
   - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
-- 2026-10-28: **Chuba Hubbard** board $188, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
+- 2026-11-18: **Sam Darnold** board $64, votes: about right 1 (1 answers) — DISAGREES
+  - inj_out x0.51, replacement line x0.67, availability x1.23, team_q x1.21
+- 2026-10-28: **Chuba Hubbard** board $191, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
+- 2026-11-18: **Ladd McConkey** $166 vs **Matthew Stafford** $480: votes say Ladd McConkey (s +1.00, 1 answers) — DISAGREES
+  - Ladd McConkey: spike x1.46, inj_out x0.72, wr_talent x1.24, team_q_lo x0.84
+  - Matthew Stafford: aw_nfl x2.10, availability x1.37, team_q x1.19, usage x1.15
 - 2026-10-28: **Michael Penix Jr.** $60 vs **Travis Kelce** $166: votes say Michael Penix Jr. (s +1.00, 1 answers) — DISAGREES
   - Michael Penix Jr.: availability x0.38, team_q_lo x0.90, pick_boom x1.08, aw_college x1.08
   - Travis Kelce: aw_nfl x1.87, contract_old x0.61, position curve x0.70, tgt_lead x1.38
-- 2026-11-11: **Chuba Hubbard** $229 vs **Rome Odunze** $852: votes say even (s +0.00, 1 answers) — DISAGREES
+- 2026-11-11: **Chuba Hubbard** $230 vs **Rome Odunze** $852: votes say even (s +0.00, 1 answers) — DISAGREES
   - Chuba Hubbard: rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
   - Rome Odunze: spike x2.08, team_q x1.18, position curve x1.11, efficiency x0.90
 - 2026-10-28: **Quentin Johnston** board $29, votes: about right 1 (1 answers) — DISAGREES
   - replacement line x0.61, team_q_lo x0.77, position curve x1.16, usage x0.89
-- 2026-11-11: **Brian Thomas Jr.** $112 vs **RJ Harvey** $395: votes say even (s +0.00, 1 answers) — DISAGREES
+- 2026-11-18: **Ladd McConkey** board $166, votes: about right 1 (1 answers) — DISAGREES
+  - spike x1.46, inj_out x0.72, wr_talent x1.24, team_q_lo x0.84
+- 2026-11-11: **Brian Thomas Jr.** $112 vs **RJ Harvey** $390: votes say even (s +0.00, 1 answers) — DISAGREES
   - Brian Thomas Jr.: soph_fall x0.55, team_q x1.18, position curve x1.16, efficiency x0.90
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-- 2026-11-18: **RJ Harvey** $398 vs **Jaylen Warren** $156: votes say Jaylen Warren (s -1.00, 2 answers) — DISAGREES
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-  - Jaylen Warren: rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-10-28: **Rome Odunze** $499 vs **Rashee Rice** $1,257: votes say Rome Odunze (s +1.00, 1 answers) — DISAGREES
   - Rome Odunze: spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
-- 2026-11-09: **DJ Moore** board $72, votes: too low 1; typed $250 (2 answers) — DISAGREES
-  - replacement line x0.71, vet_move x0.72, team_q x1.27, position curve x1.16
-- 2026-11-11: **Jalen Hurts** $1,704 vs **Jordyn Tyson** $679: votes say Jordyn Tyson (s -1.00, 1 answers) — DISAGREES
+- 2026-11-18: **RJ Harvey** $393 vs **Jaylen Warren** $159: votes say Jaylen Warren (s -1.00, 2 answers) — DISAGREES
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+  - Jaylen Warren: rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
+- 2026-11-09: **DJ Moore** board $73, votes: too low 1; typed $250 (2 answers) — DISAGREES
+  - vet_move x0.72, replacement line x0.72, team_q x1.27, position curve x1.16
+- 2026-11-11: **Jalen Hurts** $1,656 vs **Jordyn Tyson** $679: votes say Jordyn Tyson (s -1.00, 1 answers) — DISAGREES
   - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
   - Jordyn Tyson: rookie_capital x1.74, rookie_lost x0.67, inj_ir x0.69, wr_band x0.78
-- 2026-10-26: **Chuba Hubbard** board $194, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.87, share_talent x1.20, replacement line x0.89
-- 2026-10-28: **Jaylen Warren** $155 vs **Kyle Monangai** $370: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
+- 2026-10-26: **Chuba Hubbard** board $195, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.87, share_talent x1.20, replacement line x0.90
+- 2026-10-28: **Baker Mayfield** $456 vs **Davante Adams** $142: votes say even (s +0.00, 1 answers) — DISAGREES
+  - Baker Mayfield: availability x1.21, qb_quality x0.92, replacement line x0.93, team_q x0.94
+  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
+- 2026-10-28: **Jaylen Warren** $156 vs **Kyle Monangai** $370: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
   - Jaylen Warren: rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
   - Kyle Monangai: inj_out x0.51, spike x1.82, efficiency x1.16, team_q x1.14
-- 2026-10-28: **Baker Mayfield** $453 vs **Davante Adams** $142: votes say even (s +0.00, 1 answers) — DISAGREES
-  - Baker Mayfield: availability x1.21, qb_quality x0.92, replacement line x0.92, team_q x0.94
-  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-11-09: **Chuba Hubbard** board $225, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - rb_inj x0.37, spike x1.98, share_talent x1.25, replacement line x0.91
-- 2026-11-09: **Travis Etienne Jr.** $223 vs **DJ Moore** $72: votes say even (s +0.00, 1 answers) — DISAGREES
+- 2026-11-09: **Travis Etienne Jr.** $223 vs **DJ Moore** $73: votes say even (s +0.00, 1 answers) — DISAGREES
   - Travis Etienne Jr.: spike x1.53, inj_ir x0.69, rb_hold x1.33, availability x1.15
-  - DJ Moore: replacement line x0.71, vet_move x0.72, team_q x1.27, position curve x1.16
+  - DJ Moore: vet_move x0.72, replacement line x0.72, team_q x1.27, position curve x1.16
 - 2026-10-28: **C.J. Stroud** $895 vs **Bhayshul Tuten** $404: votes say Bhayshul Tuten (s -1.00, 1 answers) — DISAGREES
   - C.J. Stroud: availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
   - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
 - 2026-10-28: **Ollie Gordon II** $305 vs **Davante Adams** $142: votes say Davante Adams (s -1.00, 1 answers) — DISAGREES
   - Ollie Gordon II: availability x1.45, young_upside x1.33, rb_touch x0.78, team_q x0.84
   - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-- 2026-10-28: **Michael Wilson** $417 vs **Jadarian Price** $895: votes say Michael Wilson (s +1.00, 1 answers) — DISAGREES
+- 2026-10-28: **Michael Wilson** $419 vs **Jadarian Price** $895: votes say Michael Wilson (s +1.00, 1 answers) — DISAGREES
   - Michael Wilson: spike x1.79, availability x1.37, replacement line x0.86, usage x1.16
   - Jadarian Price: young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-11-09: **Davante Adams** $130 vs **Marvin Harrison Jr.** $278: votes say Davante Adams (s +1.00, 2 answers) — DISAGREES
   - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
   - Marvin Harrison Jr.: efficiency x0.90, position curve x1.10, td_dep x0.91, aw_college x1.08
-- 2026-11-09: **Jaylen Warren** $189 vs **RJ Harvey** $395: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Warren** board $156, votes: too low 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
+- 2026-10-28: **Jaylen Warren** board $156, votes: too low 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
+- 2026-11-09: **Jaylen Warren** $190 vs **RJ Harvey** $390: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
   - Jaylen Warren: rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-- 2026-10-28: **Jaylen Warren** board $155, votes: too low 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
-- 2026-10-28: **Jaylen Warren** board $155, votes: too low 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-11-09: **Chuba Hubbard** $225 vs **Eli Stowers** $461: votes say Chuba Hubbard (s +1.00, 2 answers) — DISAGREES
   - Chuba Hubbard: rb_inj x0.37, spike x1.98, share_talent x1.25, replacement line x0.91
   - Eli Stowers: wr_talent x1.40, usage x0.78, share_talent x0.85, position curve x0.86
@@ -108,34 +121,36 @@
   - rb_inj x0.37, spike x1.98, share_talent x1.25, replacement line x0.91
 - 2026-11-09: **Chuba Hubbard** board $225, votes: about right 1 (1 answers) — DISAGREES
   - rb_inj x0.37, spike x1.98, share_talent x1.25, replacement line x0.91
-- 2026-11-11: **Chuba Hubbard** board $229, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
-- 2026-11-11: **Chuba Hubbard** board $229, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
-- 2026-11-11: **Chuba Hubbard** board $229, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
-- 2026-11-11: **Chuba Hubbard** board $229, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
 - 2026-11-18: **Ollie Gordon II** board $424, votes: too high 1; typed $100 (2 answers) — DISAGREES
   - availability x1.45, ceiling_lo x0.78, young_upside x1.24, team_q x0.82
+- 2026-11-11: **Chuba Hubbard** board $230, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
+- 2026-11-11: **Chuba Hubbard** board $230, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
+- 2026-11-11: **Chuba Hubbard** board $230, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
+- 2026-11-11: **Chuba Hubbard** board $230, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
 - 2026-11-11: **Kyle Monangai** $318 vs **Davante Adams** $160: votes say Davante Adams (s -1.00, 1 answers) — DISAGREES
   - Kyle Monangai: inj_out x0.51, spike x1.82, team_q x1.16, efficiency x1.16
   - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-- 2026-10-28: **Chuba Hubbard** $188 vs **Rome Odunze** $499: votes say even (s +0.00, 1 answers) — DISAGREES
-  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
-  - Rome Odunze: spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
-- 2026-11-15: **Dalton Kincaid** $91 vs **Jayden Higgins** $179: votes say Dalton Kincaid (s +1.00, 1 answers) — DISAGREES
+- 2026-11-15: **Dalton Kincaid** $92 vs **Jayden Higgins** $179: votes say Dalton Kincaid (s +1.00, 1 answers) — DISAGREES
   - Dalton Kincaid: te_line x0.17, wr_talent x1.35, team_q x1.29, ceiling_lo x0.78
   - Jayden Higgins: inj_ir x0.69, share_talent x0.73, usage x0.81, td_dep x0.83
+- 2026-10-28: **Chuba Hubbard** $191 vs **Rome Odunze** $499: votes say even (s +0.00, 1 answers) — DISAGREES
+  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
+  - Rome Odunze: spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
 - 2026-10-26: **Quinshon Judkins** board $276, votes: about right 1; too high 1; typed $650 (3 answers) — DISAGREES
   - inj_out x0.51, share_talent x1.45, boom_rate_lo x0.78, efficiency x0.86
-- 2026-10-28: **Jaylen Warren** board $155, votes: too low 1 (1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Warren** board $156, votes: too low 1 (1 answers) — DISAGREES
   - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
-- 2026-10-28: **Jaylen Warren** board $155, votes: too low 1 (1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Warren** board $156, votes: too low 1 (1 answers) — DISAGREES
   - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
 - 2026-10-28: **Cam Ward** $1,237 vs **D'Andre Swift** $651: votes say D'Andre Swift (s -1.00, 1 answers) — DISAGREES
   - Cam Ward: young_upside x1.47, availability x1.45, qb_quality x0.79, team_q x0.80
   - D'Andre Swift: rb_inj x0.61, spike x1.61, availability x1.37, share_talent x1.23
+- 2026-11-18: **Jaylen Waddle** board $67, votes: about right 1; too high 1 (2 answers) — DISAGREES
+  - inj_out x0.51, replacement line x0.72, contract_old x0.78, wr_talent x1.26
 - 2026-10-27: **D'Andre Swift** $652 vs **Cam Ward** $1,237: votes say D'Andre Swift (s +1.00, 2 answers) — DISAGREES
   - D'Andre Swift: rb_inj x0.61, spike x1.61, availability x1.37, share_talent x1.23
   - Cam Ward: young_upside x1.47, availability x1.45, qb_quality x0.79, team_q x0.80
@@ -157,21 +172,16 @@
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-10-28: **Davante Adams** board $142, votes: about right 1 (1 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-- 2026-11-18: **Woody Marks** board $224, votes: ; typed $100 (1 answers) — DISAGREES
-  - inj_out x0.72, spike x1.33, availability x1.32, young_upside x1.27
 - 2026-10-24: **Isaac TeSlaa** board $24, votes: about right 2; too high 2 (4 answers) — DISAGREES
   - share_talent x0.64, usage x0.78, efficiency x0.86, position curve x1.16
 - 2026-10-28: **Jordan Addison** $324 vs **Brian Thomas Jr.** $133: votes say even (s +0.00, 1 answers) — DISAGREES
   - Jordan Addison: spike x1.53, position curve x1.16, team_q x1.12, share_talent x1.06
   - Brian Thomas Jr.: soph_fall x0.55, availability x1.21, position curve x1.16, team_q x1.15
-- 2026-10-26: **Jordan Addison** $348 vs **Chuba Hubbard** $194: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
-  - Jordan Addison: inj_out x0.51, spike x1.48, team_q x1.11, position curve x1.08
-  - Chuba Hubbard: rb_inj x0.37, spike x1.87, share_talent x1.20, replacement line x0.89
-- 2026-10-28: **Jaylen Waddle** board $144, votes: about right 1 (1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Waddle** board $145, votes: about right 1 (1 answers) — DISAGREES
   - replacement line x0.72, contract_old x0.79, wr_talent x1.22, spike x1.19
-- 2026-10-28: **Jaylen Waddle** board $144, votes: about right 1 (1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Waddle** board $145, votes: about right 1 (1 answers) — DISAGREES
   - replacement line x0.72, contract_old x0.79, wr_talent x1.22, spike x1.19
-- 2026-10-28: **Jaylen Waddle** board $144, votes: about right 1 (1 answers) — DISAGREES
+- 2026-10-28: **Jaylen Waddle** board $145, votes: about right 1 (1 answers) — DISAGREES
   - replacement line x0.72, contract_old x0.79, wr_talent x1.22, spike x1.19
 - 2026-10-26: **Dylan Sampson** $57 vs **Devaughn Vele** $32: votes say Devaughn Vele (s -1.00, 1 answers) — DISAGREES
   - Dylan Sampson: young_upside x2.40, rb_band x1.82, team_q_lo x0.60, inj_ir x0.69
@@ -179,46 +189,43 @@
 - 2026-11-11: **Ollie Gordon II** $355 vs **Ladd McConkey** $201: votes say Ladd McConkey (s -1.00, 1 answers) — DISAGREES
   - Ollie Gordon II: availability x1.45, young_upside x1.33, ceiling_lo x0.78, rb_touch x0.78
   - Ladd McConkey: spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
-- 2026-11-09: **DJ Moore** board $72, votes: too low 1 (1 answers) — DISAGREES
-  - replacement line x0.71, vet_move x0.72, team_q x1.27, position curve x1.16
-- 2026-11-09: **DJ Moore** board $72, votes: too low 1 (1 answers) — DISAGREES
-  - replacement line x0.71, vet_move x0.72, team_q x1.27, position curve x1.16
 - 2026-11-18: **D'Andre Swift** $732 vs **Cam Ward** $1,267: votes say D'Andre Swift (s +1.00, 1 answers) — DISAGREES
   - D'Andre Swift: rb_inj x0.61, spike x1.51, availability x1.37, share_talent x1.23
   - Cam Ward: availability x1.45, young_upside x1.28, team_q x0.80, qb_quality x0.81
 - 2026-10-28: **Rashee Rice** $1,257 vs **Bryce Young** $728: votes say Bryce Young (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
   - Bryce Young: pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
-- 2026-10-28: **Jordan Addison** $324 vs **Chuba Hubbard** $188: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
-  - Jordan Addison: spike x1.53, position curve x1.16, team_q x1.12, share_talent x1.06
-  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, replacement line x0.88
 - 2026-10-28: **Tyler Warren** $639 vs **Josh Jacobs** $1,099: votes say Tyler Warren (s +1.00, 1 answers) — DISAGREES
   - Tyler Warren: inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
   - Josh Jacobs: share_talent x1.48, aw_nfl x1.30, usage x1.19, track x1.14
-- 2026-11-09: **Jaylen Warren** $189 vs **Antonio Williams** $323: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
+- 2026-11-09: **DJ Moore** board $73, votes: too low 1 (1 answers) — DISAGREES
+  - vet_move x0.72, replacement line x0.72, team_q x1.27, position curve x1.16
+- 2026-11-09: **DJ Moore** board $73, votes: too low 1 (1 answers) — DISAGREES
+  - vet_move x0.72, replacement line x0.72, team_q x1.27, position curve x1.16
+- 2026-10-28: **Jordan Addison** $324 vs **Chuba Hubbard** $191: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
+  - Jordan Addison: spike x1.53, position curve x1.16, team_q x1.12, share_talent x1.06
+  - Chuba Hubbard: rb_inj x0.37, spike x1.82, share_talent x1.20, availability x1.13
+- 2026-11-09: **Jaylen Warren** $190 vs **Antonio Williams** $323: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
   - Jaylen Warren: rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
   - Antonio Williams: spike x1.37, share_talent x0.79, usage x0.83, wr_talent x1.17
-- 2026-11-18: **Jaylen Warren** board $156, votes: about right 2 (2 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
-- 2026-11-18: **Jaylen Warren** board $156, votes: about right 2 (2 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
-- 2026-11-18: **Jaylen Warren** board $156, votes: about right 2 (2 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
 - 2026-11-18: **Tucker Kraft** $255 vs **Blake Corum** $432: votes say Tucker Kraft (s +1.00, 2 answers) — DISAGREES
   - Tucker Kraft: te_line x0.43, share_talent x0.83, availability x0.87, wr_talent x1.13
   - Blake Corum: young_upside x1.65, spike x1.53, share_talent x0.68, rb_touch x0.69
 - 2026-10-28: **Rashee Rice** $1,257 vs **Justin Herbert** $743: votes say Justin Herbert (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
   - Justin Herbert: availability x1.37, track x1.12, qb_quality x0.90, team_q x0.93
-- 2026-11-09: **Jacory Croskey-Merritt** $96 vs **Caleb Douglas** $57: votes say Caleb Douglas (s -1.00, 1 answers) — DISAGREES
-  - Jacory Croskey-Merritt: rb_band x1.82, young_upside x1.67, team_q_lo x0.65, inj_ir x0.69
-  - Caleb Douglas: team_q_lo x0.52, wr_talent x1.66, spike x1.60, efficiency x1.25
 - 2026-10-28: **Bhayshul Tuten** board $404, votes: about right 1 (1 answers) — DISAGREES
   - boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
 - 2026-10-28: **Bhayshul Tuten** board $404, votes: about right 1 (1 answers) — DISAGREES
   - boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
 - 2026-10-28: **Bhayshul Tuten** board $404, votes: about right 1 (1 answers) — DISAGREES
   - boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
+- 2026-11-18: **Jaylen Warren** board $159, votes: about right 2 (2 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
+- 2026-11-18: **Jaylen Warren** board $159, votes: about right 2 (2 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
+- 2026-11-18: **Jaylen Warren** board $159, votes: about right 2 (2 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.77, availability x1.22
 - 2026-10-24: **Ray Davis** board $74, votes: too high 1; typed $20 (2 answers) — DISAGREES
   - young_upside x2.40, rb_band x1.82, share_talent x0.59, availability x1.45
 - 2026-11-18: **Parker Washington** $891 vs **Jadarian Price** $1,486: votes say Parker Washington (s +1.00, 1 answers) — DISAGREES
@@ -247,27 +254,21 @@
 - 2026-10-28: **Bo Nix** $998 vs **Tyler Warren** $639: votes say Tyler Warren (s -1.00, 1 answers) — DISAGREES
   - Bo Nix: availability x1.45, team_q x1.16, qb_band x0.87, qb_ypg x0.90
   - Tyler Warren: inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
-- 2026-11-09: **Jaylen Warren** board $189, votes: about right 2 (2 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
-- 2026-11-09: **Jaylen Warren** board $189, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
-- 2026-11-09: **Jaylen Warren** board $189, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
-- 2026-11-09: **Jaylen Warren** board $189, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
 - 2026-10-28: **Fernando Mendoza** $1,159 vs **Christian McCaffrey** $2,425: votes say even (s +0.00, 1 answers) — DISAGREES
   - Fernando Mendoza: young_upside x2.40, snap_cap x0.46, aw_college x2.04, rookie_capital x1.87
   - Christian McCaffrey: share_talent x2.03, availability x0.66, usage x1.51, rookie_backup x0.68
-- 2026-11-11: **Jaylen Warren** board $188, votes: about right 1 (1 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
 - 2026-10-26: **Devaughn Vele** board $32, votes: too low 1 (1 answers) — DISAGREES
   - team_q_lo x0.73, r1_wr x0.74, wr_backup x0.82, availability x0.84
-- 2026-11-11: **Kyler Murray** $245 vs **Davante Adams** $160: votes say Davante Adams (s -1.00, 1 answers) — DISAGREES
-  - Kyler Murray: inj_out x0.51, availability x0.63, track x1.10, qb_inj x0.92
-  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-- 2026-11-11: **Cam Skattebo** $222 vs **Matthew Stafford** $456: votes say even (s +0.00, 1 answers) — DISAGREES
-  - Cam Skattebo: inj_out x0.51, availability x0.54, boom_rate_lo x0.69, share_talent x1.17
-  - Matthew Stafford: aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
+- 2026-11-09: **Jaylen Warren** board $190, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
+- 2026-11-09: **Jaylen Warren** board $190, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
+- 2026-11-09: **Jaylen Warren** board $190, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
+- 2026-11-09: **Jaylen Warren** board $190, votes: about right 2 (2 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
+- 2026-11-11: **Jaylen Warren** board $191, votes: about right 1 (1 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
 - 2026-10-27: **AJ Barner** board $29, votes: about right 1 (1 answers) — DISAGREES
   - position curve x0.70, share_talent x0.72, team_q x1.20, wr_talent x1.19
 - 2026-11-11: **Jonah Coleman** $802 vs **Cam Ward** $1,212: votes say Jonah Coleman (s +1.00, 1 answers) — DISAGREES
@@ -284,16 +285,18 @@
   - young_upside x2.40, rookie_day3 x0.61, inj_out x0.72, usage x0.78
 - 2026-10-28: **Nicholas Singleton** board $160, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x2.40, rookie_day3 x0.61, inj_out x0.72, usage x0.78
-- 2026-11-09: **Justin Herbert** board $561, votes: too low 1; typed $1,200 (2 answers) — DISAGREES
+- 2026-11-09: **Justin Herbert** board $564, votes: too low 1; typed $1,200 (2 answers) — DISAGREES
   - availability x1.29, track x1.12, qb_quality x0.89, team_q x0.90
-- 2026-11-15: **Tucker Kraft** $368 vs **Jaylen Warren** $183: votes say even (s +0.00, 1 answers) — DISAGREES
-  - Tucker Kraft: te_line x0.54, share_talent x0.83, availability x0.86, tgt_lead x1.12
-  - Jaylen Warren: rb_inj x0.61, spike x1.54, contract_old x0.77, availability x1.22
 - 2026-11-09: **Omarion Hampton** $909 vs **Emeka Egbuka** $614: votes say Emeka Egbuka (s -1.00, 1 answers) — DISAGREES
   - Omarion Hampton: availability x0.59, share_talent x1.18, team_q x0.90, efficiency x0.92
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, efficiency x0.86, usage x1.10
+- 2026-11-15: **Tucker Kraft** $368 vs **Jaylen Warren** $185: votes say even (s +0.00, 1 answers) — DISAGREES
+  - Tucker Kraft: te_line x0.54, share_talent x0.83, availability x0.86, tgt_lead x1.12
+  - Jaylen Warren: rb_inj x0.61, spike x1.54, contract_old x0.77, availability x1.22
 - 2026-10-28: **Jalen Coker** board $191, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.78, availability x0.65, position curve x1.15, share_talent x0.90
+- 2026-10-28: **Jacory Croskey-Merritt** board $54, votes: about right 1 (1 answers) — DISAGREES
+  - rb_band x1.79, young_upside x1.67, team_q_lo x0.61, inj_ir x0.69
 - 2026-11-09: **Rashee Rice** $898 vs **Emeka Egbuka** $614: votes say Emeka Egbuka (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: availability x0.33, wr_talent x1.38, wr_band x0.80, share_talent x1.24
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, efficiency x0.86, usage x1.10
@@ -308,15 +311,17 @@
   - replacement line x0.66, availability x1.37, team_q x1.21, usage x1.03
 - 2026-11-09: **Tre Tucker** board $37, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.70, replacement line x0.61, team_q_lo x0.71, position curve x1.16
-- 2026-10-28: **Dalton Kincaid** board $80, votes: too low 1 (1 answers) — DISAGREES
-  - te_line x0.18, wr_talent x1.35, spike x1.32, ceiling_lo x0.78
-- 2026-10-28: **Dalton Kincaid** board $80, votes: too low 1 (1 answers) — DISAGREES
-  - te_line x0.18, wr_talent x1.35, spike x1.32, ceiling_lo x0.78
-- 2026-11-09: **DK Metcalf** $104 vs **DJ Moore** $72: votes say DJ Moore (s -1.00, 2 answers) — DISAGREES
-  - DK Metcalf: replacement line x0.63, share_talent x1.19, position curve x1.16, availability x1.15
-  - DJ Moore: replacement line x0.71, vet_move x0.72, team_q x1.27, position curve x1.16
+- 2026-11-18: **Ladd McConkey** board $166, votes: about right 1; too high 1 (2 answers) — DISAGREES
+  - spike x1.46, inj_out x0.72, wr_talent x1.24, team_q_lo x0.84
+- 2026-11-09: **DK Metcalf** $105 vs **DJ Moore** $73: votes say DJ Moore (s -1.00, 2 answers) — DISAGREES
+  - DK Metcalf: replacement line x0.64, share_talent x1.19, position curve x1.16, availability x1.15
+  - DJ Moore: vet_move x0.72, replacement line x0.72, team_q x1.27, position curve x1.16
 - 2026-10-28: **Troy Franklin** board $31, votes: about right 1 (1 answers) — DISAGREES
   - share_talent x0.72, position curve x1.16, team_q x1.16, usage x0.90
+- 2026-10-28: **Dalton Kincaid** board $80, votes: too low 1 (1 answers) — DISAGREES
+  - te_line x0.18, wr_talent x1.35, spike x1.32, ceiling_lo x0.78
+- 2026-10-28: **Dalton Kincaid** board $80, votes: too low 1 (1 answers) — DISAGREES
+  - te_line x0.18, wr_talent x1.35, spike x1.32, ceiling_lo x0.78
 - 2026-10-28: **Kyren Williams** $2,537 vs **Carnell Tate** $1,762: votes say Carnell Tate (s -1.00, 1 answers) — DISAGREES
   - Kyren Williams: availability x1.37, share_talent x1.34, usage x1.22, aw_nfl x1.18
   - Carnell Tate: rookie_capital x1.81, wr_band x0.78, team_q x0.80, share_talent x1.23
@@ -337,16 +342,21 @@
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-10-28: **Jadarian Price** board $895, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
-- 2026-11-18: **DeVonta Smith** board $258, votes: too low 1; typed $550 (2 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+- 2026-11-09: **Romeo Doubs** board $42, votes: about right 1 (1 answers) — DISAGREES
+  - replacement line x0.61, inj_ir x0.69, spike x1.43, team_q x1.17
 - 2026-10-28: **Jordyn Tyson** board $631, votes: about right 1 (1 answers) — DISAGREES
   - rookie_capital x1.74, rookie_lost x0.67, inj_ir x0.69, usage x0.85
 - 2026-11-09: **Kyle Pitts Sr.** $741 vs **Quinshon Judkins** $523: votes say Quinshon Judkins (s -1.00, 1 answers) — DISAGREES
   - Kyle Pitts Sr.: availability x1.37, aw_nfl x1.30, position curve x0.87, share_talent x0.87
   - Quinshon Judkins: share_talent x1.38, boom_rate_lo x0.74, availability x0.90, team_q x0.90
+- 2026-11-18: **DeVonta Smith** board $259, votes: too low 1; typed $550 (2 answers) — DISAGREES
+  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-10-26: **Tyler Warren** $891 vs **Rashee Rice** $1,258: votes say Tyler Warren (s +1.00, 2 answers) — DISAGREES
   - Tyler Warren: inj_out x0.72, ceiling_lo x0.78, position curve x0.83, availability x1.18
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
+- 2026-11-09: **Lamar Jackson** $1,974 vs **Justin Jefferson** $2,786: votes say Lamar Jackson (s +1.00, 1 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+  - Justin Jefferson: aw_nfl x2.88, share_talent x1.52, availability x1.37, track x1.18
 - 2026-11-18: **Jameson Williams** $998 vs **Omarion Hampton** $1,405: votes say Jameson Williams (s +1.00, 2 answers) — DISAGREES
   - Jameson Williams: spike x1.76, availability x1.30, wr_band x0.80, team_q x1.19
   - Omarion Hampton: availability x0.67, share_talent x1.21, team_q x0.92, pedigree x1.07
@@ -359,6 +369,9 @@
   - wr_band x0.78, share_talent x1.23, td_dep x0.88, team_q x1.11
 - 2026-11-11: **Tee Higgins** board $1,722, votes: too high 1 (1 answers) — DISAGREES
   - wr_band x0.78, share_talent x1.23, td_dep x0.88, team_q x1.11
+- 2026-10-28: **Romeo Doubs** $43 vs **Dylan Sampson** $61: votes say Romeo Doubs (s +1.00, 1 answers) — DISAGREES
+  - Romeo Doubs: replacement line x0.61, inj_ir x0.69, spike x1.43, team_q x1.17
+  - Dylan Sampson: young_upside x2.27, rb_band x1.82, team_q_lo x0.65, inj_ir x0.69
 - 2026-10-28: **Jadarian Price** board $895, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-10-28: **Jadarian Price** board $895, votes: too high 1 (1 answers) — DISAGREES
@@ -367,43 +380,48 @@
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-11-09: **Caleb Douglas** board $57, votes: too low 1 (1 answers) — DISAGREES
   - team_q_lo x0.52, wr_talent x1.66, spike x1.60, efficiency x1.25
-- 2026-11-09: **Lamar Jackson** $1,988 vs **Justin Jefferson** $2,786: votes say Lamar Jackson (s +1.00, 1 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-  - Justin Jefferson: aw_nfl x2.88, share_talent x1.52, availability x1.37, track x1.18
+- 2026-10-27: **Jacory Croskey-Merritt** board $54, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - rb_band x1.79, young_upside x1.67, team_q_lo x0.61, inj_ir x0.69
 - 2026-10-26: **Rashee Rice** board $1,258, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
 - 2026-10-26: **Rashee Rice** board $1,258, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
+- 2026-11-11: **George Pickens** $1,185 vs **Jalen Hurts** $1,656: votes say George Pickens (s +1.00, 1 answers) — DISAGREES
+  - George Pickens: inj_out x0.51, aw_nfl x1.30, wr_band x0.79, tgt_lead x1.18
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-18: **Tetairoa McMillan** $1,706 vs **Kyren Williams** $2,381: votes say Tetairoa McMillan (s +1.00, 2 answers) — DISAGREES
   - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.26, efficiency x0.86
   - Kyren Williams: availability x1.37, share_talent x1.33, team_q x1.19, usage x1.18
-- 2026-11-09: **DK Metcalf** board $104, votes: too high 1; typed $200 (2 answers) — DISAGREES
-  - replacement line x0.63, share_talent x1.19, position curve x1.16, availability x1.15
 - 2026-10-28: **Brenton Strange** board $50, votes: about right 1 (1 answers) — DISAGREES
   - te_line x0.22, draft_comp x0.22, ceiling_lo x0.78, share_talent x0.81
 - 2026-10-26: **Rashee Rice** board $1,258, votes: about right 1; too high 1; typed $675 (3 answers) — DISAGREES
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
+- 2026-11-09: **DK Metcalf** board $105, votes: too high 1; typed $200 (2 answers) — DISAGREES
+  - replacement line x0.64, share_talent x1.19, position curve x1.16, availability x1.15
 - 2026-11-18: **Chase Brown** board $1,483, votes: ; typed $800; typed $1,000 (2 answers) — DISAGREES
   - boom_rate_lo x0.69, availability x1.37, share_talent x1.34, usage x1.19
 - 2026-11-11: **Jadarian Price** board $1,230, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.48, rookie_capital x1.37, efficiency x0.74, team_q x1.21
 - 2026-11-11: **Jadarian Price** board $1,230, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.48, rookie_capital x1.37, efficiency x0.74, team_q x1.21
-- 2026-11-18: **Davante Adams** $213 vs **RJ Harvey** $398: votes say even (s -0.41, 2 answers) — DISAGREES
-  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-10-28: **Isaiah Likely** board $925, votes: about right 1 (1 answers) — DISAGREES
   - tgt_lead x1.55, spike x1.18, nyg x1.14, availability x1.14
 - 2026-11-15: **Troy Franklin** board $33, votes: about right 1 (1 answers) — DISAGREES
   - share_talent x0.72, team_q x1.19, position curve x1.16, usage x0.90
 - 2026-10-26: **Rome Odunze** board $413, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - spike x1.33, team_q x1.15, flop_r1 x0.87, position curve x1.11
+- 2026-11-11: **Cam Skattebo** $249 vs **Matthew Stafford** $462: votes say even (s +0.00, 1 answers) — DISAGREES
+  - Cam Skattebo: inj_out x0.51, availability x0.54, spike x1.21, share_talent x1.17
+  - Matthew Stafford: aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
 - 2026-11-09: **Ladd McConkey** board $201, votes: about right 2 (2 answers) — DISAGREES
   - spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
 - 2026-11-09: **Ladd McConkey** board $201, votes: about right 2 (2 answers) — DISAGREES
   - spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
 - 2026-11-09: **Ladd McConkey** board $201, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
+- 2026-11-18: **Davante Adams** $213 vs **RJ Harvey** $393: votes say even (s -0.41, 2 answers) — DISAGREES
+  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-11-09: **De'Zhaun Stribling** board $37, votes: about right 1 (1 answers) — DISAGREES
   - rookie_lost x0.67, inj_ir x0.69, rookie_capital x1.36, usage x0.85
 - 2026-11-11: **Ladd McConkey** board $201, votes: about right 1 (1 answers) — DISAGREES
@@ -429,9 +447,6 @@
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-11-11: **Davante Adams** board $160, votes: about right 1 (1 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-- 2026-11-18: **DeVonta Smith** $258 vs **Ty Simpson** $346: votes say DeVonta Smith (s +1.00, 2 answers) — DISAGREES
-  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
-  - Ty Simpson: snap_cap x0.45, rookie_capital x1.66
 - 2026-10-26: **Rashee Rice** $1,258 vs **Luther Burden III** $937: votes say Luther Burden III (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
   - Luther Burden III: wr_talent x1.60, spike x1.37, share_talent x0.85, team_q x1.15
@@ -439,14 +454,17 @@
   - draft_comp x0.48, share_talent x1.46, availability x0.77, alpha x1.13
 - 2026-10-24: **Jaylin Noel** board $172, votes: about right 2; too high 1 (3 answers) — DISAGREES
   - share_talent x0.65, wr_talent x1.35, usage x0.78, efficiency x1.25
-- 2026-11-09: **Denzel Boston** $893 vs **Michael Wilson** $575: votes say Michael Wilson (s -0.70, 2 answers) — DISAGREES
-  - Denzel Boston: rookie_capital x1.28, share_talent x1.20, spike x1.16, efficiency x0.87
-  - Michael Wilson: spike x1.91, availability x1.30, usage x1.23, replacement line x0.86
 - 2026-11-11: **Blake Corum** $214 vs **Davante Adams** $160: votes say Davante Adams (s -1.00, 1 answers) — DISAGREES
   - Blake Corum: young_upside x1.83, share_talent x0.67, rb_touch x0.69, spike x1.33
   - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-11-09: **Travis Hunter** board $559, votes: too high 2 (2 answers) — DISAGREES
   - aw_college x2.12, availability x0.50, share_talent x0.73, spike x1.27
+- 2026-11-09: **Denzel Boston** $893 vs **Michael Wilson** $577: votes say Michael Wilson (s -0.70, 2 answers) — DISAGREES
+  - Denzel Boston: rookie_capital x1.28, share_talent x1.20, spike x1.16, efficiency x0.87
+  - Michael Wilson: spike x1.91, availability x1.30, usage x1.23, replacement line x0.87
+- 2026-11-18: **DeVonta Smith** $259 vs **Ty Simpson** $346: votes say DeVonta Smith (s +1.00, 2 answers) — DISAGREES
+  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+  - Ty Simpson: snap_cap x0.45, rookie_capital x1.66
 - 2026-10-24: **Breece Hall** board $556, votes: about right 2; too high 1 (3 answers) — DISAGREES
   - inj_out x0.51, boom_rate_lo x0.70, share_talent x1.37, team_q x0.87
 - 2026-10-27: **AJ Barner** $29 vs **Daniel Jones** $39: votes say AJ Barner (s +1.00, 1 answers) — DISAGREES
@@ -471,9 +489,8 @@
 - 2026-10-28: **George Pickens** $1,979 vs **Jayden Daniels** $1,513: votes say Jayden Daniels (s -1.00, 1 answers) — DISAGREES
   - George Pickens: aw_nfl x1.30, wr_band x0.78, tgt_lead x1.23, availability x1.21
   - Jayden Daniels: aw_college x1.49, availability x0.69, qb_band x0.86, pick_boom x1.16
-- 2026-10-24: **Ray Davis** $74 vs **Michael Pittman Jr.** $57: votes say Michael Pittman Jr. (s -1.00, 2 answers) — DISAGREES
-  - Ray Davis: young_upside x2.40, rb_band x1.82, share_talent x0.59, availability x1.45
-  - Michael Pittman Jr.: draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
+- 2026-11-11: **Romeo Doubs** board $42, votes: about right 1 (1 answers) — DISAGREES
+  - replacement line x0.61, inj_ir x0.69, spike x1.42, team_q x1.17
 - 2026-10-28: **Tyler Warren** board $639, votes: about right 1 (1 answers) — DISAGREES
   - inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
 - 2026-10-28: **Tyler Warren** board $639, votes: about right 1 (1 answers) — DISAGREES
@@ -482,9 +499,6 @@
   - inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
 - 2026-10-28: **Tyler Warren** board $639, votes: about right 1 (1 answers) — DISAGREES
   - inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
-- 2026-11-11: **Jaylen Warren** $188 vs **Kyler Murray** $245: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
-  - Jaylen Warren: rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
-  - Kyler Murray: inj_out x0.51, availability x0.63, track x1.10, qb_inj x0.92
 - 2026-11-09: **Fernando Mendoza** board $1,158, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - young_upside x2.40, snap_cap x0.46, aw_college x2.04, rookie_capital x1.87
 - 2026-11-15: **TreVeyon Henderson** $1,180 vs **Isaiah Likely** $906: votes say Isaiah Likely (s -1.00, 1 answers) — DISAGREES
@@ -499,28 +513,36 @@
   - spike x1.77, replacement line x0.61, wr_talent x1.44, share_talent x0.79
 - 2026-11-15: **Jayden Higgins** board $179, votes: about right 1 (1 answers) — DISAGREES
   - inj_ir x0.69, share_talent x0.73, usage x0.81, td_dep x0.83
-- 2026-11-11: **Germie Bernard** $336 vs **DeVonta Smith** $260: votes say DeVonta Smith (s -1.00, 1 answers) — DISAGREES
-  - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
-  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-10-28: **Bhayshul Tuten** board $404, votes: about right 1 (1 answers) — DISAGREES
   - boom_rate_lo x0.69, rb_touch x0.78, ceiling_lo x0.81, availability x1.17
-- 2026-11-15: **Travis Kelce** $189 vs **Kyler Murray** $244: votes say Travis Kelce (s +1.00, 1 answers) — DISAGREES
-  - Travis Kelce: aw_nfl x2.16, contract_old x0.61, position curve x0.70, availability x1.37
-  - Kyler Murray: inj_out x0.51, availability x0.63, track x1.09, qb_inj x0.92
 - 2026-10-28: **Omarion Hampton** $1,133 vs **D'Andre Swift** $651: votes say even (s +0.00, 1 answers) — DISAGREES
   - Omarion Hampton: availability x0.61, share_talent x1.20, team_q x0.93, efficiency x0.93
   - D'Andre Swift: rb_inj x0.61, spike x1.61, availability x1.37, share_talent x1.23
+- 2026-10-24: **Ray Davis** $74 vs **Michael Pittman Jr.** $57: votes say Michael Pittman Jr. (s -1.00, 2 answers) — DISAGREES
+  - Ray Davis: young_upside x2.40, rb_band x1.82, share_talent x0.59, availability x1.45
+  - Michael Pittman Jr.: draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
 - 2026-10-28: **Jayden Daniels** board $1,513, votes: too low 1 (1 answers) — DISAGREES
   - aw_college x1.49, availability x0.69, qb_band x0.86, pick_boom x1.16
 - 2026-11-09: **George Pickens** $1,840 vs **Tyler Warren** $1,065: votes say even (s +0.00, 1 answers) — DISAGREES
   - George Pickens: aw_nfl x1.30, wr_band x0.78, tgt_lead x1.18, share_talent x1.16
   - Tyler Warren: ceiling_lo x0.78, efficiency x0.86, share_talent x1.13, aw_college x1.12
+- 2026-11-11: **Tyler Shough** $361 vs **Matthew Stafford** $462: votes say Tyler Shough (s +1.00, 1 answers) — DISAGREES
+  - Tyler Shough: availability x0.80, usage x1.12, qb_quality x0.95, team_q x0.95
+  - Matthew Stafford: aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
 - 2026-11-09: **Travis Etienne Jr.** board $223, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.53, inj_ir x0.69, rb_hold x1.33, availability x1.15
+- 2026-11-11: **Germie Bernard** $336 vs **DeVonta Smith** $264: votes say DeVonta Smith (s -1.00, 1 answers) — DISAGREES
+  - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
+  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+- 2026-11-18: **Woody Marks** board $156, votes: ; typed $100 (1 answers) — DISAGREES
+  - inj_out x0.72, spike x1.33, availability x1.32, young_upside x1.27
 - 2026-11-18: **Blake Corum** board $432, votes: about right 2 (2 answers) — DISAGREES
   - young_upside x1.65, spike x1.53, share_talent x0.68, rb_touch x0.69
 - 2026-11-18: **Blake Corum** board $432, votes: about right 2 (2 answers) — DISAGREES
   - young_upside x1.65, spike x1.53, share_talent x0.68, rb_touch x0.69
+- 2026-11-11: **Kyle Pitts Sr.** $648 vs **Bhayshul Tuten** $508: votes say Bhayshul Tuten (s -1.00, 1 answers) — DISAGREES
+  - Kyle Pitts Sr.: availability x1.45, aw_nfl x1.30, position curve x0.84, share_talent x0.87
+  - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
 - 2026-10-28: **Travis Kelce** $166 vs **Marvin Harrison Jr.** $285: votes say even (s +0.00, 1 answers) — DISAGREES
   - Travis Kelce: aw_nfl x1.87, contract_old x0.61, position curve x0.70, tgt_lead x1.38
   - Marvin Harrison Jr.: efficiency x0.90, position curve x1.10, td_dep x0.91, aw_college x1.08
@@ -529,12 +551,6 @@
 - 2026-10-26: **Tucker Kraft** $547 vs **Matthew Stafford** $698: votes say Tucker Kraft (s +1.00, 2 answers) — DISAGREES
   - Tucker Kraft: te_line x0.72, availability x0.79, tgt_lead x1.23, share_talent x0.85
   - Matthew Stafford: aw_nfl x2.70, availability x1.29, usage x1.22, team_q x1.17
-- 2026-11-11: **Kyle Pitts Sr.** $646 vs **Bhayshul Tuten** $508: votes say Bhayshul Tuten (s -1.00, 1 answers) — DISAGREES
-  - Kyle Pitts Sr.: availability x1.45, aw_nfl x1.30, position curve x0.84, share_talent x0.87
-  - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
-- 2026-11-11: **Jalen Hurts** $1,704 vs **Harold Fannin Jr.** $1,342: votes say Harold Fannin Jr. (s -1.00, 1 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-  - Harold Fannin Jr.: availability x1.32, wr_talent x1.29, efficiency x1.25, ceiling_lo x0.85
 - 2026-10-27: **Khalil Shakir** board $86, votes: too high 1; typed $200 (2 answers) — DISAGREES
   - replacement line x0.61, wr_talent x1.51, team_q x1.27, spike x1.21
 - 2026-11-11: **Isaiah Likely** $971 vs **Jadarian Price** $1,230: votes say Isaiah Likely (s +1.00, 1 answers) — DISAGREES
@@ -548,9 +564,6 @@
 - 2026-11-11: **TreVeyon Henderson** $1,180 vs **Rashee Rice** $933: votes say Rashee Rice (s -1.00, 1 answers) — DISAGREES
   - TreVeyon Henderson: inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
   - Rashee Rice: availability x0.35, wr_talent x1.41, wr_band x0.78, share_talent x1.24
-- 2026-11-11: **Tyler Shough** $361 vs **Matthew Stafford** $456: votes say Tyler Shough (s +1.00, 1 answers) — DISAGREES
-  - Tyler Shough: availability x0.80, usage x1.12, qb_quality x0.95, team_q x0.95
-  - Matthew Stafford: aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
 - 2026-10-28: **Rashee Rice** board $1,257, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
 - 2026-10-28: **Rashee Rice** board $1,257, votes: too high 1 (1 answers) — DISAGREES
@@ -566,17 +579,17 @@
 - 2026-11-11: **Jaxson Dart** $795 vs **Emeka Egbuka** $996: votes say Jaxson Dart (s +1.00, 1 answers) — DISAGREES
   - Jaxson Dart: qb_opening x2.02, inj_ir x0.69, availability x0.80, young_upside x1.24
   - Emeka Egbuka: share_talent x1.28, wr_band x0.81, availability x1.20, efficiency x0.86
-- 2026-10-28: **Breece Hall** board $526, votes: about right 1 (1 answers) — DISAGREES
-  - inj_out x0.51, boom_rate_lo x0.70, share_talent x1.37, team_q x0.87
-- 2026-10-28: **Garrett Wilson** $814 vs **Jameson Williams** $1,018: votes say Garrett Wilson (s +1.00, 1 answers) — DISAGREES
+- 2026-10-28: **Garrett Wilson** $814 vs **Jameson Williams** $1,019: votes say Garrett Wilson (s +1.00, 1 answers) — DISAGREES
   - Garrett Wilson: draft_comp x0.66, share_talent x1.42, wr_talent x1.12, alpha x1.12
   - Jameson Williams: spike x1.95, wr_band x0.78, availability x1.28, team_q x1.16
+- 2026-10-26: **Travis Kelce** $149 vs **Blake Corum** $110: votes say Blake Corum (s -0.78, 2 answers) — DISAGREES
+  - Travis Kelce: aw_nfl x1.74, contract_old x0.61, tgt_lead x1.42, position curve x0.70
+  - Blake Corum: young_upside x1.99, share_talent x0.65, rb_touch x0.69, usage x0.82
+- 2026-10-28: **Breece Hall** board $526, votes: about right 1 (1 answers) — DISAGREES
+  - inj_out x0.51, boom_rate_lo x0.70, share_talent x1.37, team_q x0.87
 - 2026-11-15: **TreVeyon Henderson** $1,180 vs **Denzel Boston** $946: votes say Denzel Boston (s -1.00, 1 answers) — DISAGREES
   - TreVeyon Henderson: inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
   - Denzel Boston: rookie_capital x1.28, spike x1.21, share_talent x1.21, wr_band x0.90
-- 2026-11-18: **Michael Wilson** $278 vs **Ty Simpson** $346: votes say Michael Wilson (s +1.00, 1 answers) — DISAGREES
-  - Michael Wilson: spike x1.85, inj_ir x0.69, availability x1.33, replacement line x0.84
-  - Ty Simpson: snap_cap x0.45, rookie_capital x1.66
 - 2026-10-28: **Travis Hunter** board $527, votes: too high 1 (1 answers) — DISAGREES
   - aw_college x2.12, availability x0.50, share_talent x0.73, two_way x1.23
 - 2026-10-28: **Christian McCaffrey** $2,425 vs **Brock Purdy** $1,946: votes say Brock Purdy (s -1.00, 1 answers) — DISAGREES
@@ -584,18 +597,11 @@
   - Brock Purdy: availability x0.79, team_q x1.24, usage x1.20, qb_quality x1.16
 - 2026-10-27: **Daniel Jones** board $39, votes: about right 1 (1 answers) — DISAGREES
   - vet_floor x1.70, replacement line x0.61, availability x0.74, team_q_lo x0.75
-- 2026-10-26: **Travis Kelce** $148 vs **Blake Corum** $110: votes say Blake Corum (s -0.78, 2 answers) — DISAGREES
-  - Travis Kelce: aw_nfl x1.74, contract_old x0.61, tgt_lead x1.42, position curve x0.70
-  - Blake Corum: young_upside x1.99, share_talent x0.65, rb_touch x0.69, usage x0.82
-- 2026-10-28: **Jalen Hurts** $1,743 vs **Javonte Williams** $1,400: votes say Javonte Williams (s -1.00, 1 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.14
-  - Javonte Williams: availability x1.37, usage x1.19, share_talent x1.17, boom_rate_lo x0.91
+- 2026-11-09: **Jacory Croskey-Merritt** board $55, votes: about right 1 (1 answers) — DISAGREES
+  - rb_band x1.80, young_upside x1.67, team_q_lo x0.65, inj_ir x0.69
 - 2026-11-09: **Germie Bernard** $337 vs **Ladd McConkey** $201: votes say even (s +0.00, 1 answers) — DISAGREES
   - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
   - Ladd McConkey: spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
-- 2026-10-27: **Michael Pittman Jr.** $57 vs **Tre' Harris** $94: votes say Michael Pittman Jr. (s +0.48, 2 answers) — DISAGREES
-  - Michael Pittman Jr.: draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
-  - Tre' Harris: inj_out x0.51, share_talent x0.72, availability x1.31, usage x0.78
 - 2026-11-11: **Germie Bernard** $336 vs **Ladd McConkey** $201: votes say even (s +0.00, 1 answers) — DISAGREES
   - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
   - Ladd McConkey: spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
@@ -611,8 +617,12 @@
 - 2026-10-28: **Rashee Rice** $1,257 vs **Bucky Irving** $1,016: votes say Bucky Irving (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
   - Bucky Irving: spike x1.70, share_talent x1.26, usage x1.09, team_q x0.93
-- 2026-11-18: **DeVonta Smith** board $258, votes: too low 2 (2 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+- 2026-10-27: **Michael Pittman Jr.** $57 vs **Tre' Harris** $94: votes say Michael Pittman Jr. (s +0.48, 2 answers) — DISAGREES
+  - Michael Pittman Jr.: draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
+  - Tre' Harris: inj_out x0.51, share_talent x0.72, availability x1.31, usage x0.78
+- 2026-11-11: **Jalen Hurts** $1,656 vs **Harold Fannin Jr.** $1,342: votes say Harold Fannin Jr. (s -1.00, 1 answers) — DISAGREES
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
+  - Harold Fannin Jr.: availability x1.32, wr_talent x1.29, efficiency x1.25, ceiling_lo x0.85
 - 2026-10-28: **Rashee Rice** board $1,257, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
 - 2026-10-28: **Rashee Rice** board $1,257, votes: too high 1 (1 answers) — DISAGREES
@@ -631,6 +641,8 @@
   - inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
 - 2026-10-27: **Cam Ward** board $1,237, votes: too high 1; typed $850 (2 answers) — DISAGREES
   - young_upside x1.47, availability x1.45, qb_quality x0.79, team_q x0.80
+- 2026-11-18: **DeVonta Smith** board $259, votes: too low 2 (2 answers) — DISAGREES
+  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-10-28: **Jaxson Dart** $836 vs **Sam LaPorta** $1,026: votes say Jaxson Dart (s +1.00, 1 answers) — DISAGREES
   - Jaxson Dart: qb_opening x2.03, inj_ir x0.69, young_upside x1.24, availability x0.82
   - Sam LaPorta: position curve x0.72, ceiling_lo x0.78, availability x0.83, aw_nfl x1.18
@@ -657,6 +669,9 @@
   - tgt_lead x1.38, wr_band x0.78, share_talent x1.27, availability x0.85
 - 2026-11-11: **Nico Collins** board $1,940, votes: too high 1 (1 answers) — DISAGREES
   - tgt_lead x1.38, wr_band x0.78, share_talent x1.27, availability x0.85
+- 2026-11-18: **Michael Wilson** $284 vs **Ty Simpson** $346: votes say Michael Wilson (s +1.00, 1 answers) — DISAGREES
+  - Michael Wilson: spike x1.85, inj_ir x0.69, availability x1.33, team_q x0.86
+  - Ty Simpson: snap_cap x0.45, rookie_capital x1.66
 - 2026-11-15: **Quinshon Judkins** board $555, votes: about right 1 (1 answers) — DISAGREES
   - share_talent x1.36, boom_rate_lo x0.74, ceiling_lo x0.90, team_q x0.91
 - 2026-11-18: **Elijah Sarratt** board $138, votes: too high 2; typed $46 (3 answers) — DISAGREES
@@ -668,6 +683,8 @@
   - Jaxson Dart: qb_opening x2.03, inj_ir x0.69, young_upside x1.24, availability x0.82
 - 2026-11-11: **Woody Marks** board $218, votes: too high 1 (1 answers) — DISAGREES
   - spike x1.35, availability x1.32, rb_role x1.29, young_upside x1.22
+- 2026-10-26: **Kyle Pitts Sr.** board $787, votes: about right 1 (1 answers) — DISAGREES
+  - availability x1.37, aw_nfl x1.30, share_talent x0.86, position curve x0.88
 - 2026-11-11: **Rome Odunze** board $852, votes: about right 1 (1 answers) — DISAGREES
   - spike x2.08, team_q x1.18, position curve x1.11, efficiency x0.90
 - 2026-11-11: **Rome Odunze** board $852, votes: about right 1 (1 answers) — DISAGREES
@@ -675,17 +692,16 @@
 - 2026-11-09: **Derrick Henry** $741 vs **Bhayshul Tuten** $611: votes say Bhayshul Tuten (s -1.00, 1 answers) — DISAGREES
   - Derrick Henry: aw_nfl x1.75, contract_old x0.61, share_talent x1.55, rb_hold x1.50
   - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, efficiency x1.20, team_q x1.17
-- 2026-10-28: **Derrick Henry** $682 vs **Michael Wilson** $417: votes say even (s +0.00, 1 answers) — DISAGREES
+- 2026-10-28: **Jalen Hurts** $1,695 vs **Javonte Williams** $1,400: votes say Javonte Williams (s -1.00, 1 answers) — DISAGREES
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.14
+  - Javonte Williams: availability x1.37, usage x1.19, share_talent x1.17, boom_rate_lo x0.91
+- 2026-10-28: **Quinshon Judkins** board $634, votes: about right 1 (1 answers) — DISAGREES
+  - share_talent x1.40, boom_rate_lo x0.78, ceiling_lo x0.90, team_q x0.93
+- 2026-10-28: **Quinshon Judkins** board $634, votes: about right 1 (1 answers) — DISAGREES
+  - share_talent x1.40, boom_rate_lo x0.78, ceiling_lo x0.90, team_q x0.93
+- 2026-10-28: **Derrick Henry** $682 vs **Michael Wilson** $419: votes say even (s +0.00, 1 answers) — DISAGREES
   - Derrick Henry: aw_nfl x1.75, contract_old x0.61, share_talent x1.57, availability x1.45
   - Michael Wilson: spike x1.79, availability x1.37, replacement line x0.86, usage x1.16
-- 2026-10-26: **Kyle Pitts Sr.** board $785, votes: about right 1 (1 answers) — DISAGREES
-  - availability x1.37, aw_nfl x1.30, share_talent x0.86, position curve x0.88
-- 2026-10-28: **Quinshon Judkins** board $634, votes: about right 1 (1 answers) — DISAGREES
-  - share_talent x1.40, boom_rate_lo x0.78, ceiling_lo x0.90, team_q x0.93
-- 2026-10-28: **Quinshon Judkins** board $634, votes: about right 1 (1 answers) — DISAGREES
-  - share_talent x1.40, boom_rate_lo x0.78, ceiling_lo x0.90, team_q x0.93
-- 2026-11-15: **Dalton Kincaid** board $91, votes: too low 1 (1 answers) — DISAGREES
-  - te_line x0.17, wr_talent x1.35, team_q x1.29, ceiling_lo x0.78
 - 2026-11-18: **Jadarian Price** board $1,486, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.57, rookie_capital x1.37, efficiency x0.74, team_q x1.22
 - 2026-11-18: **Jadarian Price** board $1,486, votes: too high 1 (1 answers) — DISAGREES
@@ -700,6 +716,8 @@
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-10-24: **Jaxson Dart** board $854, votes: too low 3; typed $2,000 (4 answers) — DISAGREES
   - qb_opening x2.04, inj_ir x0.69, young_upside x1.24, availability x0.84
+- 2026-11-15: **Dalton Kincaid** board $92, votes: too low 1 (1 answers) — DISAGREES
+  - te_line x0.17, wr_talent x1.35, team_q x1.29, ceiling_lo x0.78
 - 2026-10-28: **Justin Herbert** $743 vs **Jadarian Price** $895: votes say Justin Herbert (s +1.00, 1 answers) — DISAGREES
   - Justin Herbert: availability x1.37, track x1.12, qb_quality x0.90, team_q x0.93
   - Jadarian Price: young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
@@ -713,10 +731,6 @@
 - 2026-10-28: **Drake Maye** $2,214 vs **Ashton Jeanty** $2,659: votes say Drake Maye (s +1.00, 1 answers) — DISAGREES
   - Drake Maye: aw_nfl x1.30, elite_streak x1.25, team_q x1.17, usage x1.15
   - Ashton Jeanty: share_talent x1.72, availability x1.45, usage x1.34, aw_college x1.25
-- 2026-10-28: **Michael Pittman Jr.** board $57, votes: about right 1 (1 answers) — DISAGREES
-  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
-- 2026-10-28: **Michael Pittman Jr.** board $57, votes: about right 1 (1 answers) — DISAGREES
-  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
 - 2026-11-15: **George Kittle** $666 vs **Quinshon Judkins** $555: votes say Quinshon Judkins (s -1.00, 1 answers) — DISAGREES
   - George Kittle: aw_nfl x2.36, position curve x0.72, team_q x1.26, wr_talent x1.23
   - Quinshon Judkins: share_talent x1.36, boom_rate_lo x0.74, ceiling_lo x0.90, team_q x0.91
@@ -730,6 +744,10 @@
 - 2026-11-11: **Luther Burden III** $1,441 vs **Tee Higgins** $1,722: votes say Luther Burden III (s +1.00, 1 answers) — DISAGREES
   - Luther Burden III: wr_talent x1.56, spike x1.48, wr_band x0.78, availability x1.20
   - Tee Higgins: wr_band x0.78, share_talent x1.23, td_dep x0.88, team_q x1.11
+- 2026-10-28: **Michael Pittman Jr.** board $57, votes: about right 1 (1 answers) — DISAGREES
+  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
+- 2026-10-28: **Michael Pittman Jr.** board $57, votes: about right 1 (1 answers) — DISAGREES
+  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
 - 2026-10-27: **Justin Herbert** board $749, votes: too low 1; typed $1,500 (2 answers) — DISAGREES
   - availability x1.37, track x1.12, qb_quality x0.90, team_q x0.93
 - 2026-10-28: **Germie Bernard** $311 vs **Kyle Monangai** $370: votes say Germie Bernard (s +1.00, 1 answers) — DISAGREES
@@ -743,19 +761,16 @@
 - 2026-10-28: **Drake London** $1,860 vs **De'Von Achane** $2,207: votes say Drake London (s +1.00, 1 answers) — DISAGREES
   - Drake London: share_talent x1.57, wr_band x0.78, usage x1.16, alpha x1.13
   - De'Von Achane: share_talent x1.51, inj_ir x0.69, availability x1.27, team_q x0.85
-- 2026-11-11: **TreVeyon Henderson** $1,180 vs **Jameson Williams** $996: votes say Jameson Williams (s -1.00, 1 answers) — DISAGREES
+- 2026-11-11: **TreVeyon Henderson** $1,180 vs **Jameson Williams** $997: votes say Jameson Williams (s -1.00, 1 answers) — DISAGREES
   - TreVeyon Henderson: inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
-  - Jameson Williams: spike x1.76, availability x1.29, wr_band x0.81, team_q x1.18
+  - Jameson Williams: spike x1.76, availability x1.29, wr_band x0.80, team_q x1.18
 - 2026-11-18: **Jalen Milroe** board $71, votes: too high 2 (2 answers) — DISAGREES
   - young_upside x2.40, availability x0.50, snap_cap x0.69, usage x0.78
-- 2026-11-09: **Derrick Henry** board $741, votes: about right 2 (2 answers) — DISAGREES
-  - aw_nfl x1.75, contract_old x0.61, share_talent x1.55, rb_hold x1.50
-- 2026-11-11: **Kyle Pitts Sr.** $646 vs **Parker Washington** $549: votes say Parker Washington (s -1.00, 1 answers) — DISAGREES
+- 2026-11-11: **Kyle Pitts Sr.** $648 vs **Parker Washington** $549: votes say Parker Washington (s -1.00, 1 answers) — DISAGREES
   - Kyle Pitts Sr.: availability x1.45, aw_nfl x1.30, position curve x0.84, share_talent x0.87
   - Parker Washington: spike x2.02, availability x1.32, team_q x1.18, position curve x1.16
-- 2026-11-11: **George Pickens** $1,448 vs **Jalen Hurts** $1,704: votes say George Pickens (s +1.00, 1 answers) — DISAGREES
-  - George Pickens: inj_out x0.51, aw_nfl x1.30, wr_band x0.78, tgt_lead x1.18
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
+- 2026-11-09: **Derrick Henry** board $741, votes: about right 2 (2 answers) — DISAGREES
+  - aw_nfl x1.75, contract_old x0.61, share_talent x1.55, rb_hold x1.50
 - 2026-10-26: **Dallas Goedert** $40 vs **Malachi Fields** $47: votes say Dallas Goedert (s +1.00, 1 answers) — DISAGREES
   - Dallas Goedert: vet_floor x29.77, te_line x0.15, draft_comp x0.22, contract_old x0.61
   - Malachi Fields: team_q_lo x0.75, share_talent x0.75, nyg x1.25, usage x0.82
@@ -769,9 +784,6 @@
   - young_upside x1.48, rookie_capital x1.37, efficiency x0.74, team_q x1.21
 - 2026-10-24: **Keon Coleman** board $198, votes: too low 1; too high 2 (3 answers) — DISAGREES
   - spike x1.67, team_q x1.27, share_talent x0.84, usage x0.86
-- 2026-11-11: **RJ Harvey** $395 vs **Germie Bernard** $336: votes say Germie Bernard (s -1.00, 1 answers) — DISAGREES
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-  - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
 - 2026-11-18: **Cam Ward** $1,267 vs **Jadarian Price** $1,486: votes say Cam Ward (s +1.00, 1 answers) — DISAGREES
   - Cam Ward: availability x1.45, young_upside x1.28, team_q x0.80, qb_quality x0.81
   - Jadarian Price: young_upside x1.57, rookie_capital x1.37, efficiency x0.74, team_q x1.22
@@ -803,15 +815,12 @@
   - share_talent x1.38, boom_rate_lo x0.74, availability x0.90, team_q x0.90
 - 2026-11-15: **Ladd McConkey** board $205, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.46, team_q_lo x0.78, wr_talent x1.24, position curve x1.16
-- 2026-11-11: **DeVonta Smith** board $260, votes: too low 1 (1 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
-- 2026-11-11: **DeVonta Smith** board $260, votes: too low 1 (1 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+- 2026-11-11: **RJ Harvey** $390 vs **Germie Bernard** $336: votes say Germie Bernard (s -1.00, 1 answers) — DISAGREES
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+  - Germie Bernard: wr_talent x1.50, spike x1.30, usage x0.83, rookie_capital x1.18
 - 2026-11-11: **Sam LaPorta** $1,019 vs **TreVeyon Henderson** $1,180: votes say Sam LaPorta (s +1.00, 1 answers) — DISAGREES
   - Sam LaPorta: ceiling_lo x0.78, position curve x0.84, team_q x1.18, aw_nfl x1.18
   - TreVeyon Henderson: inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
-- 2026-11-15: **George Pickens** board $1,459, votes: about right 1 (1 answers) — DISAGREES
-  - inj_out x0.51, aw_nfl x1.30, wr_band x0.78, tgt_lead x1.18
 - 2026-10-28: **Jonathan Taylor** $2,605 vs **Malik Nabers** $2,255: votes say Malik Nabers (s -1.00, 1 answers) — DISAGREES
   - Jonathan Taylor: share_talent x1.70, usage x1.28, aw_nfl x1.23, availability x1.21
   - Malik Nabers: share_talent x1.66, usage x1.21, wr_band x0.84, position curve x0.86
@@ -824,15 +833,19 @@
   - wr_band x0.78, usage x1.10, team_q x1.09, alpha x1.03
 - 2026-11-11: **Christian Watson** board $1,236, votes: too high 1 (1 answers) — DISAGREES
   - wr_band x0.78, usage x1.10, team_q x1.09, alpha x1.03
+- 2026-10-26: **Christian Watson** $685 vs **Kyle Pitts Sr.** $787: votes say Christian Watson (s +1.00, 1 answers) — DISAGREES
+  - Christian Watson: availability x0.79, usage x1.07, team_q x1.07, share_talent x1.03
+  - Kyle Pitts Sr.: availability x1.37, aw_nfl x1.30, share_talent x0.86, position curve x0.88
 - 2026-11-09: **DeVonta Smith** board $267, votes: too low 1 (1 answers) — DISAGREES
   - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-10-26: **Matthew Stafford** board $698, votes: too high 2 (2 answers) — DISAGREES
   - aw_nfl x2.70, availability x1.29, usage x1.22, team_q x1.17
 - 2026-10-26: **Matthew Stafford** board $698, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x2.70, availability x1.29, usage x1.22, team_q x1.17
-- 2026-10-26: **Christian Watson** $685 vs **Kyle Pitts Sr.** $785: votes say Christian Watson (s +1.00, 1 answers) — DISAGREES
-  - Christian Watson: availability x0.79, usage x1.07, team_q x1.07, share_talent x1.03
-  - Kyle Pitts Sr.: availability x1.37, aw_nfl x1.30, share_talent x0.86, position curve x0.88
+- 2026-11-11: **DeVonta Smith** board $264, votes: too low 1 (1 answers) — DISAGREES
+  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+- 2026-11-11: **DeVonta Smith** board $264, votes: too low 1 (1 answers) — DISAGREES
+  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-11-09: **Quinshon Judkins** $523 vs **Jonah Coleman** $804: votes say even (s +0.00, 1 answers) — DISAGREES
   - Quinshon Judkins: share_talent x1.38, boom_rate_lo x0.74, availability x0.90, team_q x0.90
   - Jonah Coleman: spike x1.60, young_upside x1.50, team_q x1.18, usage x0.89
@@ -903,6 +916,8 @@
 - 2026-11-09: **Omar Cooper Jr.** $1,313 vs **Luther Burden III** $1,182: votes say Luther Burden III (s -1.00, 2 answers) — DISAGREES
   - Omar Cooper Jr.: wr_talent x1.53, rookie_capital x1.40, usage x0.78, wr_band x0.78
   - Luther Burden III: wr_talent x1.60, spike x1.43, wr_band x0.78, share_talent x0.85
+- 2026-10-28: **Romeo Doubs** board $43, votes: about right 1 (1 answers) — DISAGREES
+  - replacement line x0.61, inj_ir x0.69, spike x1.43, team_q x1.17
 - 2026-11-09: **KC Concepcion Jr.** board $1,262, votes: too high 1 (1 answers) — DISAGREES
   - rookie_capital x1.49, wr_band x0.78, wr_talent x1.24, efficiency x0.86
 - 2026-11-09: **KC Concepcion Jr.** board $1,262, votes: too high 1 (1 answers) — DISAGREES
@@ -919,7 +934,7 @@
   - Jonathan Taylor: share_talent x1.69, usage x1.25, availability x1.22, aw_nfl x1.21
   - Drake Maye: aw_nfl x1.30, elite_streak x1.25, team_q x1.16, availability x1.15
 - 2026-10-28: **Hunter Henry** board $40, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - te_line x0.14, vet_floor x3.12, position curve x0.70, availability x1.37
+  - te_line x0.14, vet_floor x3.09, position curve x0.70, availability x1.37
 - 2026-11-18: **Fernando Mendoza** $1,150 vs **Cam Ward** $1,267: votes say Fernando Mendoza (s +1.00, 1 answers) — DISAGREES
   - Fernando Mendoza: young_upside x2.40, snap_cap x0.47, aw_college x2.04, rookie_capital x1.87
   - Cam Ward: availability x1.45, young_upside x1.28, team_q x0.80, qb_quality x0.81
@@ -950,14 +965,9 @@
 - 2026-10-28: **Rashee Rice** $1,257 vs **Luther Burden III** $1,146: votes say Luther Burden III (s -1.00, 1 answers) — DISAGREES
   - Rashee Rice: inj_out x0.51, wr_talent x1.42, availability x0.72, wr_band x0.78
   - Luther Burden III: wr_talent x1.62, spike x1.41, wr_band x0.78, share_talent x0.84
-- 2026-10-28: **Jaylen Warren** $155 vs **Eli Stowers** $170: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
-  - Jaylen Warren: rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
-  - Eli Stowers: rookie_lost x0.67, inj_ir x0.69, wr_talent x1.40, usage x0.78
 - 2026-10-28: **Emeka Egbuka** $739 vs **Rome Odunze** $499: votes say even (s +0.00, 1 answers) — DISAGREES
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, availability x1.31, efficiency x0.86
   - Rome Odunze: spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
-- 2026-11-18: **Dalton Kincaid** board $74, votes: about right 2 (2 answers) — DISAGREES
-  - te_line x0.14, wr_talent x1.37, team_q x1.30, ceiling_lo x0.78
 - 2026-11-15: **Rome Odunze** $857 vs **Rashee Rice** $938: votes say Rome Odunze (s +1.00, 1 answers) — DISAGREES
   - Rome Odunze: spike x2.08, team_q x1.19, position curve x1.11, efficiency x0.90
   - Rashee Rice: availability x0.35, wr_talent x1.41, wr_band x0.78, share_talent x1.24
@@ -967,16 +977,16 @@
   - position curve x0.59, availability x1.32, team_q x1.18, efficiency x0.86
 - 2026-10-28: **Caleb Williams** board $1,877, votes: too low 1 (1 answers) — DISAGREES
   - aw_college x1.49, availability x1.21, usage x1.20, qb_band x0.86
-- 2026-10-24: **Michael Pittman Jr.** board $57, votes: too low 1; about right 3 (4 answers) — DISAGREES
-  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
+- 2026-10-28: **Jaylen Warren** $156 vs **Eli Stowers** $170: votes say Jaylen Warren (s +1.00, 1 answers) — DISAGREES
+  - Jaylen Warren: rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
+  - Eli Stowers: rookie_lost x0.67, inj_ir x0.69, wr_talent x1.40, usage x0.78
+- 2026-11-18: **Dalton Kincaid** board $75, votes: about right 2 (2 answers) — DISAGREES
+  - te_line x0.14, wr_talent x1.37, team_q x1.30, ceiling_lo x0.78
 - 2026-10-26: **Breece Hall** board $528, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - inj_out x0.51, boom_rate_lo x0.70, share_talent x1.37, team_q x0.87
-- 2026-11-15: **Lamar Jackson** $1,970 vs **Caleb Williams** $1,818: votes say Caleb Williams (s -1.00, 1 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x2.44, inj_out x0.51, track x1.12, qb_quality x1.11
-  - Caleb Williams: aw_college x1.49, availability x1.22, usage x1.19, team_q x1.18
-- 2026-11-18: **Woody Marks** $224 vs **Marvin Harrison Jr.** $153: votes say even (s +0.00, 1 answers) — DISAGREES
-  - Woody Marks: inj_out x0.72, spike x1.33, availability x1.32, young_upside x1.27
-  - Marvin Harrison Jr.: inj_out x0.51, efficiency x0.90, position curve x1.11, aw_college x1.08
+- 2026-11-11: **Cam Skattebo** $249 vs **Chuba Hubbard** $230: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
+  - Cam Skattebo: inj_out x0.51, availability x0.54, spike x1.21, share_talent x1.17
+  - Chuba Hubbard: rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
 - 2026-10-28: **Bucky Irving** $1,016 vs **Josh Jacobs** $1,099: votes say Bucky Irving (s +1.00, 2 answers) — DISAGREES
   - Bucky Irving: spike x1.70, share_talent x1.26, usage x1.09, team_q x0.93
   - Josh Jacobs: share_talent x1.48, aw_nfl x1.30, usage x1.19, track x1.14
@@ -988,9 +998,6 @@
   - boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
 - 2026-11-11: **Bhayshul Tuten** board $508, votes: about right 1 (1 answers) — DISAGREES
   - boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
-- 2026-11-15: **Tucker Kraft** $368 vs **RJ Harvey** $398: votes say Tucker Kraft (s +1.00, 1 answers) — DISAGREES
-  - Tucker Kraft: te_line x0.54, share_talent x0.83, availability x0.86, tgt_lead x1.12
-  - RJ Harvey: inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-10-28: **Bryce Young** $728 vs **Rome Odunze** $499: votes say even (s +0.00, 1 answers) — DISAGREES
   - Bryce Young: pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
   - Rome Odunze: spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
@@ -1019,9 +1026,9 @@
   - Tyler Warren: ceiling_lo x0.78, availability x1.21, efficiency x0.86, aw_college x1.12
 - 2026-10-28: **Elijah Sarratt** board $143, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.72, wr_talent x1.40, usage x0.78, share_talent x0.85
-- 2026-11-09: **Lamar Jackson** $1,988 vs **Caleb Williams** $1,847: votes say Caleb Williams (s -1.00, 2 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-  - Caleb Williams: aw_college x1.49, usage x1.18, team_q x1.17, qb_band x0.86
+- 2026-11-15: **Lamar Jackson** $1,956 vs **Caleb Williams** $1,818: votes say Caleb Williams (s -1.00, 1 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x2.44, inj_out x0.51, track x1.12, qb_band x0.90
+  - Caleb Williams: aw_college x1.49, availability x1.22, usage x1.19, team_q x1.18
 - 2026-10-28: **Rome Odunze** board $499, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.46, team_q x1.15, flop_r1 x0.90, position curve x1.11
 - 2026-10-28: **Rome Odunze** board $499, votes: about right 1 (1 answers) — DISAGREES
@@ -1047,26 +1054,37 @@
 - 2026-11-11: **Ashton Jeanty** $2,576 vs **Drake London** $1,781: votes say even (s +0.00, 1 answers) — DISAGREES
   - Ashton Jeanty: share_talent x1.62, availability x1.45, aw_college x1.25, usage x1.25
   - Drake London: share_talent x1.51, wr_band x0.78, alpha x1.11, usage x1.11
+- 2026-10-24: **DJ Moore** board $203, votes: about right 3 (3 answers) — DISAGREES
+  - vet_move x0.72, availability x1.28, team_q x1.26, replacement line x0.83
 - 2026-10-26: **Brock Bowers** $2,628 vs **Justin Jefferson** $2,816: votes say Brock Bowers (s +1.00, 1 answers) — DISAGREES
   - Brock Bowers: position curve x0.37, elite_streak x1.57, aw_nfl x1.52, share_talent x1.41
   - Justin Jefferson: aw_nfl x2.88, share_talent x1.48, availability x1.28, wr_talent x1.19
 - 2026-11-09: **Parker Washington** $531 vs **Bryce Young** $568: votes say Parker Washington (s +1.00, 1 answers) — DISAGREES
   - Parker Washington: spike x2.06, availability x1.27, team_q x1.17, position curve x1.16
   - Bryce Young: aw_college x1.22, pick_boom x1.18, qb_quality x0.91, usage x1.08
-- 2026-11-15: **Bucky Irving** $1,590 vs **Jalen Hurts** $1,702: votes say Bucky Irving (s +1.00, 1 answers) — DISAGREES
-  - Bucky Irving: share_talent x1.31, usage x1.12, team_q x0.94, availability x0.97
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-09: **Kyle Pitts Sr.** board $741, votes: too high 1 (1 answers) — DISAGREES
   - availability x1.37, aw_nfl x1.30, position curve x0.87, share_talent x0.87
 - 2026-11-09: **Kyle Pitts Sr.** board $741, votes: too high 1 (1 answers) — DISAGREES
   - availability x1.37, aw_nfl x1.30, position curve x0.87, share_talent x0.87
+- 2026-10-24: **Michael Pittman Jr.** board $57, votes: too low 1; about right 3 (4 answers) — DISAGREES
+  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
 - 2026-11-15: **Trey McBride** $2,490 vs **Drake Maye** $2,329: votes say Drake Maye (s -1.00, 1 answers) — DISAGREES
   - Trey McBride: position curve x0.37, aw_nfl x1.70, share_talent x1.49, availability x1.37
   - Drake Maye: aw_nfl x1.30, elite_streak x1.25, team_q x1.16, availability x1.15
+- 2026-11-15: **Tucker Kraft** $368 vs **RJ Harvey** $393: votes say Tucker Kraft (s +1.00, 1 answers) — DISAGREES
+  - Tucker Kraft: te_line x0.54, share_talent x0.83, availability x0.86, tgt_lead x1.12
+  - RJ Harvey: inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+- 2026-11-09: **Lamar Jackson** $1,974 vs **Caleb Williams** $1,847: votes say Caleb Williams (s -1.00, 2 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+  - Caleb Williams: aw_college x1.49, usage x1.18, team_q x1.17, qb_band x0.86
 - 2026-11-09: **Kyren Williams** $2,474 vs **Drake Maye** $2,315: votes say Drake Maye (s -1.00, 1 answers) — DISAGREES
   - Kyren Williams: share_talent x1.34, availability x1.30, usage x1.20, team_q x1.19
   - Drake Maye: aw_nfl x1.30, elite_streak x1.25, team_q x1.16, qb_quality x1.15
-- 2026-10-24: **Justin Herbert** board $762, votes: about right 1; typed $750; typed $1,218 (3 answers) — DISAGREES
+- 2026-11-09: **Lamar Jackson** board $1,974, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-11-09: **Lamar Jackson** board $1,974, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-10-24: **Justin Herbert** board $766, votes: about right 1; typed $750; typed $1,218 (3 answers) — DISAGREES
   - availability x1.37, track x1.12, qb_quality x0.90, team_q x0.93
 - 2026-11-11: **Kyle Monangai** board $318, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, spike x1.82, team_q x1.16, efficiency x1.16
@@ -1077,10 +1095,6 @@
   - tgt_lead x1.55, spike x1.14, position curve x0.89, share_talent x0.90
 - 2026-11-09: **Isaiah Likely** board $906, votes: too high 1 (1 answers) — DISAGREES
   - tgt_lead x1.55, spike x1.14, position curve x0.89, share_talent x0.90
-- 2026-11-09: **Lamar Jackson** board $1,988, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-- 2026-11-09: **Lamar Jackson** board $1,988, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
 - 2026-11-09: **Brock Bowers** $2,688 vs **CeeDee Lamb** $2,851: votes say Brock Bowers (s +1.00, 2 answers) — DISAGREES
   - Brock Bowers: position curve x0.37, elite_streak x1.57, aw_nfl x1.52, share_talent x1.41
   - CeeDee Lamb: aw_nfl x1.97, share_talent x1.53, usage x1.38, position curve x0.74
@@ -1100,8 +1114,6 @@
 - 2026-11-11: **Derrick Henry** $725 vs **Bhayshul Tuten** $508: votes say even (s +0.00, 1 answers) — DISAGREES
   - Derrick Henry: aw_nfl x1.75, contract_old x0.61, share_talent x1.54, availability x1.45
   - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
-- 2026-11-15: **DeVonta Smith** board $259, votes: about right 1 (1 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-10-28: **Kyle Pitts Sr.** board $1,018, votes: too high 1 (1 answers) — DISAGREES
   - availability x1.45, aw_nfl x1.30, share_talent x0.87, position curve x0.91
 - 2026-10-28: **Kyle Pitts Sr.** board $1,018, votes: too high 1 (1 answers) — DISAGREES
@@ -1131,16 +1143,12 @@
   - Colston Loveland: position curve x0.59, availability x1.32, team_q x1.18, efficiency x0.86
 - 2026-10-28: **Drake Maye** board $2,214, votes: too low 1 (1 answers) — DISAGREES
   - aw_nfl x1.30, elite_streak x1.25, team_q x1.17, usage x1.15
-- 2026-11-09: **DeVonta Smith** $267 vs **Jaylen Warren** $189: votes say even (s +0.00, 1 answers) — DISAGREES
-  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
-  - Jaylen Warren: rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
+- 2026-11-15: **DeVonta Smith** board $260, votes: about right 1 (1 answers) — DISAGREES
+  - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 1; typed $1,000 (2 answers) — DISAGREES
   - boom_rate_lo x0.69, share_talent x1.33, availability x1.29, usage x1.17
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 1; typed $1,000 (2 answers) — DISAGREES
   - boom_rate_lo x0.69, share_talent x1.33, availability x1.29, usage x1.17
-- 2026-11-18: **Dalton Kincaid** $74 vs **Tre' Harris** $104: votes say even (s +0.26, 2 answers) — DISAGREES
-  - Dalton Kincaid: te_line x0.14, wr_talent x1.37, team_q x1.30, ceiling_lo x0.78
-  - Tre' Harris: share_talent x0.73, availability x1.32, usage x0.80, team_q_lo x0.82
 - 2026-11-11: **George Kittle** $716 vs **Bhayshul Tuten** $508: votes say even (s +0.00, 1 answers) — DISAGREES
   - George Kittle: aw_nfl x2.36, position curve x0.73, team_q x1.27, wr_talent x1.23
   - Bhayshul Tuten: boom_rate_lo x0.69, rb_touch x0.78, availability x1.19, team_q x1.18
@@ -1171,6 +1179,9 @@
 - 2026-11-09: **Omarion Hampton** $909 vs **Tucker Kraft** $873: votes say Tucker Kraft (s -1.00, 1 answers) — DISAGREES
   - Omarion Hampton: availability x0.59, share_talent x1.18, team_q x0.90, efficiency x0.92
   - Tucker Kraft: availability x0.81, share_talent x0.84, te_line x0.84, tgt_lead x1.16
+- 2026-11-15: **Bucky Irving** $1,590 vs **Jalen Hurts** $1,655: votes say Bucky Irving (s +1.00, 1 answers) — DISAGREES
+  - Bucky Irving: share_talent x1.31, usage x1.12, team_q x0.94, availability x0.97
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-11: **TreVeyon Henderson** board $1,180, votes: too high 1 (1 answers) — DISAGREES
   - inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
 - 2026-11-11: **TreVeyon Henderson** board $1,180, votes: too high 1 (1 answers) — DISAGREES
@@ -1183,6 +1194,9 @@
   - efficiency x0.90, position curve x1.10, td_dep x0.91, aw_college x1.08
 - 2026-11-09: **Parker Washington** board $531, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - spike x2.06, availability x1.27, team_q x1.17, position curve x1.16
+- 2026-11-09: **DeVonta Smith** $267 vs **Jaylen Warren** $190: votes say even (s +0.00, 1 answers) — DISAGREES
+  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+  - Jaylen Warren: rb_inj x0.61, spike x1.55, contract_old x0.77, availability x1.22
 - 2026-10-28: **Dak Prescott** $1,096 vs **Colston Loveland** $1,538: votes say even (s +0.00, 1 answers) — DISAGREES
   - Dak Prescott: usage x1.26, availability x0.84, aw_nfl x1.18, qb_band x0.86
   - Colston Loveland: position curve x0.59, availability x1.31, efficiency x0.86, team_q x1.15
@@ -1194,13 +1208,16 @@
   - rookie_capital x1.28, spike x1.18, share_talent x1.12, usage x0.92
 - 2026-11-09: **Davante Adams** board $130, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
+- 2026-11-18: **Dalton Kincaid** $75 vs **Tre' Harris** $104: votes say even (s +0.26, 2 answers) — DISAGREES
+  - Dalton Kincaid: te_line x0.14, wr_talent x1.37, team_q x1.30, ceiling_lo x0.78
+  - Tre' Harris: share_talent x0.73, availability x1.32, usage x0.80, team_q_lo x0.82
 - 2026-11-09: **Omarion Hampton** $909 vs **C.J. Stroud** $879: votes say C.J. Stroud (s -1.00, 2 answers) — DISAGREES
   - Omarion Hampton: availability x0.59, share_talent x1.18, team_q x0.90, efficiency x0.92
   - C.J. Stroud: pick_boom x1.17, availability x1.15, usage x1.06, team_q x1.06
-- 2026-11-18: **Michael Wilson** board $278, votes: too low 1 (1 answers) — DISAGREES
-  - spike x1.85, inj_ir x0.69, availability x1.33, replacement line x0.84
 - 2026-11-09: **Brock Bowers** board $2,688, votes: about right 1; typed $3,500 (2 answers) — DISAGREES
   - position curve x0.37, elite_streak x1.57, aw_nfl x1.52, share_talent x1.41
+- 2026-11-18: **Matthew Stafford** board $480, votes: too high 1; typed $300 (2 answers) — DISAGREES
+  - aw_nfl x2.10, availability x1.37, team_q x1.19, usage x1.15
 - 2026-11-15: **Trey McBride** $2,490 vs **Jonathan Taylor** $2,572: votes say Trey McBride (s +1.00, 1 answers) — DISAGREES
   - Trey McBride: position curve x0.37, aw_nfl x1.70, share_talent x1.49, availability x1.37
   - Jonathan Taylor: share_talent x1.69, usage x1.25, availability x1.22, aw_nfl x1.21
@@ -1216,8 +1233,6 @@
 - 2026-11-09: **Christian Watson** $719 vs **Kyle Pitts Sr.** $741: votes say Christian Watson (s +1.00, 1 answers) — DISAGREES
   - Christian Watson: availability x0.81, usage x1.09, team_q x1.08, alpha x1.03
   - Kyle Pitts Sr.: availability x1.37, aw_nfl x1.30, position curve x0.87, share_talent x0.87
-- 2026-11-18: **Matthew Stafford** board $474, votes: too high 1; typed $300 (2 answers) — DISAGREES
-  - aw_nfl x2.10, availability x1.37, team_q x1.19, usage x1.15
 - 2026-11-09: **Malik Nabers** $1,846 vs **Brock Purdy** $1,903: votes say Malik Nabers (s +1.00, 2 answers) — DISAGREES
   - Malik Nabers: availability x0.56, share_talent x1.66, wr_band x0.78, position curve x0.82
   - Brock Purdy: availability x0.76, team_q x1.26, usage x1.20, qb_quality x1.16
@@ -1231,6 +1246,10 @@
   - availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
 - 2026-10-28: **C.J. Stroud** board $895, votes: about right 1 (1 answers) — DISAGREES
   - availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
+- 2026-10-28: **Baker Mayfield** board $456, votes: about right 1 (1 answers) — DISAGREES
+  - availability x1.21, qb_quality x0.92, replacement line x0.93, team_q x0.94
+- 2026-10-28: **Baker Mayfield** board $456, votes: about right 1 (1 answers) — DISAGREES
+  - availability x1.21, qb_quality x0.92, replacement line x0.93, team_q x0.94
 - 2026-11-09: **Jahmyr Gibbs** $3,946 vs **Jaxon Smith-Njigba** $3,727: votes say Jaxon Smith-Njigba (s -0.74, 2 answers) — DISAGREES
   - Jahmyr Gibbs: young_elite x1.82, position curve x1.73, share_talent x1.68, usage x1.58
   - Jaxon Smith-Njigba: aw_nfl x2.46, position curve x0.61, share_talent x1.63, young_elite x1.56
@@ -1238,19 +1257,12 @@
   - rookie_capital x1.28, spike x1.21, share_talent x1.21, wr_band x0.90
 - 2026-11-11: **Denzel Boston** board $946, votes: too high 1 (1 answers) — DISAGREES
   - rookie_capital x1.28, spike x1.21, share_talent x1.21, wr_band x0.90
-- 2026-10-28: **Jaylen Warren** board $155, votes: too low 1; too high 1 (2 answers) — DISAGREES
-  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
 - 2026-11-18: **Tucker Kraft** board $255, votes: about right 2; typed $400 (3 answers) — DISAGREES
   - te_line x0.43, share_talent x0.83, availability x0.87, wr_talent x1.13
-- 2026-11-11: **DeVonta Smith** $260 vs **Tyler Shough** $361: votes say even (s +0.00, 1 answers) — DISAGREES
-  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
-  - Tyler Shough: availability x0.80, usage x1.12, qb_quality x0.95, team_q x0.95
-- 2026-10-24: **Michael Pittman Jr.** board $57, votes: about right 2 (2 answers) — DISAGREES
-  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
 - 2026-10-24: **Chris Olave** board $1,469, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - r1_wr x0.74, aw_nfl x1.30, share_talent x1.30, wr_band x0.78
-- 2026-10-27: **Michael Pittman Jr.** board $57, votes: too high 1; typed $80 (2 answers) — DISAGREES
-  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
+- 2026-10-28: **Jaylen Warren** board $156, votes: too low 1; too high 1 (2 answers) — DISAGREES
+  - rb_inj x0.61, spike x1.50, contract_old x0.78, availability x1.21
 - 2026-10-26: **TreVeyon Henderson** board $718, votes: about right 1; too high 1; typed $550 (3 answers) — DISAGREES
   - young_upside x1.50, spike x1.27, share_talent x0.84, availability x1.18
 - 2026-11-09: **Jonah Coleman** board $804, votes: too high 1 (1 answers) — DISAGREES
@@ -1267,14 +1279,11 @@
   - availability x1.37, wr_talent x1.24, wr_band x0.81, share_talent x1.23
 - 2026-10-28: **Zay Flowers** board $1,807, votes: about right 1 (1 answers) — DISAGREES
   - availability x1.37, wr_talent x1.24, wr_band x0.81, share_talent x1.23
-- 2026-11-09: **Michael Wilson** $575 vs **Justin Herbert** $561: votes say Justin Herbert (s -1.00, 2 answers) — DISAGREES
-  - Michael Wilson: spike x1.91, availability x1.30, usage x1.23, replacement line x0.86
-  - Justin Herbert: availability x1.29, track x1.12, qb_quality x0.89, team_q x0.90
 - 2026-11-09: **Luther Burden III** $1,182 vs **Cam Ward** $1,212: votes say Luther Burden III (s +1.00, 1 answers) — DISAGREES
   - Luther Burden III: wr_talent x1.60, spike x1.43, wr_band x0.78, share_talent x0.85
   - Cam Ward: availability x1.45, young_upside x1.30, team_q x0.79, qb_quality x0.81
-- 2026-11-15: **RJ Harvey** board $398, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
+- 2026-10-27: **Michael Pittman Jr.** board $57, votes: too high 1; typed $80 (2 answers) — DISAGREES
+  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.25
 - 2026-10-24: **Bryce Young** board $945, votes: about right 1 (1 answers) — DISAGREES
   - pick_boom x1.39, aw_college x1.22, usage x1.13, availability x1.13
 - 2026-11-09: **Makai Lemon** $1,589 vs **D'Andre Swift** $1,470: votes say D'Andre Swift (s -0.58, 2 answers) — DISAGREES
@@ -1296,10 +1305,9 @@
   - usage x1.26, availability x0.84, aw_nfl x1.18, qb_band x0.86
 - 2026-10-28: **Dak Prescott** board $1,096, votes: about right 1 (1 answers) — DISAGREES
   - usage x1.26, availability x0.84, aw_nfl x1.18, qb_band x0.86
-- 2026-10-28: **Baker Mayfield** board $453, votes: about right 1 (1 answers) — DISAGREES
-  - availability x1.21, qb_quality x0.92, replacement line x0.92, team_q x0.94
-- 2026-10-28: **Baker Mayfield** board $453, votes: about right 1 (1 answers) — DISAGREES
-  - availability x1.21, qb_quality x0.92, replacement line x0.92, team_q x0.94
+- 2026-11-09: **Michael Wilson** $577 vs **Justin Herbert** $564: votes say Justin Herbert (s -1.00, 2 answers) — DISAGREES
+  - Michael Wilson: spike x1.91, availability x1.30, usage x1.23, replacement line x0.87
+  - Justin Herbert: availability x1.29, track x1.12, qb_quality x0.89, team_q x0.90
 - 2026-11-11: **Luther Burden III** board $1,441, votes: too high 1 (1 answers) — DISAGREES
   - wr_talent x1.56, spike x1.48, wr_band x0.78, availability x1.20
 - 2026-11-11: **Luther Burden III** board $1,441, votes: too high 1 (1 answers) — DISAGREES
@@ -1310,20 +1318,21 @@
   - rookie_capital x1.49, wr_band x0.78, wr_talent x1.28, usage x0.90
 - 2026-11-09: **Jalen Milroe** board $71, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x2.40, availability x0.50, snap_cap x0.69, usage x0.78
-- 2026-11-11: **Sam Darnold** board $275, votes: too high 1 (1 answers) — DISAGREES
-  - inj_out x0.51, availability x1.30, team_q x1.20, replacement line x0.86
+- 2026-11-11: **Bryce Young** board $676, votes: too high 1 (1 answers) — DISAGREES
+  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
+- 2026-11-11: **Bryce Young** board $676, votes: too high 1 (1 answers) — DISAGREES
+  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
+- 2026-11-11: **Bryce Young** board $676, votes: too high 1 (1 answers) — DISAGREES
+  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
 - 2026-10-28: **Denzel Boston** board $924, votes: about right 1 (1 answers) — DISAGREES
   - rookie_capital x1.28, spike x1.18, share_talent x1.12, usage x0.92
 - 2026-10-28: **Denzel Boston** board $924, votes: about right 1 (1 answers) — DISAGREES
   - rookie_capital x1.28, spike x1.18, share_talent x1.12, usage x0.92
-- 2026-11-11: **Bryce Young** board $675, votes: too high 1 (1 answers) — DISAGREES
-  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
-- 2026-11-11: **Bryce Young** board $675, votes: too high 1 (1 answers) — DISAGREES
-  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
-- 2026-11-11: **Bryce Young** board $675, votes: too high 1 (1 answers) — DISAGREES
-  - aw_college x1.22, pick_boom x1.22, availability x1.15, usage x1.09
 - 2026-11-11: **Jalen Coker** board $153, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.65, availability x0.67, position curve x1.16, share_talent x0.87
+- 2026-10-28: **Davante Adams** $142 vs **Jaylen Waddle** $145: votes say Davante Adams (s +1.00, 1 answers) — DISAGREES
+  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
+  - Jaylen Waddle: replacement line x0.72, contract_old x0.79, wr_talent x1.22, spike x1.19
 - 2026-10-28: **Christian McCaffrey** board $2,425, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x2.03, availability x0.66, usage x1.51, rookie_backup x0.68
 - 2026-10-28: **Christian McCaffrey** board $2,425, votes: too high 1 (1 answers) — DISAGREES
@@ -1339,10 +1348,6 @@
 - 2026-10-28: **Bo Nix** $998 vs **Kyle Pitts Sr.** $1,018: votes say Bo Nix (s +1.00, 1 answers) — DISAGREES
   - Bo Nix: availability x1.45, team_q x1.16, qb_band x0.87, qb_ypg x0.90
   - Kyle Pitts Sr.: availability x1.45, aw_nfl x1.30, share_talent x0.87, position curve x0.91
-- 2026-11-18: **RJ Harvey** board $398, votes: too high 2 (2 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-- 2026-11-18: **RJ Harvey** board $398, votes: too high 2 (2 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-10-28: **D'Andre Swift** $651 vs **Tyler Warren** $639: votes say Tyler Warren (s -1.00, 2 answers) — DISAGREES
   - D'Andre Swift: rb_inj x0.61, spike x1.61, availability x1.37, share_talent x1.23
   - Tyler Warren: inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
@@ -1369,23 +1374,23 @@
 - 2026-10-28: **Jaxson Dart** $836 vs **Luther Burden III** $1,146: votes say even (s +0.00, 1 answers) — DISAGREES
   - Jaxson Dart: qb_opening x2.03, inj_ir x0.69, young_upside x1.24, availability x0.82
   - Luther Burden III: wr_talent x1.62, spike x1.41, wr_band x0.78, share_talent x0.84
+- 2026-11-11: **DeVonta Smith** $264 vs **Tyler Shough** $361: votes say even (s +0.00, 1 answers) — DISAGREES
+  - DeVonta Smith: inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
+  - Tyler Shough: availability x0.80, usage x1.12, qb_quality x0.95, team_q x0.95
+- 2026-10-24: **Michael Pittman Jr.** board $57, votes: about right 2 (2 answers) — DISAGREES
+  - draft_comp x0.47, inj_ir x0.69, vet_move x0.72, availability x1.27
 - 2026-10-28: **Bryce Young** $728 vs **Emeka Egbuka** $739: votes say Bryce Young (s +1.00, 1 answers) — DISAGREES
   - Bryce Young: pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, availability x1.31, efficiency x0.86
-- 2026-11-09: **RJ Harvey** board $395, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-- 2026-11-11: **RJ Harvey** board $395, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
-- 2026-11-11: **RJ Harvey** board $395, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-11-18: **Derrick Henry** board $746, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x1.75, contract_old x0.61, share_talent x1.54, rb_hold x1.52
-- 2026-10-28: **Davante Adams** $142 vs **Jaylen Waddle** $144: votes say Davante Adams (s +1.00, 1 answers) — DISAGREES
-  - Davante Adams: contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
-  - Jaylen Waddle: replacement line x0.72, contract_old x0.79, wr_talent x1.22, spike x1.19
-- 2026-11-09: **Tetairoa McMillan** $1,697 vs **Jalen Hurts** $1,716: votes say Tetairoa McMillan (s +1.00, 2 answers) — DISAGREES
-  - Tetairoa McMillan: availability x1.32, share_talent x1.30, wr_band x0.78, efficiency x0.86
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
+- 2026-11-15: **RJ Harvey** board $393, votes: too high 1 (1 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+- 2026-10-26: **Dallas Goedert** $40 vs **Jayden Reed** $40: votes say Dallas Goedert (s +1.00, 1 answers) — DISAGREES
+  - Dallas Goedert: vet_floor x29.77, te_line x0.15, draft_comp x0.22, contract_old x0.61
+  - Jayden Reed: wr_talent x1.95, replacement line x0.63, availability x0.66, inj_ir x0.69
+- 2026-11-18: **Michael Wilson** board $284, votes: too low 1 (1 answers) — DISAGREES
+  - spike x1.85, inj_ir x0.69, availability x1.33, team_q x0.86
 - 2026-11-11: **Emeka Egbuka** board $996, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x1.28, wr_band x0.81, availability x1.20, efficiency x0.86
 - 2026-11-11: **Emeka Egbuka** board $996, votes: too high 1 (1 answers) — DISAGREES
@@ -1395,10 +1400,12 @@
 - 2026-10-28: **Matthew Stafford** $746 vs **Emeka Egbuka** $739: votes say Emeka Egbuka (s -1.00, 1 answers) — DISAGREES
   - Matthew Stafford: aw_nfl x2.56, availability x1.37, usage x1.20, team_q x1.16
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, availability x1.31, efficiency x0.86
+- 2026-11-18: **RJ Harvey** board $393, votes: too high 2 (2 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+- 2026-11-18: **RJ Harvey** board $393, votes: too high 2 (2 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-11-18: **Cam Skattebo** board $562, votes: about right 1; typed $750 (2 answers) — DISAGREES
   - availability x0.56, spike x1.26, share_talent x1.22, efficiency x1.11
-- 2026-11-18: **Jaylen Waddle** board $199, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_out x0.51, contract_old x0.78, wr_talent x1.26, availability x1.22
 - 2026-10-28: **Puka Nacua** board $3,409, votes: too low 1 (1 answers) — DISAGREES
   - aw_nfl x2.01, share_talent x1.68, position curve x0.61, elite_streak x1.57
 - 2026-11-09: **Dalton Kincaid** board $169, votes: about right 1; too high 1 (2 answers) — DISAGREES
@@ -1408,9 +1415,6 @@
 - 2026-10-28: **Jordan Love** $1,298 vs **Matthew Golden** $956: votes say even (s +0.00, 1 answers) — DISAGREES
   - Jordan Love: qb_band x0.86, availability x1.14, usage x1.14, team_q x1.07
   - Matthew Golden: ceiling_lo x0.78, efficiency x0.86, wr_band x0.88, usage x1.09
-- 2026-10-26: **Dallas Goedert** $40 vs **Jayden Reed** $40: votes say Dallas Goedert (s +1.00, 1 answers) — DISAGREES
-  - Dallas Goedert: vet_floor x29.77, te_line x0.15, draft_comp x0.22, contract_old x0.61
-  - Jayden Reed: wr_talent x1.95, replacement line x0.63, availability x0.66, inj_ir x0.69
 - 2026-10-27: **James Cook III** board $2,486, votes: too high 1; typed $2,600 (2 answers) — DISAGREES
   - availability x1.37, aw_nfl x1.30, team_q x1.27, share_talent x1.25
 - 2026-11-09: **Drake London** board $1,783, votes: too high 1 (1 answers) — DISAGREES
@@ -1420,14 +1424,17 @@
 - 2026-11-09: **Isaiah Likely** $906 vs **Omarion Hampton** $909: votes say Isaiah Likely (s +1.00, 1 answers) — DISAGREES
   - Isaiah Likely: tgt_lead x1.55, spike x1.14, position curve x0.89, share_talent x0.90
   - Omarion Hampton: availability x0.59, share_talent x1.18, team_q x0.90, efficiency x0.92
+- 2026-11-09: **RJ Harvey** board $390, votes: too high 1 (1 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+- 2026-11-11: **RJ Harvey** board $390, votes: too high 1 (1 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
+- 2026-11-11: **RJ Harvey** board $390, votes: too high 1 (1 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-10-28: **RJ Harvey** board $601, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.40, spike x1.38, availability x1.31, rb_touch x0.78
 - 2026-11-09: **Trey McBride** $2,481 vs **James Cook III** $2,488: votes say Trey McBride (s +1.00, 1 answers) — DISAGREES
   - Trey McBride: position curve x0.37, aw_nfl x1.70, share_talent x1.49, usage x1.38
   - James Cook III: availability x1.37, aw_nfl x1.30, team_q x1.28, share_talent x1.24
-- 2026-10-28: **Lamar Jackson** $2,493 vs **James Cook III** $2,486: votes say James Cook III (s -1.00, 1 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
-  - James Cook III: availability x1.37, aw_nfl x1.30, team_q x1.27, share_talent x1.25
 - 2026-10-26: **Tucker Kraft** board $547, votes: about right 2 (2 answers) — DISAGREES
   - te_line x0.72, availability x0.79, tgt_lead x1.23, share_talent x0.85
 - 2026-10-26: **Tucker Kraft** board $547, votes: about right 2 (2 answers) — DISAGREES
@@ -1480,9 +1487,6 @@
   - Luther Burden III: wr_talent x1.56, spike x1.48, wr_band x0.78, availability x1.20
 - 2026-10-27: **Tetairoa McMillan** board $1,776, votes: about right 2 (2 answers) — DISAGREES
   - availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
-- 2026-11-18: **Jalen Hurts** $1,701 vs **Tetairoa McMillan** $1,706: votes say Tetairoa McMillan (s -1.00, 2 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-  - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.26, efficiency x0.86
 - 2026-11-15: **Eli Stowers** board $240, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x0.58, wr_talent x1.40, usage x0.78, position curve x0.84
 - 2026-11-18: **Eli Stowers** board $240, votes: too high 1 (1 answers) — DISAGREES
@@ -1491,6 +1495,14 @@
   - share_talent x0.58, wr_talent x1.40, usage x0.78, position curve x0.84
 - 2026-10-28: **Justin Jefferson** board $2,797, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x2.88, share_talent x1.47, availability x1.37, wr_talent x1.19
+- 2026-11-09: **Lamar Jackson** board $1,974, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-11-09: **Lamar Jackson** board $1,974, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-11-09: **Lamar Jackson** board $1,974, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-11-09: **RJ Harvey** board $390, votes: about right 1; too high 1 (2 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-11-09: **Garrett Wilson** board $426, votes: ; typed $350 (1 answers) — DISAGREES
   - draft_comp x0.48, share_talent x1.46, availability x0.77, alpha x1.13
 - 2026-11-18: **KC Concepcion Jr.** board $1,562, votes: too high 2 (2 answers) — DISAGREES
@@ -1499,8 +1511,14 @@
   - wr_band x0.78, share_talent x1.22, track x1.11, usage x1.09
 - 2026-10-28: **Tee Higgins** board $1,330, votes: too high 1 (1 answers) — DISAGREES
   - wr_band x0.78, share_talent x1.22, track x1.11, usage x1.09
+- 2026-10-28: **Lamar Jackson** $2,475 vs **James Cook III** $2,486: votes say James Cook III (s -1.00, 1 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
+  - James Cook III: availability x1.37, aw_nfl x1.30, team_q x1.27, share_talent x1.25
 - 2026-10-28: **Matthew Golden** board $956, votes: about right 1 (1 answers) — DISAGREES
   - ceiling_lo x0.78, efficiency x0.86, wr_band x0.88, usage x1.09
+- 2026-11-09: **Lamar Jackson** $1,974 vs **Trevor Lawrence** $1,995: votes say Lamar Jackson (s +0.74, 2 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+  - Trevor Lawrence: team_q x1.17, qb_band x0.86, usage x1.13, availability x0.90
 - 2026-11-09: **KC Concepcion Jr.** board $1,262, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - rookie_capital x1.49, wr_band x0.78, wr_talent x1.24, efficiency x0.86
 - 2026-11-09: **Trevor Lawrence** board $1,995, votes: too low 1; about right 1 (2 answers) — DISAGREES
@@ -1509,6 +1527,9 @@
   - team_q x1.17, qb_band x0.86, usage x1.13, availability x0.90
 - 2026-11-09: **Zay Flowers** board $1,612, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - availability x1.30, wr_band x0.78, wr_talent x1.27, share_talent x1.22
+- 2026-10-28: **Jameson Williams** $1,019 vs **Sam LaPorta** $1,026: votes say Sam LaPorta (s -1.00, 1 answers) — DISAGREES
+  - Jameson Williams: spike x1.95, wr_band x0.78, availability x1.28, team_q x1.16
+  - Sam LaPorta: position curve x0.72, ceiling_lo x0.78, availability x0.83, aw_nfl x1.18
 - 2026-11-09: **Matthew Stafford** board $470, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x2.15, availability x1.30, team_q x1.19, usage x1.16
 - 2026-11-09: **Matthew Stafford** board $470, votes: too high 2 (2 answers) — DISAGREES
@@ -1524,24 +1545,12 @@
   - tgt_lead x1.51, share_talent x0.89, spike x1.11, position curve x0.91
 - 2026-11-15: **Isaiah Likely** board $906, votes: too high 1 (1 answers) — DISAGREES
   - tgt_lead x1.51, share_talent x0.89, spike x1.11, position curve x0.91
-- 2026-10-28: **Jameson Williams** $1,018 vs **Sam LaPorta** $1,026: votes say Sam LaPorta (s -1.00, 1 answers) — DISAGREES
-  - Jameson Williams: spike x1.95, wr_band x0.78, availability x1.28, team_q x1.16
-  - Sam LaPorta: position curve x0.72, ceiling_lo x0.78, availability x0.83, aw_nfl x1.18
+- 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers) — DISAGREES
+  - pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
+- 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers) — DISAGREES
+  - pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
 - 2026-10-27: **Sam LaPorta** board $1,028, votes: too high 1; typed $800 (2 answers) — DISAGREES
   - position curve x0.72, ceiling_lo x0.78, availability x0.83, aw_nfl x1.18
-- 2026-11-11: **Jalen Hurts** $1,704 vs **Tetairoa McMillan** $1,718: votes say Tetairoa McMillan (s -1.00, 1 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-  - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
-- 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers) — DISAGREES
-  - pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
-- 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers) — DISAGREES
-  - pick_boom x1.25, aw_college x1.22, availability x1.13, usage x1.10
-- 2026-11-09: **Lamar Jackson** board $1,988, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-- 2026-11-09: **Lamar Jackson** board $1,988, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-- 2026-11-09: **Lamar Jackson** board $1,988, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
 - 2026-10-28: **Sam Darnold** board $131, votes: about right 1 (1 answers) — DISAGREES
   - replacement line x0.66, availability x1.37, team_q x1.21, usage x1.03
 - 2026-10-28: **Sam Darnold** board $131, votes: about right 1 (1 answers) — DISAGREES
@@ -1560,15 +1569,10 @@
   - availability x0.56, share_talent x1.66, wr_band x0.78, position curve x0.82
 - 2026-10-26: **Cam Skattebo** board $386, votes: about right 2; typed $500 (3 answers) — DISAGREES
   - availability x0.51, share_talent x1.18, spike x1.17, nyg x1.14
-- 2026-11-09: **Lamar Jackson** $1,988 vs **Trevor Lawrence** $1,995: votes say Lamar Jackson (s +0.74, 2 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
-  - Trevor Lawrence: team_q x1.17, qb_band x0.86, usage x1.13, availability x0.90
 - 2026-11-18: **Tucker Kraft** board $255, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - te_line x0.43, share_talent x0.83, availability x0.87, wr_talent x1.13
 - 2026-11-11: **George Kittle** board $716, votes: too high 1 (1 answers) — DISAGREES
   - aw_nfl x2.36, position curve x0.73, team_q x1.27, wr_talent x1.23
-- 2026-11-09: **RJ Harvey** board $395, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-11-09: **Drake Maye** board $2,315, votes: too low 1 (1 answers) — DISAGREES
   - aw_nfl x1.30, elite_streak x1.25, team_q x1.16, qb_quality x1.15
 - 2026-11-09: **Drake Maye** board $2,315, votes: too low 1 (1 answers) — DISAGREES
@@ -1582,9 +1586,6 @@
   - young_upside x1.47, availability x1.45, qb_quality x0.79, team_q x0.80
 - 2026-10-28: **Drake London** board $1,860, votes: about right 1 (1 answers) — DISAGREES
   - share_talent x1.57, wr_band x0.78, usage x1.16, alpha x1.13
-- 2026-10-28: **Lamar Jackson** $2,493 vs **Trey McBride** $2,526: votes say Trey McBride (s -1.00, 1 answers) — DISAGREES
-  - Lamar Jackson: aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
-  - Trey McBride: position curve x0.37, aw_nfl x1.70, share_talent x1.52, usage x1.40
 - 2026-11-09: **DeVonta Smith** board $267, votes: about right 1 (1 answers) — DISAGREES
   - inj_out x0.51, contract_old x0.78, share_talent x1.27, wr_backup x0.82
 - 2026-11-09: **Fernando Mendoza** board $1,158, votes: too high 1 (1 answers) — DISAGREES
@@ -1598,8 +1599,8 @@
   - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
 - 2026-11-15: **Drake London** board $1,770, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x1.51, wr_band x0.78, alpha x1.11, usage x1.11
-- 2026-11-18: **Michael Wilson** board $278, votes: too low 1; about right 1 (2 answers) — DISAGREES
-  - spike x1.85, inj_ir x0.69, availability x1.33, replacement line x0.84
+- 2026-10-26: **Lamar Jackson** board $2,493, votes: ; typed $3,000 (1 answers) — DISAGREES
+  - aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
 - 2026-10-24: **Jayden Daniels** board $1,511, votes: too low 2; about right 1 (3 answers) — DISAGREES
   - aw_college x1.49, availability x0.69, qb_band x0.86, pick_boom x1.16
 - 2026-11-09: **Jaxon Smith-Njigba** board $3,727, votes: too low 1; about right 1 (2 answers) — DISAGREES
@@ -1610,6 +1611,9 @@
   - aw_nfl x1.21, availability x0.83, qb_tough x1.18, qb_band x0.86
 - 2026-10-28: **Joe Burrow** board $2,204, votes: too low 1 (1 answers) — DISAGREES
   - aw_nfl x1.21, availability x0.83, qb_tough x1.18, qb_band x0.86
+- 2026-11-09: **Tetairoa McMillan** $1,697 vs **Jalen Hurts** $1,668: votes say Tetairoa McMillan (s +1.00, 2 answers) — DISAGREES
+  - Tetairoa McMillan: availability x1.32, share_talent x1.30, wr_band x0.78, efficiency x0.86
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-18: **C.J. Stroud** board $1,766, votes: too low 1; too high 1 (2 answers) — DISAGREES
   - pick_boom x1.24, availability x1.22, qb_band x0.86, usage x1.06
 - 2026-11-09: **Justin Jefferson** board $2,786, votes: about right 1; too high 1 (2 answers) — DISAGREES
@@ -1626,18 +1630,21 @@
   - Eli Stowers: wr_talent x1.40, usage x0.78, share_talent x0.85, position curve x0.86
 - 2026-11-09: **Ashton Jeanty** board $2,567, votes: too high 2 (2 answers) — DISAGREES
   - share_talent x1.63, availability x1.32, usage x1.27, aw_college x1.25
-- 2026-11-11: **Nicholas Singleton** $270 vs **Sam Darnold** $275: votes say Sam Darnold (s -1.00, 1 answers) — DISAGREES
-  - Nicholas Singleton: young_upside x2.40, rookie_day3 x0.61, usage x0.78, team_q x0.80
-  - Sam Darnold: inj_out x0.51, availability x1.30, team_q x1.20, replacement line x0.86
 - 2026-11-15: **Fernando Mendoza** board $1,157, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x2.40, snap_cap x0.46, aw_college x2.04, rookie_capital x1.87
 - 2026-10-26: **Breece Hall** board $528, votes: about right 2 (2 answers) — DISAGREES
   - inj_out x0.51, boom_rate_lo x0.70, share_talent x1.37, team_q x0.87
+- 2026-11-18: **Ollie Gordon II** $424 vs **Matthew Stafford** $480: votes say Ollie Gordon II (s +0.17, 2 answers) — DISAGREES
+  - Ollie Gordon II: availability x1.45, ceiling_lo x0.78, young_upside x1.24, team_q x0.82
+  - Matthew Stafford: aw_nfl x2.10, availability x1.37, team_q x1.19, usage x1.15
 - 2026-10-28: **Ja'Marr Chase** $3,200 vs **Amon-Ra St. Brown** $3,136: votes say Ja'Marr Chase (s +1.00, 1 answers) — DISAGREES
   - Ja'Marr Chase: aw_nfl x2.87, position curve x0.63, share_talent x1.47, availability x1.37
   - Amon-Ra St. Brown: aw_nfl x2.77, share_talent x1.57, position curve x0.66, usage x1.48
 - 2026-11-15: **De'Von Achane** board $2,183, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x1.51, inj_ir x0.69, availability x1.23, team_q x0.85
+- 2026-10-28: **Lamar Jackson** $2,475 vs **Trey McBride** $2,526: votes say Trey McBride (s -1.00, 1 answers) — DISAGREES
+  - Lamar Jackson: aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
+  - Trey McBride: position curve x0.37, aw_nfl x1.70, share_talent x1.52, usage x1.40
 - 2026-10-28: **C.J. Stroud** board $895, votes: too high 1 (1 answers) — DISAGREES
   - availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
 - 2026-10-28: **C.J. Stroud** board $895, votes: too high 1 (1 answers) — DISAGREES
@@ -1655,21 +1662,14 @@
   - tgt_lead x1.55, spike x1.14, position curve x0.89, share_talent x0.90
 - 2026-11-09: **Isaiah Likely** board $906, votes: too low 1; too high 1 (2 answers) — DISAGREES
   - tgt_lead x1.55, spike x1.14, position curve x0.89, share_talent x0.90
-- 2026-11-18: **RJ Harvey** board $398, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, young_upside x1.40, spike x1.37, availability x1.32
 - 2026-10-28: **Brock Purdy** board $1,946, votes: about right 1 (1 answers) — DISAGREES
   - availability x0.79, team_q x1.24, usage x1.20, qb_quality x1.16
 - 2026-10-28: **C.J. Stroud** $895 vs **George Kittle** $678: votes say even (s +0.00, 1 answers) — DISAGREES
   - C.J. Stroud: availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
   - George Kittle: aw_nfl x2.36, position curve x0.73, team_q x1.24, track x1.22
-- 2026-10-26: **Lamar Jackson** board $2,511, votes: ; typed $3,000 (1 answers) — DISAGREES
-  - aw_nfl x3.86, inj_out x0.51, track x1.18, qb_quality x1.10
 - 2026-10-28: **Jadarian Price** $895 vs **George Kittle** $678: votes say even (s +0.00, 1 answers) — DISAGREES
   - Jadarian Price: young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
   - George Kittle: aw_nfl x2.36, position curve x0.73, team_q x1.24, track x1.22
-- 2026-11-18: **Ollie Gordon II** $424 vs **Matthew Stafford** $474: votes say Ollie Gordon II (s +0.17, 2 answers) — DISAGREES
-  - Ollie Gordon II: availability x1.45, ceiling_lo x0.78, young_upside x1.24, team_q x0.82
-  - Matthew Stafford: aw_nfl x2.10, availability x1.37, team_q x1.19, usage x1.15
 - 2026-11-18: **Antonio Williams** board $392, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - wr_talent x1.29, share_talent x0.78, spike x1.27, usage x0.82
 - 2026-10-28: **Kenneth Walker III** $2,976 vs **Malik Nabers** $2,255: votes say even (s +0.00, 1 answers) — DISAGREES
@@ -1697,8 +1697,14 @@
 - 2026-11-15: **Bucky Irving** $1,590 vs **KC Concepcion Jr.** $1,551: votes say Bucky Irving (s +1.00, 1 answers) — DISAGREES
   - Bucky Irving: share_talent x1.31, usage x1.12, team_q x0.94, availability x0.97
   - KC Concepcion Jr.: rookie_capital x1.49, wr_band x0.78, wr_talent x1.28, usage x0.90
+- 2026-11-18: **Michael Wilson** board $284, votes: too low 1; about right 1 (2 answers) — DISAGREES
+  - spike x1.85, inj_ir x0.69, availability x1.33, team_q x0.86
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too low 1 (1 answers) — DISAGREES
+  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-15: **Denzel Boston** board $946, votes: too high 1 (1 answers) — DISAGREES
   - rookie_capital x1.28, spike x1.21, share_talent x1.21, wr_band x0.90
+- 2026-11-18: **RJ Harvey** board $393, votes: about right 1; too high 1 (2 answers) — DISAGREES
+  - inj_ir x0.69, spike x1.41, young_upside x1.40, availability x1.32
 - 2026-10-26: **Malachi Fields** board $47, votes: about right 1 (1 answers) — DISAGREES
   - team_q_lo x0.75, share_talent x0.75, nyg x1.25, usage x0.82
 - 2026-11-09: **D'Andre Swift** $1,470 vs **Zay Flowers** $1,612: votes say D'Andre Swift (s +0.17, 2 answers) — DISAGREES
@@ -1733,15 +1739,21 @@
 - 2026-11-09: **Christian Watson** $719 vs **George Kittle** $699: votes say Christian Watson (s +1.00, 2 answers) — DISAGREES
   - Christian Watson: availability x0.81, usage x1.09, team_q x1.08, alpha x1.03
   - George Kittle: aw_nfl x2.36, position curve x0.74, team_q x1.26, track x1.22
-- 2026-11-11: **Cam Skattebo** $222 vs **Chuba Hubbard** $229: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
-  - Cam Skattebo: inj_out x0.51, availability x0.54, boom_rate_lo x0.69, share_talent x1.17
-  - Chuba Hubbard: rb_inj x0.37, spike x1.92, share_talent x1.25, availability x1.15
+- 2026-11-11: **Javonte Williams** $1,903 vs **Lamar Jackson** $1,959: votes say Lamar Jackson (s -1.00, 1 answers) — DISAGREES
+  - Javonte Williams: availability x1.37, usage x1.24, share_talent x1.21, team_q x1.06
+  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_band x0.90
+- 2026-11-18: **Makai Lemon** $1,606 vs **Jalen Hurts** $1,654: votes say Jalen Hurts (s -1.00, 2 answers) — DISAGREES
+  - Makai Lemon: rookie_capital x1.55, wr_band x0.78, wr_talent x1.24, efficiency x0.86
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-09: **Bijan Robinson** board $3,767, votes: about right 1; typed $4,500 (2 answers) — DISAGREES
   - share_talent x1.83, position curve x1.73, availability x1.37, elite_streak x1.35
 - 2026-11-09: **Tucker Kraft** board $873, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - availability x0.81, share_talent x0.84, te_line x0.84, tgt_lead x1.16
 - 2026-10-27: **Christian McCaffrey** board $2,422, votes: too high 1 (1 answers) — DISAGREES
   - share_talent x2.03, availability x0.66, usage x1.51, rookie_backup x0.68
+- 2026-11-18: **Jalen Hurts** $1,654 vs **Tetairoa McMillan** $1,706: votes say Tetairoa McMillan (s -1.00, 2 answers) — DISAGREES
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
+  - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.26, efficiency x0.86
 - 2026-10-28: **KC Concepcion Jr.** $1,444 vs **Javonte Williams** $1,400: votes say KC Concepcion Jr. (s +1.00, 1 answers) — DISAGREES
   - KC Concepcion Jr.: rookie_capital x1.49, wr_band x0.78, wr_talent x1.19, efficiency x0.86
   - Javonte Williams: availability x1.37, usage x1.19, share_talent x1.17, boom_rate_lo x0.91
@@ -1761,6 +1773,14 @@
 - 2026-10-28: **C.J. Stroud** $895 vs **Denzel Boston** $924: votes say Denzel Boston (s -1.00, 1 answers) — DISAGREES
   - C.J. Stroud: availability x1.21, pick_boom x1.17, usage x1.06, team_q x1.04
   - Denzel Boston: rookie_capital x1.28, spike x1.18, share_talent x1.12, usage x0.92
+- 2026-11-11: **Matthew Stafford** board $462, votes: too high 1 (1 answers) — DISAGREES
+  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
+- 2026-11-11: **Matthew Stafford** board $462, votes: too high 1 (1 answers) — DISAGREES
+  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
+- 2026-11-11: **Matthew Stafford** board $462, votes: too high 1 (1 answers) — DISAGREES
+  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
+- 2026-11-11: **Matthew Stafford** board $462, votes: too high 1 (1 answers) — DISAGREES
+  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
 - 2026-10-28: **Dylan Sampson** board $61, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x2.27, rb_band x1.82, team_q_lo x0.65, inj_ir x0.69
 - 2026-10-28: **Makai Lemon** board $1,558, votes: too high 1 (1 answers) — DISAGREES
@@ -1780,22 +1800,17 @@
   - availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
 - 2026-11-11: **Ollie Gordon II** board $355, votes: too high 1 (1 answers) — DISAGREES
   - availability x1.45, young_upside x1.33, ceiling_lo x0.78, rb_touch x0.78
-- 2026-11-11: **Javonte Williams** $1,903 vs **Lamar Jackson** $1,974: votes say Lamar Jackson (s -1.00, 1 answers) — DISAGREES
-  - Javonte Williams: availability x1.37, usage x1.24, share_talent x1.21, team_q x1.06
-  - Lamar Jackson: aw_nfl x2.45, inj_out x0.51, track x1.12, qb_quality x1.11
+- 2026-11-11: **Jalen Hurts** $1,656 vs **Tetairoa McMillan** $1,718: votes say Tetairoa McMillan (s -1.00, 1 answers) — DISAGREES
+  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
+  - Tetairoa McMillan: availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
 - 2026-11-09: **Ja'Marr Chase** $3,254 vs **Amon-Ra St. Brown** $3,136: votes say Ja'Marr Chase (s +1.00, 1 answers) — DISAGREES
   - Ja'Marr Chase: aw_nfl x2.87, position curve x0.61, share_talent x1.52, availability x1.29
   - Amon-Ra St. Brown: aw_nfl x2.77, share_talent x1.55, position curve x0.66, usage x1.44
-- 2026-11-18: **C.J. Stroud** $1,766 vs **Jalen Hurts** $1,701: votes say C.J. Stroud (s +1.00, 2 answers) — DISAGREES
-  - C.J. Stroud: pick_boom x1.24, availability x1.22, qb_band x0.86, usage x1.06
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-10-28: **Romeo Doubs** board $69, votes: about right 1 (1 answers) — DISAGREES
-  - replacement line x0.61, inj_ir x0.69, spike x1.43, tgt_lead x1.28
+- 2026-10-26: **Jordan Addison** $187 vs **Chuba Hubbard** $195: votes say Chuba Hubbard (s -1.00, 1 answers) — DISAGREES
+  - Jordan Addison: inj_out x0.51, spike x1.67, position curve x1.15, team_q x1.11
+  - Chuba Hubbard: rb_inj x0.37, spike x1.87, share_talent x1.20, replacement line x0.90
 - 2026-10-24: **Carnell Tate** board $1,779, votes: about right 1; typed $1,750 (2 answers) — DISAGREES
   - rookie_capital x1.81, share_talent x1.30, wr_band x0.78, team_q x0.80
-- 2026-11-09: **Jalen Hurts** $1,716 vs **Drake London** $1,783: votes say Drake London (s -1.00, 1 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-  - Drake London: share_talent x1.55, wr_band x0.78, usage x1.13, alpha x1.13
 - 2026-11-15: **Rome Odunze** board $857, votes: too high 1 (1 answers) — DISAGREES
   - spike x2.08, team_q x1.19, position curve x1.11, efficiency x0.90
 - 2026-11-15: **Rome Odunze** board $857, votes: too high 1 (1 answers) — DISAGREES
@@ -1803,6 +1818,9 @@
 - 2026-11-11: **Isaiah Likely** $971 vs **Rashee Rice** $933: votes say Isaiah Likely (s +1.00, 1 answers) — DISAGREES
   - Isaiah Likely: tgt_lead x1.51, availability x1.15, share_talent x0.89, spike x1.12
   - Rashee Rice: availability x0.35, wr_talent x1.41, wr_band x0.78, share_talent x1.24
+- 2026-11-09: **Jacory Croskey-Merritt** $55 vs **Caleb Douglas** $57: votes say Caleb Douglas (s -1.00, 1 answers) — DISAGREES
+  - Jacory Croskey-Merritt: rb_band x1.80, young_upside x1.67, team_q_lo x0.65, inj_ir x0.69
+  - Caleb Douglas: team_q_lo x0.52, wr_talent x1.66, spike x1.60, efficiency x1.25
 - 2026-11-09: **Drake Maye** board $2,315, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - aw_nfl x1.30, elite_streak x1.25, team_q x1.16, qb_quality x1.15
 - 2026-11-18: **Bijan Robinson** $3,829 vs **Jahmyr Gibbs** $3,959: votes say Jahmyr Gibbs (s -0.59, 2 answers) — DISAGREES
@@ -1819,17 +1837,12 @@
   - availability x0.35, wr_talent x1.41, wr_band x0.78, share_talent x1.24
 - 2026-11-18: **Jeremiyah Love** board $1,980, votes: about right 2 (2 answers) — DISAGREES
   - rookie_capital x1.83, inj_ir x0.69, efficiency x0.81, young_upside x1.22
-- 2026-11-15: **Jalen Hurts** board $1,702, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-18: **TreVeyon Henderson** board $1,075, votes: too high 2 (2 answers) — DISAGREES
   - inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.16
 - 2026-10-28: **Tyler Warren** board $639, votes: about right 1 (1 answers) — DISAGREES
   - inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
 - 2026-10-28: **Tyler Warren** board $639, votes: about right 1 (1 answers) — DISAGREES
   - inj_out x0.51, ceiling_lo x0.78, position curve x0.83, availability x1.18
-- 2026-11-11: **Jalen Hurts** $1,704 vs **Drake London** $1,781: votes say Drake London (s -1.00, 1 answers) — DISAGREES
-  - Jalen Hurts: inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-  - Drake London: share_talent x1.51, wr_band x0.78, alpha x1.11, usage x1.11
 - 2026-11-09: **Tetairoa McMillan** board $1,697, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - availability x1.32, share_talent x1.30, wr_band x0.78, efficiency x0.86
 - 2026-11-09: **Tetairoa McMillan** board $1,697, votes: about right 1; too high 1 (2 answers) — DISAGREES
@@ -1842,63 +1855,27 @@
   - availability x1.45, wr_band x0.78, share_talent x1.27, efficiency x0.86
 - 2026-11-18: **Bijan Robinson** board $3,829, votes: about right 1; typed $4,500 (2 answers) — DISAGREES
   - share_talent x1.83, position curve x1.73, availability x1.45, elite_streak x1.35
+- 2026-11-09: **Antonio Williams** board $323, votes: too high 1 (1 answers) — DISAGREES
+  - spike x1.37, share_talent x0.79, usage x0.83, wr_talent x1.17
+- 2026-11-09: **Antonio Williams** board $323, votes: too high 1 (1 answers) — DISAGREES
+  - spike x1.37, share_talent x0.79, usage x0.83, wr_talent x1.17
 - 2026-10-28: **Emeka Egbuka** $739 vs **Parker Washington** $773: votes say Parker Washington (s -1.00, 1 answers) — DISAGREES
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, availability x1.31, efficiency x0.86
   - Parker Washington: spike x2.29, availability x1.37, position curve x1.16, team_q x1.15
-- 2026-11-09: **Antonio Williams** board $323, votes: too high 1 (1 answers) — DISAGREES
-  - spike x1.37, share_talent x0.79, usage x0.83, wr_talent x1.17
-- 2026-11-09: **Antonio Williams** board $323, votes: too high 1 (1 answers) — DISAGREES
-  - spike x1.37, share_talent x0.79, usage x0.83, wr_talent x1.17
 - 2026-11-09: **Joe Burrow** board $2,337, votes: about right 1; typed $2,500 (2 answers) — DISAGREES
   - availability x0.80, aw_nfl x1.21, qb_tough x1.18, usage x1.17
 - 2026-11-09: **Jahmyr Gibbs** $3,946 vs **Josh Allen** $4,129: votes say Josh Allen (s -0.85, 2 answers) — DISAGREES
   - Jahmyr Gibbs: young_elite x1.82, position curve x1.73, share_talent x1.68, usage x1.58
   - Josh Allen: elite_streak x3.86, aw_nfl x1.88, availability x1.45, usage x1.38
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-15: **Kyler Murray** board $244, votes: too high 1 (1 answers) — DISAGREES
-  - inj_out x0.51, availability x0.63, track x1.09, qb_inj x0.92
 - 2026-11-11: **TreVeyon Henderson** $1,180 vs **Christian Watson** $1,236: votes say Christian Watson (s -1.00, 1 answers) — DISAGREES
   - TreVeyon Henderson: inj_out x0.51, young_upside x1.50, share_talent x0.83, team_q x1.17
   - Christian Watson: wr_band x0.78, usage x1.10, team_q x1.09, alpha x1.03
-- 2026-11-11: **Matthew Stafford** board $456, votes: too high 1 (1 answers) — DISAGREES
-  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
-- 2026-11-11: **Matthew Stafford** board $456, votes: too high 1 (1 answers) — DISAGREES
-  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
-- 2026-11-11: **Matthew Stafford** board $456, votes: too high 1 (1 answers) — DISAGREES
-  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
-- 2026-11-11: **Matthew Stafford** board $456, votes: too high 1 (1 answers) — DISAGREES
-  - aw_nfl x2.20, availability x1.37, team_q x1.18, usage x1.16
 - 2026-11-09: **Dak Prescott** board $1,353, votes: too low 1; too high 1 (2 answers) — DISAGREES
   - usage x1.27, availability x0.81, aw_nfl x1.18, qb_band x0.86
 - 2026-11-09: **Dak Prescott** board $1,353, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - usage x1.27, availability x0.81, aw_nfl x1.18, qb_band x0.86
-- 2026-11-18: **Jalen Hurts** board $1,701, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-18: **Jalen Hurts** board $1,701, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-18: **Jalen Hurts** board $1,701, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-18: **Jalen Hurts** board $1,701, votes: about right 1; too high 1 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-18: **Rome Odunze** board $856, votes: too high 2 (2 answers) — DISAGREES
   - spike x2.09, team_q x1.19, position curve x1.11, efficiency x0.90
-- 2026-11-09: **Jalen Hurts** board $1,716, votes: too high 2 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-09: **Jalen Hurts** board $1,716, votes: too high 2 (2 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
-- 2026-11-09: **Jalen Hurts** board $1,716, votes: too high 1 (1 answers) — DISAGREES
-  - inj_ir x0.69, track x1.17, qb_band x0.86, aw_nfl x1.13
 - 2026-11-09: **Jahmyr Gibbs** board $3,946, votes: too low 1; about right 1 (2 answers) — DISAGREES
   - young_elite x1.82, position curve x1.73, share_talent x1.68, usage x1.58
 - 2026-11-18: **Keon Coleman** board $129, votes: ; typed $150 (1 answers) — DISAGREES
@@ -1936,21 +1913,20 @@
   - availability x1.37, aw_nfl x1.30, team_q x1.28, share_talent x1.24
 - 2026-11-09: **James Cook III** board $2,488, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - availability x1.37, aw_nfl x1.30, team_q x1.28, share_talent x1.24
-- 2026-10-24: **DJ Moore** board $231, votes: about right 3 (3 answers)
-- 2026-10-24: **Jaxson Dart** $854 vs **DJ Moore** $231: votes say Jaxson Dart (s +1.00, 3 answers)
-- 2026-10-24: **Chuba Hubbard** board $205, votes: too high 3 (3 answers)
+- 2026-10-24: **Jaxson Dart** $854 vs **DJ Moore** $203: votes say Jaxson Dart (s +1.00, 3 answers)
+- 2026-10-24: **Chuba Hubbard** board $206, votes: too high 3 (3 answers)
 - 2026-10-24: **Michael Pittman Jr.** $57 vs **Isaac TeSlaa** $24: votes say Michael Pittman Jr. (s +1.00, 3 answers)
 - 2026-10-24: **Jayden Daniels** $1,511 vs **Luther Burden III** $938: votes say Jayden Daniels (s +1.00, 2 answers)
 - 2026-10-24: **Jaylin Noel** $172 vs **Keon Coleman** $198: votes say Keon Coleman (s -0.17, 2 answers)
-- 2026-10-24: **Chuba Hubbard** $205 vs **Breece Hall** $556: votes say Breece Hall (s -1.00, 2 answers)
+- 2026-10-24: **Chuba Hubbard** $206 vs **Breece Hall** $556: votes say Breece Hall (s -1.00, 2 answers)
 - 2026-10-24: **Jonah Coleman** $234 vs **Eli Stowers** $124: votes say Jonah Coleman (s +1.00, 2 answers)
 - 2026-10-24: **Baker Mayfield** $574 vs **Omar Cooper Jr.** $678: votes say even (s -0.41, 2 answers)
-- 2026-10-24: **Jayden Daniels** $1,511 vs **Justin Herbert** $762: votes say Jayden Daniels (s +1.00, 2 answers)
+- 2026-10-24: **Jayden Daniels** $1,511 vs **Justin Herbert** $766: votes say Jayden Daniels (s +1.00, 2 answers)
 - 2026-10-24: **Tyrone Tracy Jr.** $8 vs **Michael Penix Jr.** $60: votes say Michael Penix Jr. (s -1.00, 2 answers)
 - 2026-10-24: **Tetairoa McMillan** board $1,888, votes: too high 1; typed $1,750 (2 answers)
 - 2026-10-24: **Carnell Tate** $1,779 vs **Brock Purdy** $1,998: votes say Brock Purdy (s -1.00, 2 answers)
-- 2026-10-24: **Chuba Hubbard** $205 vs **Jordan Love** $1,179: votes say Jordan Love (s -1.00, 1 answers)
-- 2026-10-24: **Chuba Hubbard** board $205, votes: too high 1 (1 answers)
+- 2026-10-24: **Chuba Hubbard** $206 vs **Jordan Love** $1,179: votes say Jordan Love (s -1.00, 1 answers)
+- 2026-10-24: **Chuba Hubbard** board $206, votes: too high 1 (1 answers)
 - 2026-10-24: **Antonio Williams** board $297, votes: about right 1 (1 answers)
 - 2026-10-24: **Bo Nix** $970 vs **Omar Cooper Jr.** $678: votes say Bo Nix (s +1.00, 1 answers)
 - 2026-10-24: **Bo Nix** board $970, votes: too low 1 (1 answers)
@@ -1966,7 +1942,7 @@
 - 2026-10-24: **Blake Corum** $112 vs **Jadarian Price** $877: votes say Jadarian Price (s -1.00, 1 answers)
 - 2026-10-24: **Blake Corum** board $112, votes: too high 1 (1 answers)
 - 2026-10-24: **Jadarian Price** board $877, votes: too low 1 (1 answers)
-- 2026-10-26: **Drake London** $1,810 vs **Lamar Jackson** $2,511: votes say Lamar Jackson (s -0.84, 3 answers)
+- 2026-10-26: **Drake London** $1,810 vs **Lamar Jackson** $2,493: votes say Lamar Jackson (s -0.84, 3 answers)
 - 2026-10-26: **Drake London** board $1,810, votes: about right 2 (2 answers)
 - 2026-10-26: **Tyler Warren** board $891, votes: about right 3 (3 answers)
 - 2026-10-26: **Trevor Lawrence** board $1,951, votes: about right 2; too high 1 (3 answers)
@@ -1978,25 +1954,25 @@
 - 2026-10-26: **Kenyon Sadiq** board $726, votes: too low 2 (2 answers)
 - 2026-10-26: **Breece Hall** $528 vs **Rome Odunze** $413: votes say Breece Hall (s +0.67, 2 answers)
 - 2026-10-26: **Rome Odunze** board $413, votes: too high 2 (2 answers)
-- 2026-10-26: **Jalen Hurts** $1,717 vs **Chase Brown** $1,536: votes say Jalen Hurts (s +1.00, 2 answers)
-- 2026-10-26: **Jalen Hurts** board $1,717, votes: about right 1; too high 1 (2 answers)
-- 2026-10-26: **Tetairoa McMillan** $1,818 vs **Lamar Jackson** $2,511: votes say Lamar Jackson (s -1.00, 2 answers)
+- 2026-10-26: **Jalen Hurts** $1,670 vs **Chase Brown** $1,536: votes say Jalen Hurts (s +1.00, 2 answers)
+- 2026-10-26: **Jalen Hurts** board $1,670, votes: about right 1; too high 1 (2 answers)
+- 2026-10-26: **Tetairoa McMillan** $1,818 vs **Lamar Jackson** $2,493: votes say Lamar Jackson (s -1.00, 2 answers)
 - 2026-10-26: **Tetairoa McMillan** board $1,818, votes: too high 2 (2 answers)
-- 2026-10-26: **Lamar Jackson** board $2,511, votes: too low 1; about right 1 (2 answers)
-- 2026-10-26: **Travis Kelce** board $148, votes: about right 1; too high 1 (2 answers)
+- 2026-10-26: **Lamar Jackson** board $2,493, votes: too low 1; about right 1 (2 answers)
+- 2026-10-26: **Travis Kelce** board $149, votes: about right 1; too high 1 (2 answers)
 - 2026-10-26: **Blake Corum** board $110, votes: too high 2 (2 answers)
 - 2026-10-26: **Luther Burden III** $937 vs **Tucker Kraft** $547: votes say Luther Burden III (s +1.00, 2 answers)
 - 2026-10-26: **Luther Burden III** board $937, votes: about right 2 (2 answers)
 - 2026-10-26: **Rashee Rice** $1,258 vs **Rome Odunze** $413: votes say Rashee Rice (s +0.67, 2 answers)
-- 2026-10-26: **Michael Wilson** $426 vs **Jadarian Price** $888: votes say Jadarian Price (s -0.89, 2 answers)
-- 2026-10-26: **Michael Wilson** board $426, votes: about right 2 (2 answers)
+- 2026-10-26: **Michael Wilson** $429 vs **Jadarian Price** $888: votes say Jadarian Price (s -0.89, 2 answers)
+- 2026-10-26: **Michael Wilson** board $429, votes: about right 2 (2 answers)
 - 2026-10-26: **Luther Burden III** board $937, votes: about right 1 (1 answers)
 - 2026-10-26: **Brock Bowers** board $2,628, votes: too low 1 (1 answers)
 - 2026-10-26: **Parker Washington** board $761, votes: too low 1 (1 answers)
 - 2026-10-26: **Garrett Wilson** board $869, votes: too high 1 (1 answers)
 - 2026-10-26: **Denzel Boston** board $971, votes: too high 1 (1 answers)
-- 2026-10-26: **Jameson Williams** $943 vs **Colston Loveland** $1,343: votes say Colston Loveland (s -1.00, 1 answers)
-- 2026-10-26: **Jameson Williams** board $943, votes: too high 1 (1 answers)
+- 2026-10-26: **Jameson Williams** $944 vs **Colston Loveland** $1,343: votes say Colston Loveland (s -1.00, 1 answers)
+- 2026-10-26: **Jameson Williams** board $944, votes: too high 1 (1 answers)
 - 2026-10-26: **Christian Watson** board $685, votes: too low 1 (1 answers)
 - 2026-10-26: **Bucky Irving** board $863, votes: about right 1 (1 answers)
 - 2026-10-26: **Christian Watson** board $685, votes: too low 1 (1 answers)
@@ -2011,7 +1987,7 @@
 - 2026-10-26: **Emeka Egbuka** $1,130 vs **Isaiah Likely** $1,018: votes say even (s +0.00, 1 answers)
 - 2026-10-26: **Colston Loveland** $1,343 vs **Omar Cooper Jr.** $681: votes say Colston Loveland (s +1.00, 1 answers)
 - 2026-10-26: **Omar Cooper Jr.** board $681, votes: too high 1 (1 answers)
-- 2026-10-26: **Jordan Addison** board $348, votes: too high 1 (1 answers)
+- 2026-10-26: **Jordan Addison** board $187, votes: too high 1 (1 answers)
 - 2026-10-26: **Marvin Harrison Jr.** $218 vs **Brenton Strange** $50: votes say Marvin Harrison Jr. (s +1.00, 1 answers)
 - 2026-10-26: **Marvin Harrison Jr.** board $218, votes: too high 1 (1 answers)
 - 2026-10-26: **Brenton Strange** board $50, votes: too high 1 (1 answers)
@@ -2021,15 +1997,14 @@
 - 2026-10-27: **Tre' Harris** board $94, votes: too high 1; typed $85 (2 answers)
 - 2026-10-27: **Rome Odunze** $496 vs **Justin Herbert** $749: votes say Justin Herbert (s -1.00, 2 answers)
 - 2026-10-27: **Garrett Wilson** board $838, votes: about right 1 (1 answers)
-- 2026-10-27: **Jacory Croskey-Merritt** $96 vs **Jack Bech** $37: votes say Jacory Croskey-Merritt (s +1.00, 2 answers)
-- 2026-10-27: **Jacory Croskey-Merritt** board $96, votes: too low 1; about right 1 (2 answers)
+- 2026-10-27: **Jacory Croskey-Merritt** $54 vs **Jack Bech** $37: votes say Jacory Croskey-Merritt (s +1.00, 2 answers)
 - 2026-10-27: **Jack Bech** board $37, votes: too high 1; typed $40 (2 answers)
 - 2026-10-27: **Eli Stowers** $170 vs **Elijah Sarratt** $143: votes say Eli Stowers (s +1.00, 1 answers)
 - 2026-10-27: **Malik Nabers** board $2,255, votes: about right 1 (1 answers)
 - 2026-10-27: **Josh Jacobs** board $1,100, votes: about right 1 (1 answers)
 - 2026-10-27: **Eli Raridon** board $51, votes: too high 1 (1 answers)
-- 2026-10-27: **Saquon Barkley** $478 vs **Caleb Douglas** $35: votes say Saquon Barkley (s +1.00, 1 answers)
-- 2026-10-27: **Saquon Barkley** board $478, votes: too low 1 (1 answers)
+- 2026-10-27: **Saquon Barkley** $481 vs **Caleb Douglas** $35: votes say Saquon Barkley (s +1.00, 1 answers)
+- 2026-10-27: **Saquon Barkley** board $481, votes: too low 1 (1 answers)
 - 2026-10-27: **Caleb Douglas** board $35, votes: too high 1 (1 answers)
 - 2026-10-28: **Sam LaPorta** board $1,026, votes: about right 1 (1 answers)
 - 2026-10-28: **Courtland Sutton** board $32, votes: too high 1 (1 answers)
@@ -2042,9 +2017,9 @@
 - 2026-10-28: **Bo Nix** board $998, votes: about right 1 (1 answers)
 - 2026-10-28: **D'Andre Swift** board $651, votes: too high 1 (1 answers)
 - 2026-10-28: **Bucky Irving** board $1,016, votes: about right 2 (2 answers)
-- 2026-10-28: **Jaylen Warren** $155 vs **DeVonta Smith** $302: votes say DeVonta Smith (s -0.80, 2 answers)
+- 2026-10-28: **Jaylen Warren** $156 vs **DeVonta Smith** $302: votes say DeVonta Smith (s -0.80, 2 answers)
 - 2026-10-28: **DeVonta Smith** board $302, votes: too low 2 (2 answers)
-- 2026-10-28: **Chuba Hubbard** $188 vs **Tucker Kraft** $657: votes say Tucker Kraft (s -1.00, 1 answers)
+- 2026-10-28: **Chuba Hubbard** $191 vs **Tucker Kraft** $657: votes say Tucker Kraft (s -1.00, 1 answers)
 - 2026-10-28: **Tucker Kraft** board $657, votes: about right 1 (1 answers)
 - 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers)
 - 2026-10-28: **Jaxson Dart** board $836, votes: too low 1 (1 answers)
@@ -2071,15 +2046,15 @@
 - 2026-10-28: **Trey McBride** $2,526 vs **Patrick Mahomes** $2,076: votes say Trey McBride (s +1.00, 1 answers)
 - 2026-10-28: **Trey McBride** board $2,526, votes: too high 1 (1 answers)
 - 2026-10-28: **Patrick Mahomes** board $2,076, votes: too high 1 (1 answers)
-- 2026-10-28: **Jaxson Dart** $836 vs **Michael Wilson** $417: votes say Jaxson Dart (s +1.00, 1 answers)
+- 2026-10-28: **Jaxson Dart** $836 vs **Michael Wilson** $419: votes say Jaxson Dart (s +1.00, 1 answers)
 - 2026-10-28: **Jaxson Dart** board $836, votes: too low 1 (1 answers)
-- 2026-10-28: **Michael Wilson** board $417, votes: too high 1 (1 answers)
+- 2026-10-28: **Michael Wilson** board $419, votes: too high 1 (1 answers)
 - 2026-10-28: **Derrick Henry** $682 vs **Jaxson Dart** $836: votes say Jaxson Dart (s -1.00, 1 answers)
 - 2026-10-28: **Derrick Henry** board $682, votes: about right 1 (1 answers)
 - 2026-10-28: **Jaxson Dart** board $836, votes: too low 1 (1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
 - 2026-10-28: **Sam LaPorta** board $1,026, votes: too high 1 (1 answers)
-- 2026-10-28: **Davante Adams** $142 vs **Jaylen Warren** $155: votes say even (s +0.00, 1 answers)
+- 2026-10-28: **Davante Adams** $142 vs **Jaylen Warren** $156: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Tyler Shough** board $374, votes: about right 1 (1 answers)
 - 2026-10-28: **Quentin Johnston** board $29, votes: too high 1 (1 answers)
 - 2026-10-28: **Jaxson Dart** $836 vs **George Kittle** $678: votes say Jaxson Dart (s +1.00, 1 answers)
@@ -2088,9 +2063,9 @@
 - 2026-10-28: **Chase Brown** $1,354 vs **Jeremiyah Love** $1,673: votes say Jeremiyah Love (s -1.00, 1 answers)
 - 2026-10-28: **Chase Brown** board $1,354, votes: too high 1 (1 answers)
 - 2026-10-28: **Jeremiyah Love** board $1,673, votes: about right 1 (1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
 - 2026-10-28: **George Kittle** board $678, votes: about right 1 (1 answers)
-- 2026-10-28: **Baker Mayfield** $453 vs **Brenton Strange** $50: votes say Baker Mayfield (s +1.00, 1 answers)
+- 2026-10-28: **Baker Mayfield** $456 vs **Brenton Strange** $50: votes say Baker Mayfield (s +1.00, 1 answers)
 - 2026-10-28: **Brenton Strange** board $50, votes: too high 1 (1 answers)
 - 2026-10-28: **Dak Prescott** $1,096 vs **Tee Higgins** $1,330: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Dak Prescott** board $1,096, votes: too high 1 (1 answers)
@@ -2103,13 +2078,13 @@
 - 2026-10-28: **Eli Stowers** $170 vs **Ollie Gordon II** $305: votes say Ollie Gordon II (s -1.00, 1 answers)
 - 2026-10-28: **Eli Stowers** board $170, votes: too high 1 (1 answers)
 - 2026-10-28: **Ollie Gordon II** board $305, votes: too high 1 (1 answers)
-- 2026-10-28: **Jaylen Warren** $155 vs **Jaylen Waddle** $144: votes say Jaylen Warren (s +1.00, 1 answers)
+- 2026-10-28: **Jaylen Warren** $156 vs **Jaylen Waddle** $145: votes say Jaylen Warren (s +1.00, 1 answers)
 - 2026-10-28: **Trey McBride** board $2,526, votes: too high 1 (1 answers)
 - 2026-10-28: **Bo Nix** board $998, votes: too high 1 (1 answers)
 - 2026-10-28: **Luther Burden III** board $1,146, votes: too low 1 (1 answers)
 - 2026-10-28: **Kenneth Walker III** board $2,976, votes: about right 1 (1 answers)
-- 2026-10-28: **Jaylen Waddle** $144 vs **Ladd McConkey** $468: votes say Ladd McConkey (s -1.00, 1 answers)
-- 2026-10-28: **Ladd McConkey** board $468, votes: too low 1 (1 answers)
+- 2026-10-28: **Jaylen Waddle** $145 vs **Ladd McConkey** $374: votes say Ladd McConkey (s -1.00, 1 answers)
+- 2026-10-28: **Ladd McConkey** board $374, votes: too low 1 (1 answers)
 - 2026-10-28: **Jordan Love** $1,298 vs **Colston Loveland** $1,538: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Tee Higgins** $1,330 vs **Colston Loveland** $1,538: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Sam LaPorta** board $1,026, votes: too high 1 (1 answers)
@@ -2119,10 +2094,10 @@
 - 2026-10-28: **Rome Odunze** board $499, votes: too high 1 (1 answers)
 - 2026-10-28: **Bryce Young** $728 vs **Breece Hall** $526: votes say Bryce Young (s +1.00, 1 answers)
 - 2026-10-28: **Bryce Young** board $728, votes: about right 1 (1 answers)
-- 2026-10-28: **Jalen Hurts** board $1,743, votes: too high 1 (1 answers)
+- 2026-10-28: **Jalen Hurts** board $1,695, votes: too high 1 (1 answers)
 - 2026-10-28: **Cam Ward** $1,237 vs **Rashee Rice** $1,257: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Derrick Henry** board $682, votes: about right 1 (1 answers)
-- 2026-10-28: **Michael Wilson** board $417, votes: too high 1 (1 answers)
+- 2026-10-28: **Michael Wilson** board $419, votes: too high 1 (1 answers)
 - 2026-10-28: **Travis Kelce** board $166, votes: too high 1 (1 answers)
 - 2026-10-28: **Fernando Mendoza** $1,159 vs **Drake London** $1,860: votes say Drake London (s -1.00, 1 answers)
 - 2026-10-28: **Fernando Mendoza** board $1,159, votes: too high 1 (1 answers)
@@ -2130,12 +2105,12 @@
 - 2026-10-28: **Emeka Egbuka** board $739, votes: too high 1 (1 answers)
 - 2026-10-28: **Breece Hall** $526 vs **Derrick Henry** $682: votes say Derrick Henry (s -1.00, 1 answers)
 - 2026-10-28: **Derrick Henry** board $682, votes: about right 1 (1 answers)
-- 2026-10-28: **Kenneth Walker III** $2,976 vs **Lamar Jackson** $2,493: votes say Kenneth Walker III (s +1.00, 1 answers)
+- 2026-10-28: **Kenneth Walker III** $2,976 vs **Lamar Jackson** $2,475: votes say Kenneth Walker III (s +1.00, 1 answers)
 - 2026-10-28: **Kenneth Walker III** board $2,976, votes: about right 1 (1 answers)
-- 2026-10-28: **Lamar Jackson** board $2,493, votes: too high 1 (1 answers)
+- 2026-10-28: **Lamar Jackson** board $2,475, votes: too high 1 (1 answers)
 - 2026-10-28: **Davante Adams** $142 vs **DeVonta Smith** $302: votes say DeVonta Smith (s -1.00, 1 answers)
 - 2026-10-28: **DeVonta Smith** board $302, votes: too low 1 (1 answers)
-- 2026-10-28: **Lamar Jackson** board $2,493, votes: too high 1 (1 answers)
+- 2026-10-28: **Lamar Jackson** board $2,475, votes: too high 1 (1 answers)
 - 2026-10-28: **James Cook III** board $2,486, votes: about right 1 (1 answers)
 - 2026-10-28: **Quinshon Judkins** $634 vs **Luther Burden III** $1,146: votes say Luther Burden III (s -1.00, 1 answers)
 - 2026-10-28: **Luther Burden III** board $1,146, votes: too low 1 (1 answers)
@@ -2162,7 +2137,7 @@
 - 2026-10-28: **Brock Purdy** board $1,946, votes: too high 1 (1 answers)
 - 2026-10-28: **Luther Burden III** board $1,146, votes: too low 1 (1 answers)
 - 2026-10-28: **Ollie Gordon II** board $305, votes: too high 1 (1 answers)
-- 2026-10-28: **Michael Wilson** board $417, votes: too high 1 (1 answers)
+- 2026-10-28: **Michael Wilson** board $419, votes: too high 1 (1 answers)
 - 2026-10-28: **Bo Nix** $998 vs **Garrett Wilson** $814: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Jordan Addison** $324 vs **Jadarian Price** $895: votes say Jadarian Price (s -1.00, 1 answers)
 - 2026-10-28: **Jordan Addison** board $324, votes: too high 1 (1 answers)
@@ -2200,8 +2175,8 @@
 - 2026-10-28: **Drake Maye** $2,214 vs **Malik Nabers** $2,255: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **RJ Harvey** $601 vs **Jaxson Dart** $836: votes say Jaxson Dart (s -1.00, 1 answers)
 - 2026-10-28: **RJ Harvey** board $601, votes: too high 1 (1 answers)
-- 2026-10-28: **Jameson Williams** $1,018 vs **Dak Prescott** $1,096: votes say Dak Prescott (s -1.00, 1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
+- 2026-10-28: **Jameson Williams** $1,019 vs **Dak Prescott** $1,096: votes say Dak Prescott (s -1.00, 1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
 - 2026-10-28: **Derrick Henry** $682 vs **Christian Watson** $824: votes say Christian Watson (s -1.00, 1 answers)
 - 2026-10-28: **Derrick Henry** board $682, votes: about right 1 (1 answers)
 - 2026-10-28: **Christian Watson** board $824, votes: too low 1 (1 answers)
@@ -2216,18 +2191,18 @@
 - 2026-10-28: **Michael Penix Jr.** board $60, votes: too low 1 (1 answers)
 - 2026-10-28: **Travis Kelce** board $166, votes: too low 1 (1 answers)
 - 2026-10-28: **Ashton Jeanty** board $2,659, votes: about right 1 (1 answers)
-- 2026-10-28: **Jalen Hurts** $1,743 vs **Christian McCaffrey** $2,425: votes say Christian McCaffrey (s -1.00, 1 answers)
-- 2026-10-28: **Jalen Hurts** board $1,743, votes: too high 1 (1 answers)
+- 2026-10-28: **Jalen Hurts** $1,695 vs **Christian McCaffrey** $2,425: votes say Christian McCaffrey (s -1.00, 1 answers)
+- 2026-10-28: **Jalen Hurts** board $1,695, votes: too high 1 (1 answers)
 - 2026-10-28: **Brenton Strange** $50 vs **Michael Pittman Jr.** $57: votes say even (s +0.00, 1 answers)
-- 2026-10-28: **Lamar Jackson** board $2,493, votes: too high 1 (1 answers)
+- 2026-10-28: **Lamar Jackson** board $2,475, votes: too high 1 (1 answers)
 - 2026-10-28: **Trey McBride** board $2,526, votes: too high 1 (1 answers)
 - 2026-10-28: **Ja'Marr Chase** board $3,200, votes: about right 1 (1 answers)
 - 2026-10-28: **Amon-Ra St. Brown** board $3,136, votes: too high 1 (1 answers)
 - 2026-10-28: **Luther Burden III** $1,146 vs **Jeremiyah Love** $1,673: votes say Jeremiyah Love (s -1.00, 1 answers)
 - 2026-10-28: **Luther Burden III** board $1,146, votes: too high 1 (1 answers)
 - 2026-10-28: **Jeremiyah Love** board $1,673, votes: too low 1 (1 answers)
-- 2026-10-28: **Saquon Barkley** $478 vs **Dalton Kincaid** $80: votes say Saquon Barkley (s +1.00, 1 answers)
-- 2026-10-28: **Saquon Barkley** board $478, votes: too low 1 (1 answers)
+- 2026-10-28: **Saquon Barkley** $481 vs **Dalton Kincaid** $80: votes say Saquon Barkley (s +1.00, 1 answers)
+- 2026-10-28: **Saquon Barkley** board $481, votes: too low 1 (1 answers)
 - 2026-10-28: **Troy Franklin** $31 vs **Michael Penix Jr.** $60: votes say Michael Penix Jr. (s -1.00, 1 answers)
 - 2026-10-28: **Michael Penix Jr.** board $60, votes: too low 1 (1 answers)
 - 2026-10-28: **RJ Harvey** $601 vs **Rashee Rice** $1,257: votes say Rashee Rice (s -1.00, 1 answers)
@@ -2237,19 +2212,19 @@
 - 2026-10-28: **Chase Brown** $1,354 vs **Caleb Williams** $1,877: votes say Caleb Williams (s -1.00, 1 answers)
 - 2026-10-28: **Chase Brown** board $1,354, votes: too high 1 (1 answers)
 - 2026-10-28: **Caleb Williams** board $1,877, votes: about right 1 (1 answers)
-- 2026-10-28: **Michael Wilson** $417 vs **Ollie Gordon II** $305: votes say Michael Wilson (s +1.00, 1 answers)
-- 2026-10-28: **Michael Wilson** board $417, votes: about right 1 (1 answers)
+- 2026-10-28: **Michael Wilson** $419 vs **Ollie Gordon II** $305: votes say Michael Wilson (s +1.00, 1 answers)
+- 2026-10-28: **Michael Wilson** board $419, votes: about right 1 (1 answers)
 - 2026-10-28: **Ollie Gordon II** board $305, votes: too high 1 (1 answers)
 - 2026-10-28: **Emeka Egbuka** board $739, votes: about right 1 (1 answers)
 - 2026-10-28: **Parker Washington** board $773, votes: about right 1 (1 answers)
 - 2026-10-28: **Jordan Addison** board $324, votes: too high 1 (1 answers)
-- 2026-10-28: **Chuba Hubbard** board $188, votes: too high 1 (1 answers)
+- 2026-10-28: **Chuba Hubbard** board $191, votes: too high 1 (1 answers)
 - 2026-10-28: **Tucker Kraft** board $657, votes: about right 1 (1 answers)
 - 2026-10-28: **RJ Harvey** $601 vs **C.J. Stroud** $895: votes say C.J. Stroud (s -1.00, 1 answers)
 - 2026-10-28: **RJ Harvey** board $601, votes: too high 1 (1 answers)
 - 2026-10-28: **KC Concepcion Jr.** board $1,444, votes: too high 1 (1 answers)
 - 2026-10-28: **Javonte Williams** board $1,400, votes: too high 1 (1 answers)
-- 2026-10-28: **Chuba Hubbard** board $188, votes: too high 1 (1 answers)
+- 2026-10-28: **Chuba Hubbard** board $191, votes: too high 1 (1 answers)
 - 2026-10-28: **Brock Purdy** board $1,946, votes: too high 1 (1 answers)
 - 2026-10-28: **Tyler Warren** $639 vs **Parker Washington** $773: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Parker Washington** board $773, votes: about right 1 (1 answers)
@@ -2271,27 +2246,26 @@
 - 2026-10-28: **Matthew Stafford** $746 vs **Christian Watson** $824: votes say Christian Watson (s -1.00, 1 answers)
 - 2026-10-28: **Matthew Stafford** board $746, votes: about right 1 (1 answers)
 - 2026-10-28: **Christian Watson** board $824, votes: too low 1 (1 answers)
-- 2026-10-28: **Cam Ward** $1,237 vs **Jameson Williams** $1,018: votes say even (s +0.00, 1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
-- 2026-10-28: **Kyle Pitts Sr.** $1,018 vs **DK Metcalf** $179: votes say Kyle Pitts Sr. (s +1.00, 1 answers)
-- 2026-10-28: **DK Metcalf** board $179, votes: too high 1 (1 answers)
+- 2026-10-28: **Cam Ward** $1,237 vs **Jameson Williams** $1,019: votes say even (s +0.00, 1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
+- 2026-10-28: **Kyle Pitts Sr.** $1,018 vs **DK Metcalf** $180: votes say Kyle Pitts Sr. (s +1.00, 1 answers)
+- 2026-10-28: **DK Metcalf** board $180, votes: too high 1 (1 answers)
 - 2026-10-28: **RJ Harvey** $601 vs **Justin Herbert** $743: votes say Justin Herbert (s -1.00, 1 answers)
 - 2026-10-28: **RJ Harvey** board $601, votes: too high 1 (1 answers)
 - 2026-10-28: **Justin Herbert** board $743, votes: about right 1 (1 answers)
 - 2026-10-28: **Zay Flowers** $1,807 vs **Joe Burrow** $2,204: votes say Joe Burrow (s -1.00, 1 answers)
 - 2026-10-28: **Zay Flowers** board $1,807, votes: too high 1 (1 answers)
-- 2026-10-28: **Romeo Doubs** $69 vs **Dylan Sampson** $61: votes say Romeo Doubs (s +1.00, 1 answers)
 - 2026-10-28: **Harold Fannin Jr.** board $1,026, votes: too high 1 (1 answers)
 - 2026-10-28: **Parker Washington** board $773, votes: about right 1 (1 answers)
 - 2026-10-28: **Kenyon Sadiq** board $710, votes: too high 1 (1 answers)
-- 2026-10-28: **Jalen Hurts** board $1,743, votes: too high 1 (1 answers)
+- 2026-10-28: **Jalen Hurts** board $1,695, votes: too high 1 (1 answers)
 - 2026-10-28: **Javonte Williams** board $1,400, votes: too high 1 (1 answers)
 - 2026-10-28: **Chris Olave** $1,391 vs **Caleb Williams** $1,877: votes say Caleb Williams (s -1.00, 1 answers)
 - 2026-10-28: **Chris Olave** board $1,391, votes: too high 1 (1 answers)
 - 2026-10-28: **Braelon Allen** $143 vs **Michael Pittman Jr.** $57: votes say Braelon Allen (s +1.00, 1 answers)
 - 2026-10-28: **Braelon Allen** board $143, votes: too low 1 (1 answers)
-- 2026-10-28: **Jalen Hurts** $1,743 vs **De'Von Achane** $2,207: votes say De'Von Achane (s -1.00, 1 answers)
-- 2026-10-28: **Jalen Hurts** board $1,743, votes: too high 1 (1 answers)
+- 2026-10-28: **Jalen Hurts** $1,695 vs **De'Von Achane** $2,207: votes say De'Von Achane (s -1.00, 1 answers)
+- 2026-10-28: **Jalen Hurts** board $1,695, votes: too high 1 (1 answers)
 - 2026-10-28: **De'Von Achane** board $2,207, votes: about right 1 (1 answers)
 - 2026-10-28: **Jaxon Smith-Njigba** $3,757 vs **Jahmyr Gibbs** $4,005: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Jaxon Smith-Njigba** board $3,757, votes: about right 1 (1 answers)
@@ -2300,11 +2274,11 @@
 - 2026-10-28: **Parker Washington** $773 vs **Justin Herbert** $743: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Parker Washington** board $773, votes: about right 1 (1 answers)
 - 2026-10-28: **Justin Herbert** board $743, votes: about right 1 (1 answers)
-- 2026-10-28: **Baker Mayfield** $453 vs **Brian Thomas Jr.** $133: votes say Baker Mayfield (s +1.00, 1 answers)
-- 2026-10-28: **Baker Mayfield** board $453, votes: too high 1 (1 answers)
+- 2026-10-28: **Baker Mayfield** $456 vs **Brian Thomas Jr.** $133: votes say Baker Mayfield (s +1.00, 1 answers)
+- 2026-10-28: **Baker Mayfield** board $456, votes: too high 1 (1 answers)
 - 2026-10-28: **Brian Thomas Jr.** board $133, votes: too high 1 (1 answers)
-- 2026-10-28: **Jameson Williams** $1,018 vs **Nico Collins** $1,596: votes say Nico Collins (s -1.00, 1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
+- 2026-10-28: **Jameson Williams** $1,019 vs **Nico Collins** $1,596: votes say Nico Collins (s -1.00, 1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
 - 2026-10-28: **Nico Collins** board $1,596, votes: too high 1 (1 answers)
 - 2026-10-28: **Matthew Stafford** board $746, votes: about right 1 (1 answers)
 - 2026-10-28: **Emeka Egbuka** board $739, votes: about right 1 (1 answers)
@@ -2341,14 +2315,14 @@
 - 2026-10-28: **Malik Nabers** board $2,255, votes: about right 1 (1 answers)
 - 2026-10-28: **Jayden Higgins** $181 vs **Elijah Sarratt** $143: votes say Jayden Higgins (s +1.00, 1 answers)
 - 2026-10-28: **Jayden Higgins** board $181, votes: too low 1 (1 answers)
-- 2026-10-28: **Ollie Gordon II** $305 vs **Baker Mayfield** $453: votes say Baker Mayfield (s -1.00, 1 answers)
+- 2026-10-28: **Ollie Gordon II** $305 vs **Baker Mayfield** $456: votes say Baker Mayfield (s -1.00, 1 answers)
 - 2026-10-28: **Ollie Gordon II** board $305, votes: too high 1 (1 answers)
-- 2026-10-28: **Baker Mayfield** board $453, votes: too high 1 (1 answers)
+- 2026-10-28: **Baker Mayfield** board $456, votes: too high 1 (1 answers)
 - 2026-10-28: **Quinshon Judkins** $634 vs **Parker Washington** $773: votes say Parker Washington (s -1.00, 1 answers)
 - 2026-10-28: **Quinshon Judkins** board $634, votes: too high 1 (1 answers)
 - 2026-10-28: **Parker Washington** board $773, votes: about right 1 (1 answers)
-- 2026-10-28: **Jameson Williams** $1,018 vs **Jordan Love** $1,298: votes say Jordan Love (s -1.00, 1 answers)
-- 2026-10-28: **Jameson Williams** board $1,018, votes: too high 1 (1 answers)
+- 2026-10-28: **Jameson Williams** $1,019 vs **Jordan Love** $1,298: votes say Jordan Love (s -1.00, 1 answers)
+- 2026-10-28: **Jameson Williams** board $1,019, votes: too high 1 (1 answers)
 - 2026-10-28: **Jordan Love** board $1,298, votes: about right 1 (1 answers)
 - 2026-10-28: **Patrick Mahomes** $2,076 vs **Amon-Ra St. Brown** $3,136: votes say Amon-Ra St. Brown (s -1.00, 1 answers)
 - 2026-10-28: **Patrick Mahomes** board $2,076, votes: too high 1 (1 answers)
@@ -2359,7 +2333,7 @@
 - 2026-10-28: **Eli Stowers** board $170, votes: too high 1 (1 answers)
 - 2026-10-28: **Jonah Coleman** $268 vs **Davante Adams** $142: votes say Jonah Coleman (s +1.00, 1 answers)
 - 2026-10-28: **Cam Skattebo** board $515, votes: about right 1 (1 answers)
-- 2026-10-28: **Chuba Hubbard** board $188, votes: too high 1 (1 answers)
+- 2026-10-28: **Chuba Hubbard** board $191, votes: too high 1 (1 answers)
 - 2026-10-28: **Bryce Young** $728 vs **Tucker Kraft** $657: votes say even (s +0.00, 1 answers)
 - 2026-10-28: **Tucker Kraft** board $657, votes: about right 1 (1 answers)
 - 2026-10-28: **Tetairoa McMillan** $1,766 vs **Trevor Lawrence** $1,955: votes say even (s +0.00, 1 answers)
@@ -2375,8 +2349,8 @@
 - 2026-10-28: **Malik Nabers** board $2,255, votes: about right 1 (1 answers)
 - 2026-10-28: **Malik Nabers** board $2,255, votes: about right 1 (1 answers)
 - 2026-10-28: **Kyren Williams** board $2,537, votes: too high 1 (1 answers)
-- 2026-10-28: **Chuba Hubbard** $188 vs **Tyler Warren** $639: votes say Tyler Warren (s -1.00, 1 answers)
-- 2026-10-28: **Chuba Hubbard** board $188, votes: too high 1 (1 answers)
+- 2026-10-28: **Chuba Hubbard** $191 vs **Tyler Warren** $639: votes say Tyler Warren (s -1.00, 1 answers)
+- 2026-10-28: **Chuba Hubbard** board $191, votes: too high 1 (1 answers)
 - 2026-10-28: **Makai Lemon** board $1,558, votes: too high 1 (1 answers)
 - 2026-10-28: **Javonte Williams** board $1,400, votes: too high 1 (1 answers)
 - 2026-10-28: **George Pickens** $1,979 vs **Chase Brown** $1,354: votes say George Pickens (s +1.00, 1 answers)
@@ -2387,11 +2361,10 @@
 - 2026-10-28: **Derrick Henry** $682 vs **Justin Herbert** $743: votes say Justin Herbert (s -1.00, 1 answers)
 - 2026-10-28: **Derrick Henry** board $682, votes: about right 1 (1 answers)
 - 2026-10-28: **Justin Herbert** board $743, votes: about right 1 (1 answers)
-- 2026-10-28: **Jacory Croskey-Merritt** $96 vs **Sam Darnold** $131: votes say Sam Darnold (s -1.00, 1 answers)
-- 2026-10-28: **Jacory Croskey-Merritt** board $96, votes: about right 1 (1 answers)
+- 2026-10-28: **Jacory Croskey-Merritt** $54 vs **Sam Darnold** $131: votes say Sam Darnold (s -1.00, 1 answers)
 - 2026-10-28: **Sam Darnold** board $131, votes: too low 1 (1 answers)
-- 2026-10-28: **Dalton Kincaid** $80 vs **DJ Moore** $233: votes say DJ Moore (s -1.00, 1 answers)
-- 2026-10-28: **DJ Moore** board $233, votes: too low 1 (1 answers)
+- 2026-10-28: **Dalton Kincaid** $80 vs **DJ Moore** $201: votes say DJ Moore (s -1.00, 1 answers)
+- 2026-10-28: **DJ Moore** board $201, votes: too low 1 (1 answers)
 - 2026-10-28: **Jordan Addison** $324 vs **Tucker Kraft** $657: votes say Tucker Kraft (s -1.00, 1 answers)
 - 2026-10-28: **Jordan Addison** board $324, votes: too high 1 (1 answers)
 - 2026-10-28: **Tucker Kraft** board $657, votes: about right 1 (1 answers)
@@ -2415,7 +2388,7 @@
 - 2026-10-28: **D'Andre Swift** $651 vs **Matthew Golden** $956: votes say Matthew Golden (s -1.00, 1 answers)
 - 2026-10-28: **D'Andre Swift** board $651, votes: too high 1 (1 answers)
 - 2026-10-28: **Matthew Golden** board $956, votes: about right 1 (1 answers)
-- 2026-11-09: **Michael Wilson** board $575, votes: too low 1; about right 1 (2 answers)
+- 2026-11-09: **Michael Wilson** board $577, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **Drake London** board $1,783, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **Malik Nabers** $1,846 vs **Fernando Mendoza** $1,158: votes say Malik Nabers (s +1.00, 2 answers)
 - 2026-11-09: **Brock Bowers** board $2,688, votes: too low 1; about right 1 (2 answers)
@@ -2430,9 +2403,9 @@
 - 2026-11-09: **Jared Goff** board $1,977, votes: about right 1; too high 1 (2 answers)
 - 2026-11-09: **D'Andre Swift** $1,470 vs **Chase Brown** $1,320: votes say D'Andre Swift (s +0.58, 2 answers)
 - 2026-11-09: **D'Andre Swift** board $1,470, votes: too high 2 (2 answers)
-- 2026-11-09: **RJ Harvey** $395 vs **Michael Wilson** $575: votes say Michael Wilson (s -1.00, 2 answers)
-- 2026-11-09: **RJ Harvey** board $395, votes: too high 2 (2 answers)
-- 2026-11-09: **Michael Wilson** board $575, votes: too low 1; about right 1 (2 answers)
+- 2026-11-09: **RJ Harvey** $390 vs **Michael Wilson** $577: votes say Michael Wilson (s -1.00, 2 answers)
+- 2026-11-09: **RJ Harvey** board $390, votes: too high 2 (2 answers)
+- 2026-11-09: **Michael Wilson** board $577, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **Jack Bech** $35 vs **AJ Barner** $28: votes say Jack Bech (s +1.00, 1 answers)
 - 2026-11-09: **AJ Barner** board $28, votes: too high 1 (1 answers)
 - 2026-11-09: **D'Andre Swift** board $1,470, votes: about right 1; too high 1 (2 answers)
@@ -2442,7 +2415,7 @@
 - 2026-11-09: **Dak Prescott** board $1,353, votes: about right 1; too high 1 (2 answers)
 - 2026-11-09: **Jayden Daniels** $1,517 vs **Chase Brown** $1,320: votes say Jayden Daniels (s +1.00, 2 answers)
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 2 (2 answers)
-- 2026-11-09: **Justin Herbert** $561 vs **Jordan Addison** $337: votes say Justin Herbert (s +1.00, 2 answers)
+- 2026-11-09: **Justin Herbert** $564 vs **Jordan Addison** $337: votes say Justin Herbert (s +1.00, 2 answers)
 - 2026-11-09: **Derrick Henry** $741 vs **Jordan Addison** $337: votes say Derrick Henry (s +1.00, 2 answers)
 - 2026-11-09: **Jordan Addison** board $337, votes: too high 2 (2 answers)
 - 2026-11-09: **Tucker Kraft** $873 vs **Parker Washington** $531: votes say Tucker Kraft (s +0.85, 2 answers)
@@ -2455,11 +2428,10 @@
 - 2026-11-09: **Jordyn Tyson** board $631, votes: too high 2 (2 answers)
 - 2026-11-09: **Jordan Addison** $337 vs **Bryce Young** $568: votes say Bryce Young (s -1.00, 2 answers)
 - 2026-11-09: **Jordan Addison** board $337, votes: too high 2 (2 answers)
-- 2026-11-09: **Jacory Croskey-Merritt** board $96, votes: about right 1 (1 answers)
-- 2026-11-09: **RJ Harvey** $395 vs **Justin Herbert** $561: votes say Justin Herbert (s -1.00, 2 answers)
-- 2026-11-09: **Justin Herbert** board $561, votes: too low 2 (2 answers)
-- 2026-11-09: **Justin Herbert** $561 vs **A.J. Brown** $515: votes say Justin Herbert (s +1.00, 2 answers)
-- 2026-11-09: **Justin Herbert** board $561, votes: too low 2 (2 answers)
+- 2026-11-09: **RJ Harvey** $390 vs **Justin Herbert** $564: votes say Justin Herbert (s -1.00, 2 answers)
+- 2026-11-09: **Justin Herbert** board $564, votes: too low 2 (2 answers)
+- 2026-11-09: **Justin Herbert** $564 vs **A.J. Brown** $515: votes say Justin Herbert (s +1.00, 2 answers)
+- 2026-11-09: **Justin Herbert** board $564, votes: too low 2 (2 answers)
 - 2026-11-09: **A.J. Brown** board $515, votes: too high 2 (2 answers)
 - 2026-11-09: **Malik Nabers** $1,846 vs **Chase Brown** $1,320: votes say Malik Nabers (s +1.00, 2 answers)
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 2 (2 answers)
@@ -2474,12 +2446,12 @@
 - 2026-11-09: **Tyler Warren** $1,065 vs **Rashee Rice** $898: votes say Tyler Warren (s +1.00, 2 answers)
 - 2026-11-09: **Tyler Warren** board $1,065, votes: about right 1; too high 1 (2 answers)
 - 2026-11-09: **Rashee Rice** board $898, votes: too high 2 (2 answers)
-- 2026-11-09: **Michael Wilson** board $575, votes: too low 1; about right 1 (2 answers)
-- 2026-11-09: **Justin Herbert** board $561, votes: too low 2 (2 answers)
-- 2026-11-09: **Chase Brown** $1,320 vs **Lamar Jackson** $1,988: votes say Lamar Jackson (s -1.00, 1 answers)
+- 2026-11-09: **Michael Wilson** board $577, votes: too low 1; about right 1 (2 answers)
+- 2026-11-09: **Justin Herbert** board $564, votes: too low 2 (2 answers)
+- 2026-11-09: **Chase Brown** $1,320 vs **Lamar Jackson** $1,974: votes say Lamar Jackson (s -1.00, 1 answers)
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 2 (2 answers)
-- 2026-11-09: **Jalen Hurts** $1,716 vs **Caleb Williams** $1,847: votes say Caleb Williams (s -1.00, 2 answers)
-- 2026-11-09: **Jalen Hurts** board $1,716, votes: about right 1; too high 1 (2 answers)
+- 2026-11-09: **Jalen Hurts** $1,668 vs **Caleb Williams** $1,847: votes say Caleb Williams (s -1.00, 2 answers)
+- 2026-11-09: **Jalen Hurts** board $1,668, votes: about right 1; too high 1 (2 answers)
 - 2026-11-09: **Chase Brown** $1,320 vs **Joe Burrow** $2,337: votes say Joe Burrow (s -1.00, 1 answers)
 - 2026-11-09: **Puka Nacua** $3,434 vs **Bijan Robinson** $3,767: votes say Bijan Robinson (s -1.00, 2 answers)
 - 2026-11-09: **Jordan Love** $1,555 vs **Javonte Williams** $899: votes say Jordan Love (s +1.00, 2 answers)
@@ -2493,7 +2465,7 @@
 - 2026-11-09: **Jeremiyah Love** $1,649 vs **D'Andre Swift** $1,470: votes say Jeremiyah Love (s +1.00, 1 answers)
 - 2026-11-09: **Jeremiyah Love** board $1,649, votes: too low 1 (1 answers)
 - 2026-11-09: **D'Andre Swift** board $1,470, votes: about right 1 (1 answers)
-- 2026-11-09: **Garrett Wilson** $426 vs **DJ Moore** $72: votes say Garrett Wilson (s +1.00, 1 answers)
+- 2026-11-09: **Garrett Wilson** $426 vs **DJ Moore** $73: votes say Garrett Wilson (s +1.00, 1 answers)
 - 2026-11-09: **Justin Jefferson** board $2,786, votes: about right 1 (1 answers)
 - 2026-11-09: **Justin Jefferson** $2,786 vs **Kyren Williams** $2,474: votes say Justin Jefferson (s +1.00, 1 answers)
 - 2026-11-09: **Justin Jefferson** board $2,786, votes: about right 1 (1 answers)
@@ -2523,19 +2495,21 @@
 - 2026-11-09: **Quinshon Judkins** board $523, votes: too high 2 (2 answers)
 - 2026-11-09: **Trevor Lawrence** $1,995 vs **Chase Brown** $1,320: votes say Trevor Lawrence (s +1.00, 2 answers)
 - 2026-11-09: **Chase Brown** board $1,320, votes: too high 2 (2 answers)
-- 2026-11-09: **Michael Wilson** $575 vs **Eli Stowers** $461: votes say Michael Wilson (s +1.00, 2 answers)
-- 2026-11-09: **Michael Wilson** board $575, votes: too low 1; about right 1 (2 answers)
+- 2026-11-09: **Michael Wilson** $577 vs **Eli Stowers** $461: votes say Michael Wilson (s +1.00, 2 answers)
+- 2026-11-09: **Michael Wilson** board $577, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **Eli Stowers** board $461, votes: too high 2 (2 answers)
-- 2026-11-09: **Ladd McConkey** $201 vs **Jaylen Warren** $189: votes say even (s +0.00, 2 answers)
+- 2026-11-09: **Ladd McConkey** $201 vs **Jaylen Warren** $190: votes say even (s +0.00, 2 answers)
 - 2026-11-09: **Christian Watson** board $719, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **Tyler Shough** board $359, votes: about right 2 (2 answers)
 - 2026-11-09: **Jaxson Dart** board $807, votes: too low 1; about right 1 (2 answers)
 - 2026-11-09: **CeeDee Lamb** $2,851 vs **Ashton Jeanty** $2,567: votes say CeeDee Lamb (s +1.00, 2 answers)
+- 2026-11-09: **Jalen Hurts** board $1,668, votes: too high 2 (2 answers)
 - 2026-11-09: **Quinshon Judkins** $523 vs **Parker Washington** $531: votes say even (s -0.26, 2 answers)
 - 2026-11-09: **Jahmyr Gibbs** board $3,946, votes: about right 2 (2 answers)
 - 2026-11-09: **Josh Allen** board $4,129, votes: too low 1; about right 1 (2 answers)
-- 2026-11-09: **Josh Jacobs** $515 vs **Jalen Hurts** $1,716: votes say Jalen Hurts (s -0.74, 2 answers)
+- 2026-11-09: **Josh Jacobs** $515 vs **Jalen Hurts** $1,668: votes say Jalen Hurts (s -0.74, 2 answers)
 - 2026-11-09: **Josh Jacobs** board $515, votes: too high 2 (2 answers)
+- 2026-11-09: **Jalen Hurts** board $1,668, votes: too high 2 (2 answers)
 - 2026-11-09: **Chris Olave** $1,310 vs **Harold Fannin Jr.** $1,059: votes say Chris Olave (s +1.00, 2 answers)
 - 2026-11-09: **Chris Olave** board $1,310, votes: about right 2 (2 answers)
 - 2026-11-09: **Harold Fannin Jr.** board $1,059, votes: too high 2 (2 answers)
@@ -2546,10 +2520,9 @@
 - 2026-11-09: **Josh Jacobs** board $515, votes: too high 2 (2 answers)
 - 2026-11-09: **Jeremiyah Love** $1,649 vs **Dak Prescott** $1,353: votes say even (s +0.26, 2 answers)
 - 2026-11-09: **Jeremiyah Love** board $1,649, votes: too low 2 (2 answers)
-- 2026-11-09: **Josh Jacobs** $515 vs **Lamar Jackson** $1,988: votes say Lamar Jackson (s -1.00, 2 answers)
+- 2026-11-09: **Josh Jacobs** $515 vs **Lamar Jackson** $1,974: votes say Lamar Jackson (s -1.00, 2 answers)
 - 2026-11-09: **Josh Jacobs** board $515, votes: too high 2 (2 answers)
-- 2026-11-09: **Romeo Doubs** $67 vs **AJ Barner** $28: votes say Romeo Doubs (s +1.00, 1 answers)
-- 2026-11-09: **Romeo Doubs** board $67, votes: about right 1 (1 answers)
+- 2026-11-09: **Romeo Doubs** $42 vs **AJ Barner** $28: votes say Romeo Doubs (s +1.00, 1 answers)
 - 2026-11-09: **AJ Barner** board $28, votes: too high 1 (1 answers)
 - 2026-11-09: **Tre Tucker** $37 vs **AJ Barner** $28: votes say Tre Tucker (s +1.00, 1 answers)
 - 2026-11-09: **AJ Barner** board $28, votes: too high 1 (1 answers)
@@ -2598,8 +2571,8 @@
 - 2026-11-09: **Saquon Barkley** board $310, votes: too low 1 (1 answers)
 - 2026-11-09: **Baker Mayfield** board $306, votes: too low 1 (1 answers)
 - 2026-11-09: **Rome Odunze** board $577, votes: too high 1 (1 answers)
-- 2026-11-09: **Chuba Hubbard** $225 vs **Justin Herbert** $561: votes say Justin Herbert (s -1.00, 1 answers)
-- 2026-11-09: **Justin Herbert** board $561, votes: about right 1 (1 answers)
+- 2026-11-09: **Chuba Hubbard** $225 vs **Justin Herbert** $564: votes say Justin Herbert (s -1.00, 1 answers)
+- 2026-11-09: **Justin Herbert** board $564, votes: about right 1 (1 answers)
 - 2026-11-09: **Kyren Williams** board $2,474, votes: too high 1 (1 answers)
 - 2026-11-09: **De'Von Achane** $2,189 vs **Trevor Lawrence** $1,995: votes say even (s +0.00, 1 answers)
 - 2026-11-09: **De'Von Achane** board $2,189, votes: about right 1 (1 answers)
@@ -2649,6 +2622,8 @@
 - 2026-11-09: **Quinshon Judkins** board $523, votes: too high 1 (1 answers)
 - 2026-11-09: **Chris Olave** board $1,310, votes: about right 1 (1 answers)
 - 2026-11-09: **D'Andre Swift** board $1,470, votes: too high 1 (1 answers)
+- 2026-11-09: **Jalen Hurts** $1,668 vs **Drake London** $1,783: votes say Drake London (s -1.00, 1 answers)
+- 2026-11-09: **Jalen Hurts** board $1,668, votes: too high 1 (1 answers)
 - 2026-11-09: **Luther Burden III** board $1,182, votes: too high 1 (1 answers)
 - 2026-11-09: **Luther Burden III** board $1,182, votes: too high 1 (1 answers)
 - 2026-11-09: **Omarion Hampton** board $909, votes: too high 1 (1 answers)
@@ -2660,9 +2635,9 @@
 - 2026-11-09: **Joe Burrow** board $2,337, votes: about right 1 (1 answers)
 - 2026-11-09: **Trey McBride** board $2,481, votes: too high 1 (1 answers)
 - 2026-11-09: **James Cook III** board $2,488, votes: about right 1 (1 answers)
-- 2026-11-09: **Jordan Addison** $337 vs **Michael Wilson** $575: votes say Michael Wilson (s -1.00, 1 answers)
+- 2026-11-09: **Jordan Addison** $337 vs **Michael Wilson** $577: votes say Michael Wilson (s -1.00, 1 answers)
 - 2026-11-09: **Jordan Addison** board $337, votes: too high 1 (1 answers)
-- 2026-11-09: **Michael Wilson** board $575, votes: about right 1 (1 answers)
+- 2026-11-09: **Michael Wilson** board $577, votes: about right 1 (1 answers)
 - 2026-11-09: **Derrick Henry** board $741, votes: about right 1 (1 answers)
 - 2026-11-09: **Quinshon Judkins** board $523, votes: too high 1 (1 answers)
 - 2026-11-09: **Rome Odunze** board $577, votes: too high 1 (1 answers)
@@ -2682,18 +2657,17 @@
 - 2026-11-09: **Amon-Ra St. Brown** board $3,136, votes: too high 1 (1 answers)
 - 2026-11-09: **Joe Burrow** board $2,337, votes: about right 1 (1 answers)
 - 2026-11-09: **Jonathan Taylor** board $2,574, votes: too high 1 (1 answers)
-- 2026-11-11: **Kyler Murray** $245 vs **Tucker Kraft** $368: votes say Tucker Kraft (s -1.00, 2 answers)
-- 2026-11-11: **Kyler Murray** board $245, votes: too high 2 (2 answers)
+- 2026-11-11: **Kyler Murray** $37 vs **Tucker Kraft** $368: votes say Tucker Kraft (s -1.00, 2 answers)
+- 2026-11-11: **Kyler Murray** board $37, votes: too high 2 (2 answers)
 - 2026-11-11: **Tucker Kraft** board $368, votes: about right 2 (2 answers)
-- 2026-11-11: **Trevor Lawrence** $1,984 vs **Lamar Jackson** $1,974: votes say even (s +0.20, 2 answers)
+- 2026-11-11: **Trevor Lawrence** $1,984 vs **Lamar Jackson** $1,959: votes say even (s +0.20, 2 answers)
 - 2026-11-11: **Trevor Lawrence** board $1,984, votes: about right 2 (2 answers)
-- 2026-11-11: **Lamar Jackson** board $1,974, votes: about right 1; too high 1 (2 answers)
-- 2026-11-11: **Baker Mayfield** $289 vs **Romeo Doubs** $67: votes say Baker Mayfield (s +1.00, 1 answers)
-- 2026-11-11: **Baker Mayfield** board $289, votes: too low 1 (1 answers)
-- 2026-11-11: **Romeo Doubs** board $67, votes: about right 1 (1 answers)
-- 2026-11-11: **Justin Jefferson** $2,741 vs **Lamar Jackson** $1,974: votes say Justin Jefferson (s +1.00, 1 answers)
+- 2026-11-11: **Lamar Jackson** board $1,959, votes: about right 1; too high 1 (2 answers)
+- 2026-11-11: **Baker Mayfield** $295 vs **Romeo Doubs** $42: votes say Baker Mayfield (s +1.00, 1 answers)
+- 2026-11-11: **Baker Mayfield** board $295, votes: too low 1 (1 answers)
+- 2026-11-11: **Justin Jefferson** $2,741 vs **Lamar Jackson** $1,959: votes say Justin Jefferson (s +1.00, 1 answers)
 - 2026-11-11: **Justin Jefferson** board $2,741, votes: about right 1 (1 answers)
-- 2026-11-11: **Lamar Jackson** board $1,974, votes: too high 1 (1 answers)
+- 2026-11-11: **Lamar Jackson** board $1,959, votes: too high 1 (1 answers)
 - 2026-11-11: **Germie Bernard** board $336, votes: about right 1 (1 answers)
 - 2026-11-11: **Jaxson Dart** $795 vs **Parker Washington** $549: votes say Jaxson Dart (s +1.00, 1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
@@ -2704,12 +2678,13 @@
 - 2026-11-11: **Ja'Marr Chase** board $3,287, votes: too low 1 (1 answers)
 - 2026-11-11: **Bucky Irving** $1,538 vs **Emeka Egbuka** $996: votes say Bucky Irving (s +1.00, 1 answers)
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
-- 2026-11-11: **Caleb Williams** $1,829 vs **Jalen Hurts** $1,704: votes say Caleb Williams (s +1.00, 1 answers)
-- 2026-11-11: **Christian Watson** $1,236 vs **Jameson Williams** $996: votes say Christian Watson (s +1.00, 1 answers)
-- 2026-11-11: **Jameson Williams** board $996, votes: too high 1 (1 answers)
-- 2026-11-11: **Jeremiyah Love** $2,003 vs **George Pickens** $1,448: votes say Jeremiyah Love (s +1.00, 1 answers)
+- 2026-11-11: **Caleb Williams** $1,829 vs **Jalen Hurts** $1,656: votes say Caleb Williams (s +1.00, 1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
+- 2026-11-11: **Christian Watson** $1,236 vs **Jameson Williams** $997: votes say Christian Watson (s +1.00, 1 answers)
+- 2026-11-11: **Jameson Williams** board $997, votes: too high 1 (1 answers)
+- 2026-11-11: **Jeremiyah Love** $2,003 vs **George Pickens** $1,185: votes say Jeremiyah Love (s +1.00, 1 answers)
 - 2026-11-11: **Jeremiyah Love** board $2,003, votes: too low 1 (1 answers)
-- 2026-11-11: **George Pickens** board $1,448, votes: too high 1 (1 answers)
+- 2026-11-11: **George Pickens** board $1,185, votes: too high 1 (1 answers)
 - 2026-11-11: **Drake Maye** $2,329 vs **Javonte Williams** $1,903: votes say Drake Maye (s +1.00, 1 answers)
 - 2026-11-11: **Javonte Williams** board $1,903, votes: too high 1 (1 answers)
 - 2026-11-11: **Bo Nix** $1,173 vs **Chris Olave** $1,444: votes say Chris Olave (s -1.00, 1 answers)
@@ -2718,14 +2693,14 @@
 - 2026-11-11: **Trey McBride** $2,495 vs **Amon-Ra St. Brown** $3,127: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Trey McBride** board $2,495, votes: about right 1 (1 answers)
 - 2026-11-11: **Amon-Ra St. Brown** board $3,127, votes: too high 1 (1 answers)
-- 2026-11-11: **Matthew Stafford** $456 vs **Brian Thomas Jr.** $112: votes say Matthew Stafford (s +1.00, 1 answers)
+- 2026-11-11: **Matthew Stafford** $462 vs **Brian Thomas Jr.** $112: votes say Matthew Stafford (s +1.00, 1 answers)
 - 2026-11-11: **Brian Thomas Jr.** board $112, votes: too high 1 (1 answers)
 - 2026-11-11: **Ashton Jeanty** board $2,576, votes: about right 1 (1 answers)
 - 2026-11-11: **Jonathan Taylor** board $2,576, votes: too high 1 (1 answers)
 - 2026-11-11: **Chris Olave** board $1,444, votes: about right 1 (1 answers)
-- 2026-11-11: **Derrick Henry** $725 vs **Kyle Pitts Sr.** $646: votes say Derrick Henry (s +1.00, 1 answers)
+- 2026-11-11: **Derrick Henry** $725 vs **Kyle Pitts Sr.** $648: votes say Derrick Henry (s +1.00, 1 answers)
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
-- 2026-11-11: **Kyle Pitts Sr.** board $646, votes: too high 1 (1 answers)
+- 2026-11-11: **Kyle Pitts Sr.** board $648, votes: too high 1 (1 answers)
 - 2026-11-11: **Tyler Shough** $361 vs **Germie Bernard** $336: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Tyler Shough** board $361, votes: about right 1 (1 answers)
 - 2026-11-11: **Germie Bernard** board $336, votes: about right 1 (1 answers)
@@ -2736,26 +2711,28 @@
 - 2026-11-11: **CeeDee Lamb** board $2,922, votes: about right 1 (1 answers)
 - 2026-11-11: **Javonte Williams** board $1,903, votes: too high 1 (1 answers)
 - 2026-11-11: **Trevor Lawrence** board $1,984, votes: about right 1 (1 answers)
-- 2026-11-11: **Jordan Love** $1,792 vs **Lamar Jackson** $1,974: votes say even (s +0.00, 1 answers)
+- 2026-11-11: **Jordan Love** $1,792 vs **Lamar Jackson** $1,959: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Jordan Love** board $1,792, votes: too high 1 (1 answers)
-- 2026-11-11: **Lamar Jackson** board $1,974, votes: too high 1 (1 answers)
+- 2026-11-11: **Lamar Jackson** board $1,959, votes: too high 1 (1 answers)
 - 2026-11-11: **Isaiah Likely** $971 vs **Denzel Boston** $946: votes say even (s +0.00, 1 answers)
-- 2026-11-11: **Bryce Young** $675 vs **Derrick Henry** $725: votes say even (s +0.00, 1 answers)
+- 2026-11-11: **Bryce Young** $676 vs **Derrick Henry** $725: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
 - 2026-11-11: **Harold Fannin Jr.** board $1,342, votes: too high 1 (1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
 - 2026-11-11: **Jordyn Tyson** board $679, votes: too high 1 (1 answers)
-- 2026-11-11: **Kyler Murray** $245 vs **Matthew Stafford** $456: votes say Matthew Stafford (s -1.00, 1 answers)
-- 2026-11-11: **Kyler Murray** board $245, votes: too high 1 (1 answers)
-- 2026-11-11: **Justin Herbert** $523 vs **Cam Skattebo** $222: votes say Justin Herbert (s +1.00, 1 answers)
-- 2026-11-11: **Justin Herbert** board $523, votes: about right 1 (1 answers)
-- 2026-11-11: **Cam Skattebo** board $222, votes: too high 1 (1 answers)
-- 2026-11-11: **Baker Mayfield** $289 vs **Jaylin Noel** $48: votes say Baker Mayfield (s +1.00, 1 answers)
-- 2026-11-11: **Baker Mayfield** board $289, votes: too low 1 (1 answers)
+- 2026-11-11: **Kyler Murray** $37 vs **Matthew Stafford** $462: votes say Matthew Stafford (s -1.00, 1 answers)
+- 2026-11-11: **Kyler Murray** board $37, votes: too high 1 (1 answers)
+- 2026-11-11: **Justin Herbert** $526 vs **Cam Skattebo** $249: votes say Justin Herbert (s +1.00, 1 answers)
+- 2026-11-11: **Justin Herbert** board $526, votes: about right 1 (1 answers)
+- 2026-11-11: **Cam Skattebo** board $249, votes: too high 1 (1 answers)
+- 2026-11-11: **Baker Mayfield** $295 vs **Jaylin Noel** $48: votes say Baker Mayfield (s +1.00, 1 answers)
+- 2026-11-11: **Baker Mayfield** board $295, votes: too low 1 (1 answers)
 - 2026-11-11: **DeMario Douglas** $91 vs **Garrett Wilson** $275: votes say Garrett Wilson (s -1.00, 1 answers)
 - 2026-11-11: **Garrett Wilson** board $275, votes: too low 1 (1 answers)
-- 2026-11-11: **Omarion Hampton** $916 vs **Jameson Williams** $996: votes say even (s +0.00, 1 answers)
+- 2026-11-11: **Omarion Hampton** $916 vs **Jameson Williams** $997: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Omarion Hampton** board $916, votes: too high 1 (1 answers)
-- 2026-11-11: **Jameson Williams** board $996, votes: too high 1 (1 answers)
+- 2026-11-11: **Jameson Williams** board $997, votes: too high 1 (1 answers)
 - 2026-11-11: **James Cook III** $2,496 vs **Trevor Lawrence** $1,984: votes say James Cook III (s +1.00, 1 answers)
 - 2026-11-11: **James Cook III** board $2,496, votes: about right 1 (1 answers)
 - 2026-11-11: **Trevor Lawrence** board $1,984, votes: about right 1 (1 answers)
@@ -2778,8 +2755,8 @@
 - 2026-11-11: **Christian McCaffrey** board $2,428, votes: too high 1 (1 answers)
 - 2026-11-11: **Justin Jefferson** board $2,741, votes: about right 1 (1 answers)
 - 2026-11-11: **Germie Bernard** board $336, votes: about right 1 (1 answers)
-- 2026-11-11: **Cam Skattebo** $222 vs **Bryce Young** $675: votes say Bryce Young (s -1.00, 1 answers)
-- 2026-11-11: **Cam Skattebo** board $222, votes: too high 1 (1 answers)
+- 2026-11-11: **Cam Skattebo** $249 vs **Bryce Young** $676: votes say Bryce Young (s -1.00, 1 answers)
+- 2026-11-11: **Cam Skattebo** board $249, votes: too high 1 (1 answers)
 - 2026-11-11: **Brian Thomas Jr.** board $112, votes: too high 1 (1 answers)
 - 2026-11-11: **Sam LaPorta** $1,019 vs **Tee Higgins** $1,722: votes say Tee Higgins (s -1.00, 1 answers)
 - 2026-11-11: **Sam LaPorta** board $1,019, votes: too high 1 (1 answers)
@@ -2800,7 +2777,7 @@
 - 2026-11-11: **Malik Nabers** $2,233 vs **Javonte Williams** $1,903: votes say Malik Nabers (s +1.00, 1 answers)
 - 2026-11-11: **Malik Nabers** board $2,233, votes: too low 1 (1 answers)
 - 2026-11-11: **Javonte Williams** board $1,903, votes: too high 1 (1 answers)
-- 2026-11-11: **Jordan Addison** $310 vs **Bryce Young** $675: votes say Bryce Young (s -1.00, 1 answers)
+- 2026-11-11: **Jordan Addison** $310 vs **Bryce Young** $676: votes say Bryce Young (s -1.00, 1 answers)
 - 2026-11-11: **Jordan Addison** board $310, votes: too high 1 (1 answers)
 - 2026-11-11: **Harold Fannin Jr.** $1,342 vs **Dak Prescott** $1,616: votes say Dak Prescott (s -1.00, 1 answers)
 - 2026-11-11: **Harold Fannin Jr.** board $1,342, votes: too high 1 (1 answers)
@@ -2813,23 +2790,24 @@
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
-- 2026-11-11: **Jaxson Dart** $795 vs **Chuba Hubbard** $229: votes say Jaxson Dart (s +1.00, 1 answers)
+- 2026-11-11: **Jaxson Dart** $795 vs **Chuba Hubbard** $230: votes say Jaxson Dart (s +1.00, 1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
 - 2026-11-11: **Tyler Shough** board $361, votes: about right 1 (1 answers)
-- 2026-11-11: **Jalen Hurts** $1,704 vs **Jared Goff** $1,916: votes say Jared Goff (s -1.00, 1 answers)
+- 2026-11-11: **Jalen Hurts** $1,656 vs **Jared Goff** $1,916: votes say Jared Goff (s -1.00, 1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
 - 2026-11-11: **Jared Goff** board $1,916, votes: too high 1 (1 answers)
 - 2026-11-11: **Jaxson Dart** $795 vs **Bhayshul Tuten** $508: votes say Jaxson Dart (s +1.00, 1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
 - 2026-11-11: **Nico Collins** $1,940 vs **Dak Prescott** $1,616: votes say Nico Collins (s +1.00, 1 answers)
 - 2026-11-11: **Dak Prescott** board $1,616, votes: too high 1 (1 answers)
 - 2026-11-11: **Jonathan Taylor** board $2,576, votes: too high 1 (1 answers)
-- 2026-11-11: **George Pickens** board $1,448, votes: too high 1 (1 answers)
+- 2026-11-11: **George Pickens** board $1,185, votes: too high 1 (1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
 - 2026-11-11: **Luther Burden III** $1,441 vs **Jeremiyah Love** $2,003: votes say Jeremiyah Love (s -1.00, 1 answers)
 - 2026-11-11: **Jeremiyah Love** board $2,003, votes: too low 1 (1 answers)
 - 2026-11-11: **Matthew Golden** $1,385 vs **Josh Jacobs** $1,044: votes say Matthew Golden (s +1.00, 1 answers)
 - 2026-11-11: **Matthew Golden** board $1,385, votes: too low 1 (1 answers)
-- 2026-11-11: **Kyle Pitts Sr.** board $646, votes: too high 1 (1 answers)
-- 2026-11-11: **Jalen Hurts** board $1,704, votes: too low 1 (1 answers)
+- 2026-11-11: **Kyle Pitts Sr.** board $648, votes: too high 1 (1 answers)
 - 2026-11-11: **Ashton Jeanty** board $2,576, votes: about right 1 (1 answers)
 - 2026-11-11: **Makai Lemon** $1,607 vs **Jeremiyah Love** $2,003: votes say Jeremiyah Love (s -1.00, 1 answers)
 - 2026-11-11: **Jeremiyah Love** board $2,003, votes: too low 1 (1 answers)
@@ -2842,27 +2820,28 @@
 - 2026-11-11: **Brock Bowers** board $2,739, votes: about right 1 (1 answers)
 - 2026-11-11: **Brian Thomas Jr.** $112 vs **Ty Simpson** $346: votes say Ty Simpson (s -1.00, 1 answers)
 - 2026-11-11: **Brian Thomas Jr.** board $112, votes: too high 1 (1 answers)
-- 2026-11-11: **Tre' Harris** $40 vs **Baker Mayfield** $289: votes say Baker Mayfield (s -1.00, 1 answers)
+- 2026-11-11: **Tre' Harris** $40 vs **Baker Mayfield** $295: votes say Baker Mayfield (s -1.00, 1 answers)
 - 2026-11-11: **Tre' Harris** board $40, votes: too high 1 (1 answers)
-- 2026-11-11: **Baker Mayfield** board $289, votes: too low 1 (1 answers)
-- 2026-11-11: **Kyle Pitts Sr.** board $646, votes: too high 1 (1 answers)
-- 2026-11-11: **Rome Odunze** $852 vs **Cam Skattebo** $222: votes say Rome Odunze (s +1.00, 1 answers)
-- 2026-11-11: **Cam Skattebo** board $222, votes: too high 1 (1 answers)
-- 2026-11-11: **Cam Skattebo** board $222, votes: too high 1 (1 answers)
-- 2026-11-11: **Justin Herbert** $523 vs **Jaxson Dart** $795: votes say Jaxson Dart (s -1.00, 1 answers)
-- 2026-11-11: **Justin Herbert** board $523, votes: about right 1 (1 answers)
+- 2026-11-11: **Baker Mayfield** board $295, votes: too low 1 (1 answers)
+- 2026-11-11: **Kyle Pitts Sr.** board $648, votes: too high 1 (1 answers)
+- 2026-11-11: **Sam Darnold** board $67, votes: too high 1 (1 answers)
+- 2026-11-11: **Rome Odunze** $852 vs **Cam Skattebo** $249: votes say Rome Odunze (s +1.00, 1 answers)
+- 2026-11-11: **Cam Skattebo** board $249, votes: too high 1 (1 answers)
+- 2026-11-11: **Cam Skattebo** board $249, votes: too high 1 (1 answers)
+- 2026-11-11: **Justin Herbert** $526 vs **Jaxson Dart** $795: votes say Jaxson Dart (s -1.00, 1 answers)
+- 2026-11-11: **Justin Herbert** board $526, votes: about right 1 (1 answers)
 - 2026-11-11: **Jaxson Dart** board $795, votes: about right 1 (1 answers)
 - 2026-11-11: **Javonte Williams** board $1,903, votes: too high 1 (1 answers)
-- 2026-11-11: **Lamar Jackson** board $1,974, votes: too high 1 (1 answers)
+- 2026-11-11: **Lamar Jackson** board $1,959, votes: too high 1 (1 answers)
 - 2026-11-11: **Omarion Hampton** board $916, votes: too high 1 (1 answers)
 - 2026-11-11: **A.J. Brown** board $511, votes: too high 1 (1 answers)
 - 2026-11-11: **Sam LaPorta** board $1,019, votes: too high 1 (1 answers)
 - 2026-11-11: **Jayden Daniels** $1,545 vs **Jordyn Tyson** $679: votes say Jayden Daniels (s +1.00, 1 answers)
 - 2026-11-11: **Jayden Daniels** board $1,545, votes: too low 1 (1 answers)
 - 2026-11-11: **Jordyn Tyson** board $679, votes: too high 1 (1 answers)
-- 2026-11-11: **Fernando Mendoza** $1,158 vs **Jameson Williams** $996: votes say Fernando Mendoza (s +1.00, 1 answers)
-- 2026-11-11: **Jameson Williams** board $996, votes: too high 1 (1 answers)
-- 2026-11-11: **Cam Skattebo** board $222, votes: too high 1 (1 answers)
+- 2026-11-11: **Fernando Mendoza** $1,158 vs **Jameson Williams** $997: votes say Fernando Mendoza (s +1.00, 1 answers)
+- 2026-11-11: **Jameson Williams** board $997, votes: too high 1 (1 answers)
+- 2026-11-11: **Cam Skattebo** board $249, votes: too high 1 (1 answers)
 - 2026-11-11: **Christian McCaffrey** board $2,428, votes: too high 1 (1 answers)
 - 2026-11-11: **Brock Purdy** board $1,961, votes: about right 1 (1 answers)
 - 2026-11-11: **Jahmyr Gibbs** $3,936 vs **Josh Allen** $4,110: votes say even (s +0.00, 1 answers)
@@ -2874,7 +2853,7 @@
 - 2026-11-11: **Travis Kelce** $188 vs **Blake Corum** $214: votes say even (s +0.00, 1 answers)
 - 2026-11-11: **Travis Kelce** board $188, votes: too high 1 (1 answers)
 - 2026-11-11: **Blake Corum** board $214, votes: too high 1 (1 answers)
-- 2026-11-11: **Jameson Williams** board $996, votes: too high 1 (1 answers)
+- 2026-11-11: **Jameson Williams** board $997, votes: too high 1 (1 answers)
 - 2026-11-11: **Tucker Kraft** $368 vs **Brian Thomas Jr.** $112: votes say Tucker Kraft (s +1.00, 1 answers)
 - 2026-11-11: **Tucker Kraft** board $368, votes: about right 1 (1 answers)
 - 2026-11-11: **Brian Thomas Jr.** board $112, votes: too high 1 (1 answers)
@@ -2893,14 +2872,15 @@
 - 2026-11-11: **Nico Collins** $1,940 vs **D'Andre Swift** $738: votes say Nico Collins (s +1.00, 1 answers)
 - 2026-11-11: **D'Andre Swift** board $738, votes: too high 1 (1 answers)
 - 2026-11-11: **Jordan Addison** board $310, votes: too high 1 (1 answers)
-- 2026-11-11: **Justin Herbert** board $523, votes: about right 1 (1 answers)
+- 2026-11-11: **Justin Herbert** board $526, votes: about right 1 (1 answers)
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
 - 2026-11-11: **Blake Corum** board $214, votes: too high 1 (1 answers)
 - 2026-11-11: **Joe Burrow** $2,407 vs **Kenneth Walker III** $3,073: votes say Kenneth Walker III (s -1.00, 1 answers)
 - 2026-11-11: **Joe Burrow** board $2,407, votes: about right 1 (1 answers)
 - 2026-11-11: **Kenneth Walker III** board $3,073, votes: about right 1 (1 answers)
 - 2026-11-11: **Travis Kelce** board $188, votes: too high 1 (1 answers)
-- 2026-11-11: **Kyler Murray** board $245, votes: too high 1 (1 answers)
+- 2026-11-11: **Kyler Murray** $37 vs **Davante Adams** $160: votes say Davante Adams (s -1.00, 1 answers)
+- 2026-11-11: **Kyler Murray** board $37, votes: too high 1 (1 answers)
 - 2026-11-11: **De'Von Achane** board $2,185, votes: too high 1 (1 answers)
 - 2026-11-11: **Brock Purdy** board $1,961, votes: about right 1 (1 answers)
 - 2026-11-11: **Jeremiyah Love** $2,003 vs **Colston Loveland** $1,619: votes say Jeremiyah Love (s +1.00, 1 answers)
@@ -2913,17 +2893,20 @@
 - 2026-11-11: **Jeremiyah Love** board $2,003, votes: too low 1 (1 answers)
 - 2026-11-11: **Carnell Tate** board $1,127, votes: too low 1 (1 answers)
 - 2026-11-11: **Jonah Coleman** board $802, votes: too high 1 (1 answers)
+- 2026-11-11: **Jalen Hurts** $1,656 vs **Drake London** $1,781: votes say Drake London (s -1.00, 1 answers)
+- 2026-11-11: **Jalen Hurts** board $1,656, votes: too high 1 (1 answers)
 - 2026-11-11: **Javonte Williams** $1,903 vs **Patrick Mahomes** $2,119: votes say Patrick Mahomes (s -1.00, 1 answers)
 - 2026-11-11: **Javonte Williams** board $1,903, votes: too high 1 (1 answers)
 - 2026-11-11: **Patrick Mahomes** board $2,119, votes: too high 1 (1 answers)
 - 2026-11-11: **Isaiah Likely** $971 vs **Tee Higgins** $1,722: votes say Tee Higgins (s -1.00, 1 answers)
-- 2026-11-11: **Derrick Henry** $725 vs **Chuba Hubbard** $229: votes say Derrick Henry (s +1.00, 1 answers)
+- 2026-11-11: **Derrick Henry** $725 vs **Chuba Hubbard** $230: votes say Derrick Henry (s +1.00, 1 answers)
 - 2026-11-11: **Derrick Henry** board $725, votes: about right 1 (1 answers)
-- 2026-11-11: **Kyler Murray** board $245, votes: too high 1 (1 answers)
+- 2026-11-11: **Jaylen Warren** $191 vs **Kyler Murray** $37: votes say Jaylen Warren (s +1.00, 1 answers)
+- 2026-11-11: **Kyler Murray** board $37, votes: too high 1 (1 answers)
 - 2026-11-15: **Tucker Kraft** board $368, votes: too low 1 (1 answers)
 - 2026-11-15: **Travis Kelce** $189 vs **Eli Stowers** $240: votes say even (s +0.00, 1 answers)
 - 2026-11-15: **Travis Kelce** board $189, votes: too high 1 (1 answers)
-- 2026-11-15: **DeVonta Smith** $259 vs **Ladd McConkey** $205: votes say even (s +0.00, 1 answers)
+- 2026-11-15: **DeVonta Smith** $260 vs **Ladd McConkey** $205: votes say even (s +0.00, 1 answers)
 - 2026-11-15: **Bucky Irving** board $1,590, votes: about right 1 (1 answers)
 - 2026-11-15: **Harold Fannin Jr.** $1,345 vs **Jayden Daniels** $1,538: votes say Jayden Daniels (s -1.00, 1 answers)
 - 2026-11-15: **Harold Fannin Jr.** board $1,345, votes: too high 1 (1 answers)
@@ -2933,18 +2916,21 @@
 - 2026-11-15: **Jameson Williams** $997 vs **Jadarian Price** $1,230: votes say even (s +0.00, 1 answers)
 - 2026-11-15: **Jameson Williams** board $997, votes: too high 1 (1 answers)
 - 2026-11-15: **Tucker Kraft** board $368, votes: too low 1 (1 answers)
+- 2026-11-15: **Travis Kelce** $189 vs **Kyler Murray** $37: votes say Travis Kelce (s +1.00, 1 answers)
 - 2026-11-15: **Travis Kelce** board $189, votes: too high 1 (1 answers)
+- 2026-11-15: **Kyler Murray** board $37, votes: too high 1 (1 answers)
 - 2026-11-15: **Josh Allen** $4,109 vs **Jahmyr Gibbs** $3,921: votes say even (s +0.00, 1 answers)
 - 2026-11-15: **Josh Allen** board $4,109, votes: about right 1 (1 answers)
 - 2026-11-15: **Jahmyr Gibbs** board $3,921, votes: about right 1 (1 answers)
-- 2026-11-15: **Lamar Jackson** board $1,970, votes: about right 1 (1 answers)
+- 2026-11-15: **Lamar Jackson** board $1,956, votes: about right 1 (1 answers)
 - 2026-11-15: **Caleb Williams** board $1,818, votes: about right 1 (1 answers)
 - 2026-11-15: **Breece Hall** $570 vs **Rome Odunze** $857: votes say Rome Odunze (s -1.00, 1 answers)
 - 2026-11-15: **Breece Hall** board $570, votes: too high 1 (1 answers)
 - 2026-11-15: **Jeremiyah Love** $1,993 vs **Tetairoa McMillan** $1,717: votes say Jeremiyah Love (s +1.00, 1 answers)
-- 2026-11-15: **Saquon Barkley** $285 vs **Troy Franklin** $33: votes say Saquon Barkley (s +1.00, 1 answers)
-- 2026-11-15: **Saquon Barkley** board $285, votes: too low 1 (1 answers)
-- 2026-11-15: **George Pickens** $1,459 vs **D'Andre Swift** $737: votes say George Pickens (s +1.00, 1 answers)
+- 2026-11-15: **Saquon Barkley** $293 vs **Troy Franklin** $33: votes say Saquon Barkley (s +1.00, 1 answers)
+- 2026-11-15: **Saquon Barkley** board $293, votes: too low 1 (1 answers)
+- 2026-11-15: **George Pickens** $1,188 vs **D'Andre Swift** $737: votes say George Pickens (s +1.00, 1 answers)
+- 2026-11-15: **George Pickens** board $1,188, votes: about right 1 (1 answers)
 - 2026-11-15: **D'Andre Swift** board $737, votes: too high 1 (1 answers)
 - 2026-11-15: **Emeka Egbuka** $996 vs **Fernando Mendoza** $1,157: votes say Fernando Mendoza (s -1.00, 1 answers)
 - 2026-11-15: **Chase Brown** $1,085 vs **Dak Prescott** $1,620: votes say Dak Prescott (s -1.00, 1 answers)
@@ -2953,6 +2939,7 @@
 - 2026-11-15: **Trey McBride** board $2,490, votes: about right 1 (1 answers)
 - 2026-11-15: **Drake Maye** board $2,329, votes: about right 1 (1 answers)
 - 2026-11-15: **Bucky Irving** board $1,590, votes: too high 1 (1 answers)
+- 2026-11-15: **Jalen Hurts** board $1,655, votes: too high 1 (1 answers)
 - 2026-11-15: **Drake London** $1,770 vs **Justin Jefferson** $2,721: votes say Justin Jefferson (s -1.00, 1 answers)
 - 2026-11-15: **Justin Jefferson** board $2,721, votes: about right 1 (1 answers)
 - 2026-11-15: **George Kittle** board $666, votes: about right 1 (1 answers)
@@ -2974,8 +2961,6 @@
 - 2026-11-18: **Bhayshul Tuten** board $623, votes: too high 1 (1 answers)
 - 2026-11-18: **Parker Washington** board $891, votes: about right 1 (1 answers)
 - 2026-11-18: **Malik Nabers** $2,162 vs **Chase Brown** $1,483: votes say Malik Nabers (s +0.17, 2 answers)
-- 2026-11-18: **Sam Darnold** $263 vs **Eli Stowers** $240: votes say Sam Darnold (s +1.00, 1 answers)
-- 2026-11-18: **Sam Darnold** board $263, votes: about right 1 (1 answers)
 - 2026-11-18: **Elijah Sarratt** $138 vs **Garrett Wilson** $437: votes say Garrett Wilson (s -1.00, 3 answers)
 - 2026-11-18: **Jordyn Tyson** $1,666 vs **Javonte Williams** $827: votes say Jordyn Tyson (s +0.48, 3 answers)
 - 2026-11-18: **Jordyn Tyson** board $1,666, votes: too high 3 (3 answers)
@@ -2984,21 +2969,21 @@
 - 2026-11-18: **George Kittle** $675 vs **Omar Cooper Jr.** $742: votes say Omar Cooper Jr. (s -1.00, 3 answers)
 - 2026-11-18: **George Kittle** board $675, votes: about right 1; too high 2 (3 answers)
 - 2026-11-18: **Omar Cooper Jr.** board $742, votes: too low 1; about right 2 (3 answers)
-- 2026-11-18: **Cam Skattebo** $562 vs **Ladd McConkey** $509: votes say Cam Skattebo (s +1.00, 2 answers)
-- 2026-11-18: **Ladd McConkey** board $509, votes: about right 1; too high 1 (2 answers)
-- 2026-11-18: **Brian Thomas Jr.** $112 vs **Jaylen Warren** $156: votes say Jaylen Warren (s -1.00, 2 answers)
+- 2026-11-18: **Cam Skattebo** $562 vs **Ladd McConkey** $166: votes say Cam Skattebo (s +1.00, 2 answers)
+- 2026-11-18: **Brian Thomas Jr.** $112 vs **Jaylen Warren** $159: votes say Jaylen Warren (s -1.00, 2 answers)
 - 2026-11-18: **Brian Thomas Jr.** board $112, votes: too high 2 (2 answers)
 - 2026-11-18: **Keon Coleman** $129 vs **Garrett Wilson** $437: votes say Garrett Wilson (s -1.00, 2 answers)
 - 2026-11-18: **Keon Coleman** board $129, votes: too low 2 (2 answers)
 - 2026-11-18: **Garrett Wilson** board $437, votes: too low 2 (2 answers)
-- 2026-11-18: **Justin Herbert** $425 vs **Antonio Williams** $392: votes say Justin Herbert (s +1.00, 2 answers)
-- 2026-11-18: **Justin Herbert** board $425, votes: too low 2 (2 answers)
-- 2026-11-18: **Lamar Jackson** $2,064 vs **Makai Lemon** $1,606: votes say Lamar Jackson (s +1.00, 2 answers)
-- 2026-11-18: **Lamar Jackson** board $2,064, votes: about right 2 (2 answers)
+- 2026-11-18: **Justin Herbert** $431 vs **Antonio Williams** $392: votes say Justin Herbert (s +1.00, 2 answers)
+- 2026-11-18: **Justin Herbert** board $431, votes: too low 2 (2 answers)
+- 2026-11-18: **Lamar Jackson** $2,049 vs **Makai Lemon** $1,606: votes say Lamar Jackson (s +1.00, 2 answers)
+- 2026-11-18: **Lamar Jackson** board $2,049, votes: about right 2 (2 answers)
 - 2026-11-18: **Parker Washington** board $891, votes: too low 1; about right 1 (2 answers)
 - 2026-11-18: **Joe Burrow** $2,536 vs **Amon-Ra St. Brown** $3,095: votes say Amon-Ra St. Brown (s -1.00, 2 answers)
 - 2026-11-18: **Joe Burrow** board $2,536, votes: about right 2 (2 answers)
 - 2026-11-18: **Amon-Ra St. Brown** board $3,095, votes: about right 2 (2 answers)
+- 2026-11-18: **Jalen Hurts** board $1,654, votes: about right 1; too high 1 (2 answers)
 - 2026-11-18: **Tetairoa McMillan** board $1,706, votes: about right 2 (2 answers)
 - 2026-11-18: **Trevor Lawrence** $2,032 vs **Trey McBride** $2,470: votes say Trey McBride (s -0.59, 2 answers)
 - 2026-11-18: **Trey McBride** board $2,470, votes: about right 2 (2 answers)
@@ -3007,9 +2992,11 @@
 - 2026-11-18: **Caleb Williams** $1,835 vs **Tetairoa McMillan** $1,706: votes say Caleb Williams (s +1.00, 2 answers)
 - 2026-11-18: **Caleb Williams** board $1,835, votes: too low 2 (2 answers)
 - 2026-11-18: **Tetairoa McMillan** board $1,706, votes: about right 2 (2 answers)
-- 2026-11-18: **Blake Corum** $432 vs **Jaylen Waddle** $199: votes say Blake Corum (s +1.00, 2 answers)
+- 2026-11-18: **Blake Corum** $432 vs **Jaylen Waddle** $67: votes say Blake Corum (s +1.00, 2 answers)
+- 2026-11-18: **C.J. Stroud** $1,766 vs **Jalen Hurts** $1,654: votes say C.J. Stroud (s +1.00, 2 answers)
+- 2026-11-18: **Jalen Hurts** board $1,654, votes: about right 1; too high 1 (2 answers)
 - 2026-11-18: **Jahmyr Gibbs** board $3,959, votes: about right 1; typed $4,500 (2 answers)
-- 2026-11-18: **Makai Lemon** $1,606 vs **Jalen Hurts** $1,701: votes say Jalen Hurts (s -1.00, 2 answers)
+- 2026-11-18: **Jalen Hurts** board $1,654, votes: about right 1; too high 1 (2 answers)
 - 2026-11-18: **D'Andre Swift** $732 vs **Chris Olave** $1,383: votes say Chris Olave (s -1.00, 2 answers)
 - 2026-11-18: **C.J. Stroud** $1,766 vs **Malik Nabers** $2,162: votes say Malik Nabers (s -1.00, 2 answers)
 - 2026-11-18: **C.J. Stroud** board $1,766, votes: about right 1; too high 1 (2 answers)
@@ -3024,19 +3011,20 @@
 - 2026-11-18: **Jameson Williams** board $998, votes: too high 2 (2 answers)
 - 2026-11-18: **Justin Jefferson** $2,774 vs **James Cook III** $2,498: votes say Justin Jefferson (s +0.74, 2 answers)
 - 2026-11-18: **Justin Jefferson** board $2,774, votes: about right 2 (2 answers)
-- 2026-11-18: **RJ Harvey** $398 vs **Justin Herbert** $425: votes say Justin Herbert (s -1.00, 2 answers)
-- 2026-11-18: **Justin Herbert** board $425, votes: too low 2 (2 answers)
+- 2026-11-18: **RJ Harvey** $393 vs **Justin Herbert** $431: votes say Justin Herbert (s -1.00, 2 answers)
+- 2026-11-18: **Justin Herbert** board $431, votes: too low 2 (2 answers)
 - 2026-11-18: **Trevor Lawrence** $2,032 vs **Chase Brown** $1,483: votes say Trevor Lawrence (s +1.00, 2 answers)
 - 2026-11-18: **Trevor Lawrence** board $2,032, votes: about right 2 (2 answers)
-- 2026-11-18: **DeVonta Smith** $258 vs **Jaylen Warren** $156: votes say DeVonta Smith (s +1.00, 2 answers)
-- 2026-11-18: **Travis Kelce** $203 vs **Eli Stowers** $240: votes say Eli Stowers (s -0.17, 2 answers)
-- 2026-11-18: **Travis Kelce** board $203, votes: too high 2 (2 answers)
+- 2026-11-18: **DeVonta Smith** $259 vs **Jaylen Warren** $159: votes say DeVonta Smith (s +1.00, 2 answers)
+- 2026-11-18: **Travis Kelce** $206 vs **Eli Stowers** $240: votes say Eli Stowers (s -0.17, 2 answers)
+- 2026-11-18: **Travis Kelce** board $206, votes: too high 2 (2 answers)
 - 2026-11-18: **Tetairoa McMillan** board $1,706, votes: about right 2 (2 answers)
 - 2026-11-18: **C.J. Stroud** $1,766 vs **De'Von Achane** $2,176: votes say even (s -0.41, 2 answers)
 - 2026-11-18: **C.J. Stroud** board $1,766, votes: about right 2 (2 answers)
 - 2026-11-18: **De'Von Achane** board $2,176, votes: too low 1; about right 1 (2 answers)
-- 2026-11-18: **Luther Burden III** $1,457 vs **Jalen Hurts** $1,701: votes say even (s -0.41, 2 answers)
+- 2026-11-18: **Luther Burden III** $1,457 vs **Jalen Hurts** $1,654: votes say even (s -0.41, 2 answers)
 - 2026-11-18: **Luther Burden III** board $1,457, votes: about right 2 (2 answers)
+- 2026-11-18: **Jalen Hurts** board $1,654, votes: about right 1; too high 1 (2 answers)
 - 2026-11-18: **Jonathan Taylor** board $2,578, votes: too high 2 (2 answers)
 - 2026-11-18: **Patrick Mahomes** $2,242 vs **Harold Fannin Jr.** $1,744: votes say Patrick Mahomes (s +1.00, 2 answers)
 - 2026-11-18: **Patrick Mahomes** board $2,242, votes: about right 2 (2 answers)
@@ -3046,23 +3034,22 @@
 - 2026-11-18: **Malik Nabers** board $2,162, votes: too low 1; about right 1 (2 answers)
 - 2026-11-18: **Drake Maye** $2,055 vs **Brock Bowers** $2,279: votes say Brock Bowers (s -0.59, 2 answers)
 - 2026-11-18: **Brock Bowers** board $2,279, votes: too low 1; about right 1 (2 answers)
-- 2026-11-18: **Michael Wilson** $278 vs **Brian Thomas Jr.** $112: votes say Michael Wilson (s +1.00, 2 answers)
+- 2026-11-18: **Michael Wilson** $284 vs **Brian Thomas Jr.** $112: votes say Michael Wilson (s +1.00, 2 answers)
 - 2026-11-18: **Brian Thomas Jr.** board $112, votes: too high 2 (2 answers)
 - 2026-11-18: **Jameson Williams** board $998, votes: too high 2 (2 answers)
 - 2026-11-18: **Omarion Hampton** board $1,405, votes: too high 2 (2 answers)
 - 2026-11-18: **Tre' Harris** board $104, votes: about right 1; too high 1 (2 answers)
-- 2026-11-18: **Ladd McConkey** $509 vs **Matthew Stafford** $474: votes say Ladd McConkey (s +1.00, 1 answers)
-- 2026-11-18: **Ladd McConkey** board $509, votes: about right 1 (1 answers)
-- 2026-11-18: **Matthew Stafford** board $474, votes: too high 1 (1 answers)
+- 2026-11-18: **Matthew Stafford** board $480, votes: too high 1 (1 answers)
 - 2026-11-18: **Fernando Mendoza** board $1,150, votes: too low 1 (1 answers)
 - 2026-11-18: **Cam Ward** board $1,267, votes: about right 1 (1 answers)
-- 2026-11-18: **Harold Fannin Jr.** $1,744 vs **Lamar Jackson** $2,064: votes say Lamar Jackson (s -1.00, 1 answers)
+- 2026-11-18: **Harold Fannin Jr.** $1,744 vs **Lamar Jackson** $2,049: votes say Lamar Jackson (s -1.00, 1 answers)
 - 2026-11-18: **Harold Fannin Jr.** board $1,744, votes: too high 1 (1 answers)
-- 2026-11-18: **Lamar Jackson** board $2,064, votes: about right 1 (1 answers)
+- 2026-11-18: **Lamar Jackson** board $2,049, votes: about right 1 (1 answers)
 - 2026-11-18: **Ty Simpson** board $346, votes: too low 1 (1 answers)
 - 2026-11-18: **Drake London** $1,772 vs **Chase Brown** $1,483: votes say Drake London (s +1.00, 1 answers)
 - 2026-11-18: **Drake London** board $1,772, votes: about right 1 (1 answers)
 - 2026-11-18: **Chase Brown** board $1,483, votes: too high 1 (1 answers)
+- 2026-11-18: **Woody Marks** $156 vs **Marvin Harrison Jr.** $153: votes say even (s +0.00, 1 answers)
 - 2026-11-18: **Josh Jacobs** board $437, votes: too high 1 (1 answers)
 - 2026-11-18: **Jameson Williams** $998 vs **George Pickens** $1,726: votes say George Pickens (s -1.00, 1 answers)
 - 2026-11-18: **Jameson Williams** board $998, votes: too high 1 (1 answers)
