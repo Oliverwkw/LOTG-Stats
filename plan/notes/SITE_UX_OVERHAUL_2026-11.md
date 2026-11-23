@@ -653,3 +653,4 @@ browser.
 591. Best / worst marks drop the ▲ / ▼ (confusing): just green (best) or red (worst) numbers, with a legend.
 592. Links get their own soft blue (--link), apart from the mint accent on buttons and tabs and the green of good numbers.
 593. Home: the headline tiles above the standings are removed (user: they didn't add anything); the page opens on Standings & odds.
+594. Predictions: pick a team and "Most likely way in" / "Most likely way out" fills every unpicked game with the result that happens most often in the simulated seasons where that team makes (misses) the playoffs; says how often that happens and the team's odds with the results set; Undo clears only the filled games.
