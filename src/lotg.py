@@ -1269,7 +1269,7 @@ def _col_topic(col: str, default: Optional[str] = "Identity") -> Optional[str]:
     # from QBs" companion) is a breakdown of PF, so band the whole block with
     # Scoring — otherwise the share half falls into Value on the generic
     # "% of points" keyword and the eight columns come out two colours.
-    if n.startswith("points from ") or n.startswith("% of points from "):
+    if n.startswith(("points from ", "% of points from ", "avg points from ")):
         return "Scoring"
     # Positional scoring tiers + scoring percentiles band with the other
     # scoring-value stats, next to boom/bust: the weekly "Positional scoring
@@ -2351,6 +2351,11 @@ def _preserve_na(col: str) -> bool:
     # started that position and it produced nothing).
     if col_l.startswith("% of points from "):
         return True
+    # Per-player positional average: N/A when nobody was started (or, for the
+    # roster version, nobody played) at the position — an empty-slot week like
+    # plehv79 2022 wk16 — distinct from a real 0 (started, scored nothing).
+    if col_l.startswith("avg points from "):
+        return True
     # % of points (highest/lowest team): a player's period-total starter
     # contribution to a team's scoring. N/A when he never started over the
     # period (no team to take a share of) — distinct from a real 0.0 (started
@@ -2597,17 +2602,33 @@ _POS_POINT_COLUMNS = (
 
 
 def _pos_points_rollup(g: pd.DataFrame) -> Dict[str, Any]:
-    """Roll the team_week positional starter-scoring split up to a season or a
-    career: points SUM over the period's weeks, and each share re-divided by the
-    period's TOTAL starter points. Deliberately not a mean of the weekly shares,
-    which would weight a 60-point week the same as a 160-point one. The share is
-    N/A when the period scored nothing at all (no pie to slice)."""
-    total = float(pd.to_numeric(g.get("_StarterPointsTotal"), errors="coerce").fillna(0.0).sum())
+    """Roll the team_week positional scoring split up to a season or a career:
+    points SUM over the period's weeks, and each share re-divided by the
+    period's TOTAL points. Deliberately not a mean of the weekly shares, which
+    would weight a 60-point week the same as a 160-point one. The share is N/A
+    when the period scored nothing at all (no pie to slice).
+
+    Two versions: starters only ("Points from QBs") and the whole roster
+    ("Points from QBs (roster)", bench = every non-starter). "Avg points from
+    QBs" is points per START: the summed points over the summed weekly "Number
+    of QB started" — NOT over the year sheet's own Number of QB started, which
+    counts DISTINCT players. Its roster twin is points per PLAYED rostered
+    player-week (the internal weekly "_QB rostered (played)" count: every
+    starter, plus bench players not on a bye / injured / suspended). N/A when
+    the period had none."""
+    def _sum(col: str) -> float:
+        return float(pd.to_numeric(g.get(col), errors="coerce").fillna(0.0).sum())
+
     out: Dict[str, Any] = {}
-    for pts_col, pct_col in _POS_POINT_COLUMNS:
-        v = float(pd.to_numeric(g.get(pts_col), errors="coerce").fillna(0.0).sum())
-        out[pts_col] = round(v, 2)
-        out[pct_col] = round(v / total, 4) if total else None
+    for suf, total_col in (("", "_StarterPointsTotal"), (" (roster)", "_RosterPointsTotal")):
+        total = _sum(total_col)
+        for pts_col, pct_col in _POS_POINT_COLUMNS:
+            pos = pts_col[len("Points from "):]                 # "QBs"
+            v = _sum(pts_col + suf)
+            n = _sum(f"Number of {pos[:-1]} started" if not suf else f"_{pos[:-1]} rostered (played)")
+            out[pts_col + suf] = round(v, 2)
+            out[pct_col + suf] = round(v / total, 4) if total else None
+            out[f"Avg points from {pos}{suf}"] = round(v / n, 2) if n else None
     return out
 
 
@@ -6961,6 +6982,21 @@ def build_all(repo_root: Path) -> None:
                         points_pos(starters, "WR"), points_pos(starters, "TE"),
                     )
                     starter_pts_total = float(sum(starter_points))
+                    # The same split over the WHOLE roster (starters + every
+                    # non-starter, taxi and IR included), and the per-player
+                    # averages: position points ÷ players started / rostered at
+                    # that position, N/A when there were none.
+                    qb_rpts, rb_rpts, wr_rpts, te_rpts = (
+                        points_pos(players, "QB"), points_pos(players, "RB"),
+                        points_pos(players, "WR"), points_pos(players, "TE"),
+                    )
+                    roster_pts_total = float(sum(roster_points))
+
+                    def _pos_share_roster(v: float) -> Optional[float]:
+                        return round(v / roster_pts_total, 4) if roster_pts_total else None
+
+                    def _pos_avg(v: float, n: int) -> Optional[float]:
+                        return round(v / n, 2) if n else None
 
                     def _pos_share(v: float) -> Optional[float]:
                         # No points at all -> N/A, not 0%: there is no pie to take
@@ -7149,11 +7185,28 @@ def build_all(repo_root: Path) -> None:
                         "% of points from WRs": _pos_share(wr_pts),
                         "% of points from TEs": _pos_share(te_pts),
                         "% of points from RBs": _pos_share(rb_pts),
+                        "Avg points from QBs": _pos_avg(qb_pts, qb_s),
+                        "Avg points from WRs": _pos_avg(wr_pts, wr_s),
+                        "Avg points from TEs": _pos_avg(te_pts, te_s),
+                        "Avg points from RBs": _pos_avg(rb_pts, rb_s),
+                        "Points from QBs (roster)": round(qb_rpts, 2),
+                        "Points from WRs (roster)": round(wr_rpts, 2),
+                        "Points from TEs (roster)": round(te_rpts, 2),
+                        "Points from RBs (roster)": round(rb_rpts, 2),
+                        "% of points from QBs (roster)": _pos_share_roster(qb_rpts),
+                        "% of points from WRs (roster)": _pos_share_roster(wr_rpts),
+                        "% of points from TEs (roster)": _pos_share_roster(te_rpts),
+                        "% of points from RBs (roster)": _pos_share_roster(rb_rpts),
+                        "Avg points from QBs (roster)": _pos_avg(qb_rpts, qb_r),
+                        "Avg points from WRs (roster)": _pos_avg(wr_rpts, wr_r),
+                        "Avg points from TEs (roster)": _pos_avg(te_rpts, te_r),
+                        "Avg points from RBs (roster)": _pos_avg(rb_rpts, rb_r),
                         # Internal-only (filtered from CSV by the plan catalog):
                         # the denominator behind the four shares = this week's
                         # starter point total. team_year / team_all_time sum it so
                         # their shares divide by the same base the weekly ones did.
                         "_StarterPointsTotal": round(starter_pts_total, 2),
+                        "_RosterPointsTotal": round(roster_pts_total, 2),
                         "Number of Add/Drops": int(add_drop_count.get(team, 0)),
                         "Number of trades": int(trade_count.get(team, 0)),
                         "Amount of FAAB spent": (
@@ -15560,6 +15613,24 @@ def build_all(repo_root: Path) -> None:
         # Same played-only correction for the "under 10" family.
         tw["Players under 10 pts (roster)"] = tw["Number_of_players_under10"].round(0).astype(int)
         tw["Players under 10 pts (starters)"] = tw["Number_of_starters_under10"].round(0).astype(int)
+        # "Avg points from <pos> (roster)" divides by the rostered players who
+        # PLAYED [per user, 2026-11-23]: the donut rule's `_counts` (every
+        # starter; a bench player only if not on a bye / injured / suspended),
+        # by the same Sleeper fantasy position the loop's split uses. The
+        # loop's provisional value (÷ every rostered player) is overwritten;
+        # the per-week count stays as an internal column so team_year /
+        # team_all_time divide by the same played player-weeks.
+        _fpos = pw2["Player ID"].astype(str).map(lambda x: pid_pos.get(x) or "")
+        _played_cnt = pd.DataFrame({k: pw2[k] for k in ("Team", "Year", "Week")})
+        for _P in ("QB", "WR", "TE", "RB"):
+            _played_cnt[f"_{_P} rostered (played)"] = (_counts & _fpos.eq(_P)).astype(int)
+        _played_cnt = _played_cnt.groupby(["Team", "Year", "Week"], as_index=False).sum()
+        tw = tw.merge(_played_cnt, how="left", on=["Team", "Year", "Week"])
+        for _P in ("QB", "WR", "TE", "RB"):
+            _n = pd.to_numeric(tw[f"_{_P} rostered (played)"], errors="coerce").fillna(0)
+            tw[f"_{_P} rostered (played)"] = _n.astype(int)
+            _pts = pd.to_numeric(tw.get(f"Points from {_P}s (roster)"), errors="coerce")
+            tw[f"Avg points from {_P}s (roster)"] = (_pts / _n.where(_n > 0)).round(2)
 
         tw.drop(columns=[
             "Hardship_Points_Lost",

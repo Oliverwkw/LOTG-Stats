@@ -1385,6 +1385,14 @@ EQUATIONS = {
         'Σ_{p ∈ S(t,w), posS(p) = QB} pts(p,w)  (and RB / WR / TE); year/all-time = Σ_w',
     ('% of points from QBs', 'team_week / team_year / team_all_time'):
         'Σ_w Σ_{p ∈ S(t,w), posS = QB} pts(p,w) / Σ_w Σ_{p ∈ S(t,w)} pts(p,w)  (and RB / WR / TE)',
+    ('Avg points from QBs', 'team_week / team_year / team_all_time'):
+        'Σ_w Σ_{p ∈ S(t,w), posS(p) = QB} pts(p,w) / Σ_w |{p ∈ S(t,w) : posS(p) = QB}|  (and WR / TE / RB); N/A if 0 starts',
+    ('Points from QBs (roster)', 'team_week / team_year / team_all_time'):
+        'Σ_{p ∈ R(t,w), posS(p) = QB} pts(p,w)  (and WR / TE / RB); year/all-time = Σ_w',
+    ('% of points from QBs (roster)', 'team_week / team_year / team_all_time'):
+        'Σ_w Σ_{p ∈ R(t,w), posS = QB} pts(p,w) / Σ_w Σ_{p ∈ R(t,w)} pts(p,w)  (and WR / TE / RB)',
+    ('Avg points from QBs (roster)', 'team_week / team_year / team_all_time'):
+        'Σ_w Σ_{p ∈ R(t,w), posS(p) = QB} pts(p,w) / Σ_w |{p ∈ R(t,w) : posS(p) = QB, p ∈ S(t,w) ∨ ¬(bye ∨ inj ∨ susp)(p,w)}|  (and WR / TE / RB); N/A if none played',
     ('Stacks', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):
         "Σ_{q ∈ S(t,w), posS(q) = QB} |{p ∈ S(t,w) : posS(p) ∈ {RB, WR, TE}, nfl(p) = nfl(q) ≠ 'NFL'}|",
     ('Most number of players started from same NFL team', 'team_week / team_year / team_all_time / league_week / league_year / league_all_time'):

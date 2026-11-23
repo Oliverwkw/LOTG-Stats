@@ -419,6 +419,10 @@ def _record_watch_inputs_are_right():
     for sid in ("sl_proj", "sl_bold", "sl_cb", "cb_m_0", "cb_po_2"):
         assert sid in stats and f"{sid}|h|all" in B, sid
     assert stats["sl_proj"]["dep"] == "proj_own"                 # counts until kickoff, then locks
+    # the positional averages and roster splits are on the watch once the build carries them
+    if "Avg points from QBs (roster)" in tw.columns:
+        for sid in ("avg_QB", "rfrom_WR", "rpct_TE", "ravg_RB"):
+            assert sid in stats and f"{sid}|h|all" in B, sid
     streak_ids = {sid for sid, x in stats.items() if x.get("streak")}
     assert len(streak_ids) >= 30
     for kind in ("team", "player"):
