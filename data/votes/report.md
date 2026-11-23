@@ -2,7 +2,7 @@
 
 862 answers (2529 signals: picks and price checks) from 5 teams; 2529 signals on board dates the inputs hold, vote term weight 1.37 of max 1.5 (trades and cuts weigh 3.0 each).
 
-1126 of 1960 checks agree with the board.
+1125 of 1960 checks agree with the board.
 
 - 2026-11-09: **Saquon Barkley** board $37, votes: too low 1; typed $400 (2 answers) — DISAGREES
   - rb_inj x0.37, rb_band x1.82, contract_old x0.61, share_talent x1.37
@@ -164,6 +164,9 @@
 - 2026-10-27: **D'Andre Swift** $652 vs **Cam Ward** $1,237: votes say D'Andre Swift (s +1.00, 2 answers) — DISAGREES
   - D'Andre Swift: rb_inj x0.61, spike x1.61, availability x1.37, share_talent x1.23
   - Cam Ward: young_upside x1.47, availability x1.45, qb_quality x0.79, team_q x0.80
+- 2026-11-18: **Chris Bell** $37 vs **Jalen Milroe** $71: votes say Chris Bell (s +1.00, 2 answers) — DISAGREES
+  - Chris Bell: inj_out x0.51, share_talent x0.70, at_fade x0.74, usage x0.78
+  - Jalen Milroe: young_upside x2.40, availability x0.50, snap_cap x0.69, usage x0.78
 - 2026-10-28: **Davante Adams** board $142, votes: too low 1 (1 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
 - 2026-10-28: **TreVeyon Henderson** $764 vs **Bhayshul Tuten** $404: votes say Bhayshul Tuten (s -1.00, 1 answers) — DISAGREES
@@ -383,9 +386,6 @@
   - wr_band x0.78, share_talent x1.23, td_dep x0.88, team_q x1.11
 - 2026-11-11: **Tee Higgins** board $1,722, votes: too high 1 (1 answers) — DISAGREES
   - wr_band x0.78, share_talent x1.23, td_dep x0.88, team_q x1.11
-- 2026-11-18: **Chris Bell** $50 vs **Jalen Milroe** $71: votes say Chris Bell (s +1.00, 2 answers) — DISAGREES
-  - Chris Bell: inj_out x0.51, share_talent x0.70, usage x0.78, wr_talent x1.27
-  - Jalen Milroe: young_upside x2.40, availability x0.50, snap_cap x0.69, usage x0.78
 - 2026-10-28: **Jadarian Price** board $895, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-10-28: **Jadarian Price** board $895, votes: too high 1 (1 answers) — DISAGREES
@@ -724,6 +724,8 @@
   - qb_opening x2.04, inj_ir x0.69, young_upside x1.24, availability x0.84
 - 2026-11-18: **Davante Adams** board $213, votes: about right 1; too high 1 (2 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, inj_ir x0.69, usage x1.26
+- 2026-11-18: **Chris Bell** board $37, votes: about right 2 (2 answers) — DISAGREES
+  - inj_out x0.51, share_talent x0.70, at_fade x0.74, usage x0.78
 - 2026-10-28: **Justin Herbert** $743 vs **Jadarian Price** $895: votes say Justin Herbert (s +1.00, 1 answers) — DISAGREES
   - Justin Herbert: availability x1.37, track x1.12, qb_quality x0.90, team_q x0.93
   - Jadarian Price: young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
@@ -3021,7 +3023,6 @@
 - 2026-11-18: **Jahmyr Gibbs** board $3,958, votes: about right 1; typed $4,500 (2 answers)
 - 2026-11-18: **Makai Lemon** $1,606 vs **Jalen Hurts** $1,701: votes say Jalen Hurts (s -1.00, 2 answers)
 - 2026-11-18: **D'Andre Swift** $733 vs **Chris Olave** $1,384: votes say Chris Olave (s -1.00, 2 answers)
-- 2026-11-18: **Chris Bell** board $50, votes: about right 2 (2 answers)
 - 2026-11-18: **C.J. Stroud** $1,766 vs **Malik Nabers** $2,162: votes say Malik Nabers (s -1.00, 2 answers)
 - 2026-11-18: **C.J. Stroud** board $1,766, votes: about right 1; too high 1 (2 answers)
 - 2026-11-18: **Malik Nabers** board $2,162, votes: too low 2 (2 answers)
