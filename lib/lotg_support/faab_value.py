@@ -509,6 +509,7 @@ DC2_FLOOR, DC2_IMPL = 0.0, 26.0     # depth chart: an RB listed second on a top 
 DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a contender (win % so far, 6+ team games) is worth at least this
 PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
 TEAM_NOW_ROOKIE = False
+COACH_EASE = 0.0                  # share of the negative team-quality docks lifted in the offseason when his team has a new head coach
 TEAM_NOW = True                   # team quality (last season) from the team he is on at the date (load_inputs)
 QB_BENCH = -1.0                   # depth chart: a QB who was his team's starter on the charts 3-8 weeks ago and is not now (log, lower only)
 DC2_RB, DC2_BAND = 0.0, (-2.0, -1.0, 150.0, 300.0)   # depth chart: an RB listed second on his team's chart (the handcuff), base band
@@ -561,10 +562,15 @@ CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
 VAC_UP, VAC_LO, VAC_HI, VAC_BAND = 1.0, 0.05, 0.2, (-2.0, -1.0, 300.0, 500.0)
 VAC_STACK = 1.0
+VAC_LESS = False   # vac_up only when his own share of his team's expected points last season is under the share that left
+VAC_IMPL = (18.0, 22.0)  # vac_up fades in with his team's implied points last season (none at [0], full from [1]; (0, 1) = always full)
 # far-off #14 (Oliver 2026-11-22, Pacheco to Detroit: "removing some docks from RBs in a range under a certain age when
 # they switch teams"): an RB under MOVE_AGE who changed teams this offseason (or is new and has under 4 games there),
 # at a base under MOVE_V (fading out at 1.5x), has his old-role docks eased by MOVE_EASE (0..1): bad YPC, duds, wear
 # (rb_inj) and missed games, which were read behind his old line, in his old committee
+MOVE_PROVEN, MOVE_PROVEN_AGE, MOVE_PROVEN_RANK = 0.17, 28.0, 15   # log boost on top of MOVE_EASE (Oliver: Pacheco)
+REPL_TOP_RANK = 3
+REPL_TOP2 = 0.0    # share of the replacement-line dock lifted for a former top-REPL_TOP_RANK PPR finisher at his position (NFL, last 4 seasons; Oliver)
 MOVE_IMPL = 24.0   # ... and a new team scoring at least this many implied points a game last season (0 = any)
 MOVE_VAC = 0.1     # MOVE_EASE only for a move into a vacated role (e_x_vacated at least this; -99 = any move)
 MOVE_FIRST = False   # first NFL team switch only (Oliver): needs e_x_n_teams (scratch-only; tested 11-22: same result, every case was a first switch)
@@ -753,7 +759,10 @@ def apply_rules(R, p, X=None, explain=False):
     if PROD_LO:
         T_["prod_lo"] = PROD_LO * ((np.nan_to_num(col(R, "e_x_ppg_l0")) >= PROD_L0) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= PROD_CUR) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= PROD_G) & np.isin(pos, PROD_POS)) * np.interp(raw, PROD_BAND, [0, 1, 1, 0])
     if VAC_UP:
-        T_["vac_up"] = VAC_UP * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= 1) * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) >= VAC_OWN) | (np.nan_to_num(col(R, "e_x_l0_games")) < 8)) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - VAC_LO) / (VAC_HI - VAC_LO), 0, 1) * np.interp(raw, VAC_BAND, [0, 1, 1, 0])
+        T_["vac_up"] = VAC_UP * np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "exp")) >= 1) * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) >= VAC_OWN) | (np.nan_to_num(col(R, "e_x_l0_games")) < 8)) * np.clip((np.nan_to_num(col(R, "e_x_vacated")) - VAC_LO) / (VAC_HI - VAC_LO), 0, 1) * np.interp(raw, VAC_BAND, [0, 1, 1, 0]) \
+            * np.interp(np.nan_to_num(col(R, "e_x_team_implied_l0"), nan=99), VAC_IMPL, [0, 1]) \
+            * ((np.nan_to_num(col(R, "e_x_l0_xfp_share")) < np.nan_to_num(col(R, "e_x_vacated"))) | (not VAC_LESS))
+        # ... fading out on a bad offense (his new team's, TEAM_NOW), and (VAC_LESS, Oliver) only into a bigger role than his own
     if XFP_JUMP:
         xj = np.nan_to_num(col(R, "e_x_cur_xfp_share")) - np.nan_to_num(col(R, "e_x_l0_xfp_share"), nan=1)
         T_["xfp_jump"] = XFP_JUMP * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((xj - XFP_JUMP_LO) / (XFP_JUMP_HI - XFP_JUMP_LO), 0, 1) * np.interp(raw, XFP_JUMP_BAND, [0, 1, 1, 0])
@@ -958,9 +967,19 @@ def apply_rules(R, p, X=None, explain=False):
     T_["qb_bench"] = QB_BENCH * (pos == "QB") * (dcr_ >= 2) * (dcp_ == 1) * hl_
     T_["dc2_rb"] = DC2_RB * (pos == "RB") * (dcr_ == 2) * np.interp(raw, DC2_BAND, [0, 1, 1, 0])
     T_["dc1_up"] = DC1_UP * np.isin(pos, DC1_POS) * (dcr_ == 1) * hl_ * np.interp(raw, DC1_BAND, [0, 1, 1, 0])
+    if COACH_EASE:   # (Likely 2026, Harbaugh to the Giants) a new head coach: last season's bad-team docks say less before he plays
+        nc_ = np.nan_to_num(col(R, "e_x_new_coach")) * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0)
+        for k in ("team_q", "team_q_lo"):
+            if k in T_: T_[k] = np.where(T_[k] < 0, T_[k] * (1 - COACH_EASE * nc_), T_[k])
     if MOVE_EASE:   # the rest of MOVE_DOCKS (role docks from his old team), eased with the same weight
         for k in MOVE_DOCKS:
             if k in T_ and k not in ("ypc_bad", "availability", "rb_duds", "rb_inj"): T_[k] = np.where(T_[k] < 0, T_[k] * (1 - mvd_), T_[k])
+    if MOVE_PROVEN:   # (Oliver, Pacheco 2026) the vacated-role move for a back young enough who has had a top-15 PPR RB season
+        T_["move_proven"] = MOVE_PROVEN * (mvd_ > 0) * (np.nan_to_num(col(R, "age"), nan=99) < MOVE_PROVEN_AGE) \
+            * (np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=99) <= MOVE_PROVEN_RANK)
+    if REPL_TOP2 and "replacement line" in T_:   # (Oliver 2026-11-23) a former top-2 finisher at his position (NFL, last 4 seasons) is no replacement body
+        t2 = np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=99) <= REPL_TOP_RANK
+        T_["replacement line"] = np.where(t2, T_["replacement line"] * (1 - REPL_TOP2), T_["replacement line"])
     if SUMMER_LOW and "summer" in T_:
         pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
         T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))

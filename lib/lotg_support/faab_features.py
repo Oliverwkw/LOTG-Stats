@@ -1662,3 +1662,50 @@ def team_now_l0(rows, roster, cache=None):
     dd = pd.to_datetime(pd.Series(rows["date"]).values); s = np.where(dd.month >= 3, dd.year, dd.year - 1)
     k = TS.reindex(pd.MultiIndex.from_arrays([pd.Series(t).replace(TEAM_FIX).values, s - 1]))
     return k.win.values, k.implied.values
+
+
+def new_coach(rows, roster, cache=None):
+    """per row: 1 when the NFL team he is on at the date (team_on) has a different head coach for this season (its
+    first game of the season on the schedule) than at the end of last season, 0 when the same, NaN when unknown. The
+    season is the one whose rosters count from March 1 (a January-February hire is public before then)."""
+    cache = Path(cache or D.CACHE); gp = cache / "games.parquet"; N = len(rows)
+    if not gp.exists() or roster is None: return np.full(N, np.nan)
+    G = pd.read_parquet(gp, columns=["season", "gameday", "home_team", "away_team", "home_coach", "away_coach"])
+    T = pd.concat([G[["season", "gameday", "home_team", "home_coach"]].set_axis(["season", "gameday", "team", "coach"], axis=1),
+                   G[["season", "gameday", "away_team", "away_coach"]].set_axis(["season", "gameday", "team", "coach"], axis=1)])
+    T["team"] = T.team.replace(TEAM_FIX); T = T.dropna(subset=["coach"]).sort_values("gameday")
+    first = T.groupby(["team", "season"]).coach.first(); last = T.groupby(["team", "season"]).coach.last()
+    t = pd.Series(team_on(rows["gsis"].values, rows["date"].values, roster)).replace(TEAM_FIX).values
+    dd = pd.to_datetime(pd.Series(rows["date"]).values); s = np.where(dd.month >= 3, dd.year, dd.year - 1)
+    a = first.reindex(pd.MultiIndex.from_arrays([t, s])).values; b = last.reindex(pd.MultiIndex.from_arrays([t, s - 1])).values
+    return np.where(pd.notna(a) & pd.notna(b), (a != b).astype(float), np.nan)
+
+
+def finish_ranks(rows, seasons=None, back=4):
+    """per row, from nflverse season stats (regular season PPR): his best position finish (1 = most PPR at his
+    position league-wide) over the last `back` complete seasons, and his rank among his team's players at his
+    position last season (by PPR). Last complete season = the one before the season whose rosters count from March 1.
+    NaN without a season. rows: gsis, date. Returns (best_rank, team_rank_l0)."""
+    N = len(rows); best = np.full(N, np.nan); trk = np.full(N, np.nan)
+    seasons = seasons or range(2016, pd.Timestamp.today().year + 1)
+    S = []
+    for y in seasons:
+        d = kp._read(f"sp_{y}.csv")
+        if d is None: continue
+        if "season_type" in d: d = d[d.season_type == "REG"]
+        S.append(d[["player_id", "position", "season", "recent_team", "fantasy_points_ppr"]])
+    if not S: return best, trk
+    S = pd.concat(S).dropna(subset=["player_id", "fantasy_points_ppr"])
+    S["rk"] = S.groupby(["season", "position"]).fantasy_points_ppr.rank(ascending=False, method="min")
+    S["trk"] = S.groupby(["season", "recent_team", "position"]).fantasy_points_ppr.rank(ascending=False, method="min")
+    by = {g: v for g, v in S.groupby("player_id")}
+    dd = pd.to_datetime(pd.Series(rows["date"]).values); l0 = np.where(dd.month >= 3, dd.year, dd.year - 1) - 1
+    gs = pd.Series(rows["gsis"]).astype(str).values
+    for i in range(N):
+        v = by.get(gs[i])
+        if v is None: continue
+        w = v[(v.season <= l0[i]) & (v.season > l0[i] - back)]
+        if len(w): best[i] = w.rk.min()
+        x = v[v.season == l0[i]]
+        if len(x): trk[i] = x.trk.min()
+    return best, trk
