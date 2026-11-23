@@ -2467,7 +2467,7 @@ async function predict(_a, query, live, opt = {}) {
     for (const [i, x] of set.entries()) if (x) base[ti[x === "a" ? games[i].a : games[i].b]]++;
     const n = teams.length, canMiss = new Array(n).fill(false), canMake = new Array(n).fill(false), w = new Array(n);
     // first outcome found for each team / way (used when the simulation never draws it)
-    const missWith = new Array(n).fill(null), makeWith = new Array(n).fill(null);
+    const missWith = new Array(n).fill(null), makeWith = new Array(n).fill(null), canTop = new Array(n).fill(false), canLoseTop = new Array(n).fill(false);
     for (let m = 0; m < 1 << open.length; m++) {
       for (let k = 0; k < n; k++) w[k] = base[k];
       open.forEach((i, j) => { w[ti[m & (1 << j) ? games[i].a : games[i].b]]++; });
@@ -2476,9 +2476,11 @@ async function predict(_a, query, live, opt = {}) {
         for (let o = 0; o < n; o++) if (o !== k) { if (w[o] >= w[k]) ge++; if (w[o] > w[k]) gt++; }
         if (ge >= P.teams && !canMiss[k]) { canMiss[k] = true; missWith[k] = m; }
         if (gt < P.teams && !canMake[k]) { canMake[k] = true; makeWith[k] = m; }
+        if (gt === 0) canTop[k] = true;
+        if (ge > 0) canLoseTop[k] = true;   // someone level or ahead: the top seed can slip
       }
     }
-    return { open, canMiss, canMake, ti, missWith, makeWith };
+    return { open, canMiss, canMake, canTop, canLoseTop, ti, missWith, makeWith };
   }
   // the most likely outcome among those that put a team in (or out): each open game's chance
   // from the simulation, every outcome scored by its summed log chance (exhaustive, as above)
@@ -2505,7 +2507,7 @@ async function predict(_a, query, live, opt = {}) {
     const key = JSON.stringify(picks);
     if (exactCache.key !== key) exactCache = { key, val: exact(picks) };
     const ex = exactCache.val;
-    if (ex) return { sure: new Set(teams.filter((t, k) => !ex.canMiss[k])), out: new Set(teams.filter((t, k) => !ex.canMake[k])) };
+    if (ex) return { sure: new Set(teams.filter((t, k) => !ex.canMiss[k])), out: new Set(teams.filter((t, k) => !ex.canMake[k])), noTop: new Set(teams.filter((t, k) => !ex.canTop[k])), top: new Set(teams.filter((t, k) => !ex.canLoseTop[k])) };
     const w = Object.fromEntries(teams.map((t) => [t, (base0[t] || {}).w || 0])), left = Object.fromEntries(teams.map((t) => [t, 0]));
     games.forEach((g, i) => { const p = picks[i] || real[i]; if (p) w[p === "a" ? g.a : g.b]++; else { left[g.a]++; left[g.b]++; } });
     return clinchStatus(w, left, P.teams);
@@ -2526,7 +2528,7 @@ async function predict(_a, query, live, opt = {}) {
       { k: "title", label: "Title", html: (r) => `<b>${pct(r.title / N, r.t, true)}</b> ${delta(r.title / N, r.base.title / N)}` },
       { k: (r) => (base0[r.t] || {}).w, label: "Now", html: (r) => `${(base0[r.t] || {}).w || 0}-${(base0[r.t] || {}).l || 0}` },
       { k: "wins", label: "Proj. wins", html: (r) => `${fmt({ d: 1 }, r.wins / N)} ${delta1(r.wins / N, r.base.wins / N)}` },
-      { k: "seed1", label: "1st seed", html: (r) => `${pct(r.seed1 / N, r.t, true)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
+      { k: "seed1", label: "1st seed", html: (r) => `${oddsText(r.seed1 / N, !!(ST.top && ST.top.has(r.t)), ST.out.has(r.t) || (ST.noTop && ST.noTop.has(r.t)), false)} ${delta(r.seed1 / N, r.base.seed1 / N)}` },
       { k: "mean", label: "Pts/wk", html: (r) => `${fmt({ d: 1 }, r.mean)} ${delta1(r.mean, r.baseMean)}` },
     ], rows);
     document.getElementById("pmoves").innerHTML = moves.length ? `<ul class="small">${moves.map((m, i) => `<li>${esc((nfl[m.pid] || [])[0] || m.pid)} → ${m.to === "out" ? "out for the season" : esc(m.to)} <button class="b mini" data-undo="${i}">undo</button></li>`).join("")}</ul>` : `<p class="muted small">No roster changes.</p>`;
