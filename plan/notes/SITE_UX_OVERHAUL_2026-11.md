@@ -654,3 +654,5 @@ browser.
 592. Links get their own soft blue (--link), apart from the mint accent on buttons and tabs and the green of good numbers.
 593. Home: the headline tiles above the standings are removed (user: they didn't add anything); the page opens on Standings & odds.
 594. Predictions: pick a team and "Most likely way in" / "Most likely way out" fills every unpicked game with the result that happens most often in the simulated seasons where that team makes (misses) the playoffs; says how often that happens and the team's odds with the results set; Undo clears only the filled games.
+595. Predictions: clinched / eliminated are exact — every way the open games can go (real results for games finished since the build, picks respected; up to 20 open games), not the wins-only shortcut.
+596. Predictions: when no simulated season has a team missing (making) the playoffs, the way-out (way-in) button says whether it has clinched (is eliminated); if it hasn't, it fills the most likely set of results that still does it, with the team's odds under them ("all but clinched" when its points-for edge makes the tiebreak near-impossible).

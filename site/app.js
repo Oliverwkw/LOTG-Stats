@@ -2448,9 +2448,66 @@ async function predict(_a, query, live, opt = {}) {
   let base = null;
   if (opt.headless) return { runSim, teams, games, FULL, n: FULL ? NS : N, setMoves: (m) => { moves = m; }, setPicks: (p) => { picks = p; } };
   // clinched / out with the picked games counted as played
+  // The exact math: every way the open games can go (each game finished on Sleeper since the
+  // build is fixed to its real result, each pick to the picked side). A team "can miss" if some
+  // outcome leaves at least `spots` other teams on as many wins or more (a tie in wins is lost
+  // on points for: possible, so counted); it "can make it" if some outcome leaves fewer than
+  // `spots` teams with more wins (a tie won on points for). Up to 20 open games (~1M outcomes);
+  // beyond that the wins-only shortcut (clinchStatus) stands in.
+  const real = games.map((g) => {
+    if (g.w >= curWk || !g.ms || g.ms.length !== 2) return null;
+    const [m0, m1] = g.ms, p0 = m0.points || 0, p1 = m1.points || 0;
+    if (!p0 && !p1) return null;
+    return live.byRid[m0.roster_id] === g.a ? (p0 > p1 ? "a" : "b") : (p1 > p0 ? "a" : "b");
+  });
+  function exact(fixed) {
+    const set = games.map((g, i) => fixed[i] || real[i] || null), open = games.map((g, i) => i).filter((i) => !set[i]);
+    if (open.length > 20) return null;
+    const ti = Object.fromEntries(teams.map((t, k) => [t, k])), base = teams.map((t) => (base0[t] || {}).w || 0);
+    for (const [i, x] of set.entries()) if (x) base[ti[x === "a" ? games[i].a : games[i].b]]++;
+    const n = teams.length, canMiss = new Array(n).fill(false), canMake = new Array(n).fill(false), w = new Array(n);
+    // first outcome found for each team / way (used when the simulation never draws it)
+    const missWith = new Array(n).fill(null), makeWith = new Array(n).fill(null);
+    for (let m = 0; m < 1 << open.length; m++) {
+      for (let k = 0; k < n; k++) w[k] = base[k];
+      open.forEach((i, j) => { w[ti[m & (1 << j) ? games[i].a : games[i].b]]++; });
+      for (let k = 0; k < n; k++) {
+        let ge = 0, gt = 0;
+        for (let o = 0; o < n; o++) if (o !== k) { if (w[o] >= w[k]) ge++; if (w[o] > w[k]) gt++; }
+        if (ge >= P.teams && !canMiss[k]) { canMiss[k] = true; missWith[k] = m; }
+        if (gt < P.teams && !canMake[k]) { canMake[k] = true; makeWith[k] = m; }
+      }
+    }
+    return { open, canMiss, canMake, ti, missWith, makeWith };
+  }
+  // the most likely outcome among those that put a team in (or out): each open game's chance
+  // from the simulation, every outcome scored by its summed log chance (exhaustive, as above)
+  function likeliestExact(team, want, pA) {
+    const ex = exact(picks); if (!ex) return null;
+    const k = ex.ti[team], n = teams.length, base = teams.map((t) => (base0[t] || {}).w || 0);
+    const set = games.map((g, i) => picks[i] || real[i] || null);
+    for (const [i, x] of set.entries()) if (x) base[ex.ti[x === "a" ? games[i].a : games[i].b]]++;
+    const lp = ex.open.map((i) => [Math.log(Math.max(1e-6, pA[i])), Math.log(Math.max(1e-6, 1 - pA[i]))]);
+    let best = null, bestS = -Infinity; const w = new Array(n);
+    for (let m = 0; m < 1 << ex.open.length; m++) {
+      let sc = 0;
+      for (let q = 0; q < n; q++) w[q] = base[q];
+      ex.open.forEach((i, j) => { const a = m & (1 << j); w[ex.ti[a ? games[i].a : games[i].b]]++; sc += lp[j][a ? 0 : 1]; });
+      if (sc <= bestS) continue;
+      let ge = 0, gt = 0;
+      for (let o = 0; o < n; o++) if (o !== k) { if (w[o] >= w[k]) ge++; if (w[o] > w[k]) gt++; }
+      if (want === "out" ? ge >= P.teams : gt < P.teams) { best = m; bestS = sc; }
+    }
+    return best === null ? { none: true } : { m: best, open: ex.open };
+  }
+  let exactCache = { key: null, val: null };
   const status = () => {
+    const key = JSON.stringify(picks);
+    if (exactCache.key !== key) exactCache = { key, val: exact(picks) };
+    const ex = exactCache.val;
+    if (ex) return { sure: new Set(teams.filter((t, k) => !ex.canMiss[k])), out: new Set(teams.filter((t, k) => !ex.canMake[k])) };
     const w = Object.fromEntries(teams.map((t) => [t, (base0[t] || {}).w || 0])), left = Object.fromEntries(teams.map((t) => [t, 0]));
-    games.forEach((g, i) => { const p = picks[i]; if (p) w[p === "a" ? g.a : g.b]++; else { left[g.a]++; left[g.b]++; } });
+    games.forEach((g, i) => { const p = picks[i] || real[i]; if (p) w[p === "a" ? g.a : g.b]++; else { left[g.a]++; left[g.b]++; } });
     return clinchStatus(w, left, P.teams);
   };
   const delta = (a, b) => { const d = Math.round((a - b) * 100); return d ? `<span class="${d > 0 ? "pos" : "neg"} small">${d > 0 ? "+" : ""}${d}</span>` : ""; };
@@ -2513,7 +2570,24 @@ async function predict(_a, query, live, opt = {}) {
     try { res = runSim(true); } finally { /* keep the counts, then switch the collector off */ }
     const C = COLLECT; COLLECT = null;
     const share = C.n / res.n;
-    if (!C.n) { $("#pathmsg").innerHTML = `<span class="neg">${esc(team)} ${want === "in" ? "doesn't make" : "doesn't miss"} the playoffs in any simulated season${Object.keys(picks).length ? " with the results you've set" : ""}.</span>`; return; }
+    if (!C.n) {
+      // the simulation never drew it: is it possible at all? (exhaustive, the real schedule)
+      const ALL = { team, want: "in", aWins: new Float64Array(games.length), n: 0 };
+      COLLECT = ALL; const r0 = runSim(true); COLLECT = null;
+      // each game's chance of going to side a, from every simulated season (in + out together)
+      COLLECT = { team, want: "out", aWins: new Float64Array(games.length), n: 0 }; runSim(true); const OUT = COLLECT; COLLECT = null;
+      const pA = games.map((g, i) => (ALL.aWins[i] + OUT.aWins[i]) / Math.max(1, ALL.n + OUT.n));
+      const L = likeliestExact(team, want, pA);
+      const done = want === "out" ? "has clinched a playoff spot" : "is eliminated from the playoffs";
+      if (!L) { $("#pathmsg").innerHTML = `<span class="neg">${esc(team)} ${want === "in" ? "doesn't make" : "doesn't miss"} the playoffs in any of the ${r0.n.toLocaleString()} simulated seasons${Object.keys(picks).length ? " with the results you've set" : ""}.</span>`; return; }
+      if (L.none) { $("#pathmsg").innerHTML = `<b>${esc(team)} ${done}</b>${Object.keys(picks).length ? " with the results you've set" : ""}: no way the remaining games go can ${want === "out" ? "keep it out" : "get it in"}.`; return; }
+      const filled = [];
+      L.open.forEach((i, j) => { if (picks[i]) return; picks[i] = L.m & (1 << j) ? "a" : "b"; filled.push(i); });
+      rerun();
+      $("#pathmsg").innerHTML = `<b>${esc(team)}</b> ${want === "out" ? "missed" : "made"} the playoffs in none of the ${r0.n.toLocaleString()} simulated seasons, but it hasn't ${want === "out" ? "clinched" : "been eliminated"}: this is the most likely set of results that still ${want === "out" ? "keeps it out" : "gets it in"} (filled ${plural(filled.length, "game")}), with the points-for tiebreak going ${want === "out" ? "against" : "for"} it. ${(() => { const r = runSim(true), q = r.tally[team].playoffs / r.n; return `Even with these results set, ${esc(team)} makes the playoffs <b>${oddsText(q, false, false, true)}</b> of the time${want === "out" && q > 0.95 ? ` — its points-for edge makes that tiebreak very unlikely to go against it, so it has all but clinched` : want === "in" && q < 0.05 ? ` — it would need a points-for swing that's very unlikely, so it's all but eliminated` : ""}.`; })()} <button class="b sm ghost" id="pundo">Undo</button>`;
+      $("#pundo").onclick = () => { const keep = {}; for (const [i, v] of Object.entries(picks)) if (!filled.includes(+i)) keep[i] = v; picks = keep; rerun(); $("#pathmsg").textContent = ""; };
+      return;
+    }
     const filled = [];
     games.forEach((g, i) => { if (picks[i]) return; picks[i] = C.aWins[i] / C.n >= 0.5 ? "a" : "b"; filled.push(i); });
     rerun();
