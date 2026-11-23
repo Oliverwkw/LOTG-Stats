@@ -655,7 +655,9 @@ def final_terms(R, v, p, X):
     # has scored like a star since he came back (19+ PPR a game over 3+ games, less with more games: Oliver, Walker 2026)
     thr = np.maximum(RB_INJ_PPG - RB_INJ_PPG_STEP * np.maximum(np.nan_to_num(col(R, "e_x_gp_since_inj")) - 3, 0), RB_INJ_PPG_MIN)
     back = (np.nan_to_num(col(R, "e_x_gp_since_inj")) >= 3) & (np.nan_to_num(col(R, "e_x_ppg_since_inj")) >= thr)
-    T["rb_inj"] = p.get("rb_inj", 0.0) * (pos == "RB") * (age >= RB_INJ_AGE) * ~back * np.clip(np.nan_to_num(col(R, "e_x_bodyparts_3y")) / 2.0, 0, 1.5)
+    won_ = (AT_WON_JOB != 0) & (np.nan_to_num(col(R, "exp")) >= 2) & (np.nan_to_num(col(R, "e_x_rookie_backup")) > 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) & (np.nan_to_num(col(R, "e_x_gp_cur")) <= 2) \
+        & (np.nan_to_num(col(R, "e_x_cur_big")) >= 1) & (np.nan_to_num(col(R, "e_x_cur_xfp_share")) >= 0.2)   # AT_WON_JOB: won the job, so no wear dock
+    T["rb_inj"] = p.get("rb_inj", 0.0) * (pos == "RB") * (age >= RB_INJ_AGE) * ~back * ~won_ * np.clip(np.nan_to_num(col(R, "e_x_bodyparts_3y")) / 2.0, 0, 1.5)
     # a veteran RB's big weeks are last season's before his 3rd game: the spike bonus (a breakout) counts less for him
     T["spike_vet_rb"] = p.get("spike_vet_rb", 0.0) * X["spike"] * (pos == "RB") * (cur_g < 3) * (exp_ >= 3)
     # a rookie whose rookie year is being lost on IR/PUP (at most 1 NFL game, 75%+ of his team's games missed): no role, no tape
@@ -720,6 +722,54 @@ def final_terms(R, v, p, X):
     for k in ("rb_duds", "rb_inj"):
         if k in MOVE_DOCKS: T[k] = T[k] * (1 - mvd)
     return T
+
+
+# Targeted rules (Oliver 2026-11-23: "a targeted attach for each of the 9 ... something unique or nearly-unique"). Each keys
+# on stats only (any player can meet it in any season); strengths 0 = off. AT_* names the trade that prompted it.
+AT_TE_TD = 1.3     # Cole Kmet 2022: a young TE (under 26) with a 16%+ target share and no touchdowns last season (14+ games): TDs follow volume
+AT_PAID_BRK = 0.6  # Mike Williams 2022: a WR just paid 9%+ of the cap after a breakout (14+ PPG, 4+ over the year before): the team bet on him
+AT_CROWD = -0.5     # Hunter Renfrow 2022 (Davante Adams arrives): offseason, after a one-year jump (5+ PPG over the year before) his team added
+                   # receivers holding 8%+ of its expected points (vacated <= -0.08): the jump came in a role the newcomer now takes
+AT_OUT_EARLY = 0.5 # Tee Higgins 2024: Out in week 1-2 with no game played, a 12+ game starter last season: a short early absence
+AT_CUR_LEAD = 0.2  # Courtland Sutton 2022: 3+ games, a 25%+ target share and 5+ PPG over last season: a new lead role
+AT_EFF_LEAD = 0.0  # Damien Harris 2021: an RB at 4.8+ yards a carry (2 seasons) whose team's lead back left (vacated 10%+)
+AT_MOVE_PAID = 1.0 # Curtis Samuel 2024: a WR who signed with a new team (new deal) into a 15%+ vacated role: no waiver body
+AT_FADE = -0.3      # Tre Tucker 2025: 8+ games in, his opportunity fell under 45% of his earlier level, on a team winning under 25%
+AT_LEAD_CHEAP = 0.5  # Jakobi Meyers 2021: his team's target leader (24%+ share last season) priced under $100 base: no waiver body
+AT_WON_JOB = 1.8   # Malcolm Brown 2020: a veteran RB behind a league-priced rookie who led the backfield once games began (20%+ xFP share)
+
+
+def _attach(R, T_, pos, raw):
+    c_ = lambda n, d=0.0: np.nan_to_num(col(R, n), nan=d)
+    def spare(k, m, a):
+        if k in T_: T_[k] = np.where(m, np.where(T_[k] < 0, T_[k] * (1 - a), T_[k]), T_[k])
+    off_ = (c_("e_x_offseason") > 0) | (c_("e_x_gp_cur") == 0)
+    if AT_TE_TD:
+        T_["at_te_td"] = AT_TE_TD * ((pos == "TE") & (c_("age", 99) < 26) & (c_("e_x_l0_tgt_share") >= 0.16) & (c_("e_x_l0_td_share") <= 0.01) & (c_("e_x_l0_games") >= 14) & (c_("e_x_gp_cur") < 4))
+    if AT_PAID_BRK:
+        m = (pos == "WR") & (c_("e_x_vet_deal_cap") >= 0.09) & (c_("e_x_ppg_l0") >= 14) & (c_("e_x_ppg_l0") - c_("e_x_ppg_l1", 99) >= 4) & off_
+        spare("replacement line", m, 1.0); T_["at_paid_brk"] = AT_PAID_BRK * m
+    if AT_CROWD:
+        T_["at_crowd"] = AT_CROWD * (np.isin(pos, ["WR", "TE"]) & (c_("exp") >= 1) & (c_("e_x_offseason") > 0) & (c_("e_x_vacated") <= -0.08) & (c_("e_x_ppg_l0") - c_("e_x_ppg_l1", 99) >= 5))
+    if AT_OUT_EARLY:
+        m = (R.injury.fillna("").values == "Out") & (c_("e_x_team_games_cur", 9) <= 2) & (c_("e_x_gp_cur") == 0) & (c_("e_x_l0_games") >= 12) & (c_("exp") >= 2) & (raw >= 300)
+        spare("inj_out", m, AT_OUT_EARLY)
+    if AT_CUR_LEAD:
+        m = (pos == "WR") & (c_("e_x_gp_cur") >= 3) & (c_("e_x_cur_tgt_share") >= 0.25) & (c_("e_x_ppg_cur") - c_("e_x_ppg_l0", 99) >= 5) & (raw < 300)
+        spare("replacement line", m, 1.0); T_["at_cur_lead"] = AT_CUR_LEAD * m
+    if AT_EFF_LEAD:
+        T_["at_eff_lead"] = AT_EFF_LEAD * ((pos == "RB") & (c_("exp") >= 1) & (c_("e_x_ypc_2y") >= 4.8) & (c_("e_x_vacated") >= 0.1) & (c_("e_x_offseason") > 0))
+    if AT_MOVE_PAID:
+        m = (pos == "WR") & (c_("e_x_moved_off") > 0) & (c_("e_x_vet_deal_cap") > 0) & (c_("e_x_vacated") >= 0.15)
+        spare("replacement line", m, AT_MOVE_PAID)
+    if AT_FADE:
+        T_["at_fade"] = AT_FADE * (np.isin(pos, ["WR", "TE", "RB"]) & (c_("e_x_gp_cur") >= 8) & (c_("e_x_last_opp_ratio", 9) < 0.45) & (c_("e_x_team_win_cur", 1) < 0.25))
+    if AT_LEAD_CHEAP:
+        T_["at_lead_cheap"] = AT_LEAD_CHEAP * ((pos == "WR") & (c_("e_x_tgt_lead_w") >= 1) & (c_("e_x_l0_tgt_share") >= 0.24) & (raw < 100) & (c_("exp") >= 1))
+    if AT_WON_JOB:
+        m = (pos == "RB") & (c_("exp") >= 2) & (c_("e_x_rookie_backup") > 0) & (c_("e_x_gp_cur") >= 1) & (c_("e_x_gp_cur") <= 2) & (c_("e_x_cur_big") >= 1) & (c_("e_x_cur_xfp_share") >= 0.2) & (raw < 100)
+        for k in ("rookie_backup", "share_talent", "replacement line"): spare(k, m, 1.0)
+        T_["at_won_job"] = AT_WON_JOB * m   # (rb_inj spared in final_terms)
 
 
 def apply_rules(R, p, X=None, explain=False):
@@ -994,6 +1044,7 @@ def apply_rules(R, p, X=None, explain=False):
     if SUMMER_LOW and "summer" in T_:
         pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
         T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))
+    _attach(R, T_, pos, raw)
     if DOCK_CAP > -90:
         ks = [k for k in T_ if k not in DOCK_KEEP]
         neg = sum(np.minimum(T_[k], 0) for k in ks)
