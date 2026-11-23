@@ -618,3 +618,17 @@ def test_depth_chart_benched_qb():
     import pandas as pd
     rk, pv = X.depth_chart(pd.DataFrame(dict(gsis=["00-0036945", "00-0036945"], date=["2025-11-10", "2025-11-19"])), seasons=[2025])
     assert list(rk) == [1, 2] and pv[1] == 1, (rk, pv)
+
+
+def test_team_now_l0_mover():
+    """team_now_l0 judges an offseason mover by his new team: Curtis Samuel (Washington 2023, 4-13) on Buffalo in June 2024"""
+    import glob
+    from lotg_support import faab_features as X
+    fs = sorted(glob.glob(str(X.D.CACHE / "roster_weekly_*.parquet")))
+    if not fs or not (X.D.CACHE / "games.parquet").exists():
+        print("skip: no roster/schedule cache"); return
+    import pandas as pd
+    W = pd.concat([pd.read_parquet(f, columns=["season", "week", "team", "gsis_id", "game_type"]) for f in fs])
+    W = W[W.game_type == "REG"].rename(columns={"gsis_id": "gsis"})
+    w, im = X.team_now_l0(pd.DataFrame(dict(gsis=["00-0033282"], date=["2024-06-29"])), W)
+    assert w[0] > 0.6 and im[0] > 25, (w, im)

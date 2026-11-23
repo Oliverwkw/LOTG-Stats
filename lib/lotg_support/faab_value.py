@@ -508,6 +508,8 @@ SUMMER_LOW, SUMMER_LOW_V = 0.0, (40.0, 150.0)
 DC2_FLOOR, DC2_IMPL = 0.0, 26.0     # depth chart: an RB listed second on a top offense (implied points) is worth at least this (the handcuff)
 DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a contender (win % so far, 6+ team games) is worth at least this
 PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
+TEAM_NOW_ROOKIE = False
+TEAM_NOW = True                   # team quality (last season) from the team he is on at the date (load_inputs)
 QB_BENCH = -1.0                   # depth chart: a QB who was his team's starter on the charts 3-8 weeks ago and is not now (log, lower only)
 DC2_RB, DC2_BAND = 0.0, (-2.0, -1.0, 150.0, 300.0)   # depth chart: an RB listed second on his team's chart (the handcuff), base band
 DC1_UP, DC1_POS, DC1_BAND = 0.0, ("WR", "RB", "TE"), (-2.0, -1.0, 60.0, 150.0)   # depth chart: listed first at his position
@@ -563,8 +565,10 @@ VAC_STACK = 1.0
 # they switch teams"): an RB under MOVE_AGE who changed teams this offseason (or is new and has under 4 games there),
 # at a base under MOVE_V (fading out at 1.5x), has his old-role docks eased by MOVE_EASE (0..1): bad YPC, duds, wear
 # (rb_inj) and missed games, which were read behind his old line, in his old committee
+MOVE_IMPL = 24.0   # ... and a new team scoring at least this many implied points a game last season (0 = any)
+MOVE_VAC = 0.1     # MOVE_EASE only for a move into a vacated role (e_x_vacated at least this; -99 = any move)
 MOVE_FIRST = False   # first NFL team switch only (Oliver): needs e_x_n_teams (scratch-only; tested 11-22: same result, every case was a first switch)
-MOVE_EASE, MOVE_AGE, MOVE_V, MOVE_DOCKS = 0.0, 28.0, 200.0, ("ypc_bad", "rb_duds", "rb_inj", "availability")
+MOVE_EASE, MOVE_AGE, MOVE_V, MOVE_DOCKS = 1.0, 28.0, 200.0, ("ypc_bad", "rb_duds", "rb_inj", "availability", "replacement line", "share_talent", "usage")
 OUT_STAR, OUT_STAR_PPG, OUT_STAR_POS = 0.5, 18.0, ("RB",)
 VAC_OWN = 0.06    # ... for a player who had a role last season (his share of his team's expected points) or missed it (under 8 games)
 TD_SPIKE, TD_SPIKE_SNAP, TD_SPIKE_V = -1.2, 0.55, (1000.0, 1500.0)
@@ -614,7 +618,9 @@ def rb_moved(R):
     if not MOVE_EASE: return np.zeros(len(R))
     mv = (np.nan_to_num(col(R, "e_x_moved_off")) > 0) | ((np.nan_to_num(col(R, "e_x_new_team")) > 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) < 4))
     if MOVE_FIRST: mv = mv & (np.nan_to_num(col(R, "e_x_n_teams"), nan=9) <= 2)   # his first NFL team switch only (Oliver)
-    return MOVE_EASE * (R.pos.values == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < MOVE_AGE) * mv * np.interp(np.maximum(col(R, "V_raw"), 0), [MOVE_V, 1.5 * MOVE_V], [1, 0])
+    if MOVE_VAC > -9: mv = mv & (np.nan_to_num(col(R, "e_x_vacated"), nan=-1) >= MOVE_VAC)   # (Oliver: Pacheco takes over Monty's role) only into a vacated role
+    if MOVE_IMPL: mv = mv & (np.nan_to_num(col(R, "e_x_team_implied_l0")) >= MOVE_IMPL)   # ... on a good offense (his new team's, TEAM_NOW)
+    return MOVE_EASE * (R.pos.values == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < MOVE_AGE) * mv * np.interp(np.maximum(np.nan_to_num(col(R, "V_raw")), 0), [MOVE_V, 1.5 * MOVE_V], [1, 0])
 
 
 def final_terms(R, v, p, X):
@@ -952,6 +958,9 @@ def apply_rules(R, p, X=None, explain=False):
     T_["qb_bench"] = QB_BENCH * (pos == "QB") * (dcr_ >= 2) * (dcp_ == 1) * hl_
     T_["dc2_rb"] = DC2_RB * (pos == "RB") * (dcr_ == 2) * np.interp(raw, DC2_BAND, [0, 1, 1, 0])
     T_["dc1_up"] = DC1_UP * np.isin(pos, DC1_POS) * (dcr_ == 1) * hl_ * np.interp(raw, DC1_BAND, [0, 1, 1, 0])
+    if MOVE_EASE:   # the rest of MOVE_DOCKS (role docks from his old team), eased with the same weight
+        for k in MOVE_DOCKS:
+            if k in T_ and k not in ("ypc_bad", "availability", "rb_duds", "rb_inj"): T_[k] = np.where(T_[k] < 0, T_[k] * (1 - mvd_), T_[k])
     if SUMMER_LOW and "summer" in T_:
         pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
         T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))
@@ -1042,6 +1051,12 @@ W_TRADES, W_CUTS = 3.0, 3.0      # trade/cut history counts more than one person
 def load_inputs(data=DATA):
     R = pd.read_csv(Path(data) / "inputs.csv", dtype={"sid": str, "injury": str, "wr_mate": str}, keep_default_na=False, na_values=[""])
     R["injury"] = R.injury.fillna("")
+    # round 6 (Samuel 2024 read Washington's 4-13): last season's team quality is the team he is on now, not the one
+    # he played for (a player who moved in the offseason is judged by his new team; once he has played this season the
+    # team he played for stands, as before)
+    if TEAM_NOW:
+        for a, b in (("e_x_team_win_l0", "e_x_tnow_win_l0"), ("e_x_team_implied_l0", "e_x_tnow_implied_l0")):
+            if a in R and b in R: R[a] = R[b].where(R[b].notna() & (R[a].notna() | TEAM_NOW_ROOKIE) & ~(R.get("e_x_gp_cur", pd.Series(0, index=R.index)).fillna(0) > 0), R[a])   # a rookie (no team last season) keeps none unless TEAM_NOW_ROOKIE
     return R
 
 

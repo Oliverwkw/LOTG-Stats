@@ -1642,3 +1642,23 @@ def depth_chart(rows, seasons=None, stale=21, prev=(21, 56)):
         m = (av <= t - np.timedelta64(prev[0], "D")) & (av >= t - np.timedelta64(prev[1], "D"))
         if m.any(): pv[i] = r[m].min()
     return rk, pv
+
+
+def team_now_l0(rows, roster, cache=None):
+    """per row: last complete season's win % and mean implied points of the NFL team he is on at the date (team_on),
+    not the team he played for: a player who moved in the offseason is judged by his new team. NaN when his team is
+    unknown. rows: gsis, date. roster: gsis, season, week, team. Schedules + lines from games.parquet."""
+    cache = Path(cache or D.CACHE); gp = cache / "games.parquet"
+    N = len(rows); w = np.full(N, np.nan); im = np.full(N, np.nan)
+    if not gp.exists() or roster is None: return w, im
+    G = pd.read_parquet(gp)                 # every game, playoffs too (as GT_SEAS)
+    T = pd.concat([pd.DataFrame({"team": G.home_team, "season": G.season, "win": (G.home_score > G.away_score).astype(float).where(G.home_score.notna()),
+                                 "implied": G.total_line / 2 + G.spread_line / 2}),
+                   pd.DataFrame({"team": G.away_team, "season": G.season, "win": (G.away_score > G.home_score).astype(float).where(G.home_score.notna()),
+                                 "implied": G.total_line / 2 - G.spread_line / 2})])
+    T["team"] = T.team.replace(TEAM_FIX)
+    TS = T.groupby(["team", "season"]).agg(win=("win", "mean"), implied=("implied", "mean"))
+    t = team_on(rows["gsis"].values, rows["date"].values, roster)
+    dd = pd.to_datetime(pd.Series(rows["date"]).values); s = np.where(dd.month >= 3, dd.year, dd.year - 1)
+    k = TS.reindex(pd.MultiIndex.from_arrays([pd.Series(t).replace(TEAM_FIX).values, s - 1]))
+    return k.win.values, k.implied.values
