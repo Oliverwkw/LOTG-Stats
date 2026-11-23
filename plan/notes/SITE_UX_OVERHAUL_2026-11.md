@@ -664,3 +664,4 @@ browser.
 602. Game log: NFL weeks after the league's last week (week 18; 2020's week 17) read "After the league season", not "Not rostered".
 603. Player pages: the career stat boxes are removed (user); the numbers stay in the Seasons and Career tables.
 604. Points (full season) and Avg points (full season) get green / red best / worst marks.
+605. Matchup pages: each player who sat gets a flag — Out, IR (on NFL injured reserve that week, nflverse weekly rosters), Bye or Suspension — from the player_week flags.

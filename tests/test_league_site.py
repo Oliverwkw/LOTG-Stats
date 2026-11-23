@@ -576,6 +576,22 @@ def test_player_pages_carry_game_logs_and_full_seasons():
     assert seen_log
 
 
+def test_week_pages_flag_why_a_player_sat():
+    """Matchup pages: each player carries Out / IR / Bye / Suspension (or none), from the
+    player_week flags (IR = on NFL reserve that week, nflverse weekly rosters)."""
+    out = _built()
+    if out is None:
+        return
+    seen = set()
+    for f in sorted((out / "data" / "week").glob("*.json"))[:40]:
+        for side in json.loads(f.read_text(encoding="utf-8"))["teams"].values():
+            for pl in side["players"]:
+                assert len(pl) >= 9, f.name
+                assert pl[8] in (None, "Out", "IR", "Bye", "Suspension"), (f.name, pl)
+                seen.add(pl[8])
+    assert {"Out", "Bye"} <= seen
+
+
 def test_ktc_snapshot_keeps_players_and_generic_picks():
     """The trade calculator's KTC file: superflex value, month-ago value and position rank
     by Sleeper id; only the Early / Mid / Late round picks (not slot or 'pickNNNpi' rows)."""

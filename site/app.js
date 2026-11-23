@@ -2069,7 +2069,7 @@ function lineup(team, side) {
   const rows = (s) => side.players.filter((p) => p[5] === s);
   const st = rows(true), bn = rows(false);
   const bestBench = bn.length ? Math.max(...bn.map((p) => p[4] || 0)) : null;
-  const line = (p, bench) => `<tr><td class="l muted small">${esc(p[3] || p[2] || "")}</td><td class="l">${p[1] ? `<a href="#/player/${esc(p[1])}">${esc(p[0])}</a>` : esc(p[0])} ${posBadge(p[2])} <span class="muted small">${nflLink(p[6])}</span>${(p[7] || []).map(award).join("")}</td><td class="${!bench && (p[4] || 0) >= 20 ? "w" : bench && p[4] === bestBench && bestBench > 0 ? "muted" : ""}">${fmt({ d: 2 }, p[4])}</td></tr>`;
+  const line = (p, bench) => `<tr><td class="l muted small">${esc(p[3] || p[2] || "")}</td><td class="l">${p[1] ? `<a href="#/player/${esc(p[1])}">${esc(p[0])}</a>` : esc(p[0])} ${posBadge(p[2])} <span class="muted small">${nflLink(p[6])}</span>${p[8] ? ` <span class="chip ${p[8] === "Bye" ? "" : p[8] === "Suspension" ? "live" : "bad"}" title="${esc({ Out: "Didn't play: injured or inactive", IR: "On NFL injured reserve that week", Bye: "His NFL team's bye week", Suspension: "Suspended that week" }[p[8]] || "")}">${esc(p[8])}</span>` : ""}${(p[7] || []).map(award).join("")}</td><td class="${!bench && (p[4] || 0) >= 20 ? "w" : bench && p[4] === bestBench && bestBench > 0 ? "muted" : ""}">${fmt({ d: 2 }, p[4])}</td></tr>`;
   const eff = side.max ? side.pf / side.max : null;
   return `<div class="card"><h2>${teamLink(team)} <span class="${side.win ? "w" : "lo"}">${fmt({ d: 2 }, side.pf)}</span> <span class="chip ${side.win ? "ok" : "bad"}">${side.win ? "Won" : "Lost"}</span></h2>
     ${(side.awards || []).length ? `<p>${side.awards.map(award).join("")}</p>` : ""}
