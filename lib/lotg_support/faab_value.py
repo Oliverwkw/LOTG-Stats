@@ -516,6 +516,21 @@ VET_RB_FLOOR, VET_RB_AGE, VET_RB_G, VET_RB_SNAP, VET_RB_PPG, VET_RB_STEP, VET_RB
 # ... and a back who was a real lead in one of the last two seasons (15%+ of his team's expected points; Oliver: not
 # D'Onta Foreman 2023 / Devin Singletary 2024, 14.4% / 14.7% at best, whom the league traded for nothing)
 VET_RB_PEAK = 0.15
+# (Oliver 2026-11-23, Courtland Sutton "worth a fourth: past heights and ascendent offense combo") a WR / TE under 34 who
+# finished top-16 at his position in the last 4 seasons, is on a contender now (65%+ wins, 6+ team games), is in his
+# team's top 3 at the position, scores 5+ PPR/g and is healthy: a proven starter on a winning offense is worth at least
+# PEAK_WIN_FLOOR (a 4th)
+PEAK_WIN_FLOOR, PEAK_WIN_RANK, PEAK_WIN_WIN, PEAK_WIN_AGE, PEAK_WIN_PPG = 32.0, 16, 0.65, 34.0, 5.0
+# (Oliver 2026-11-23, Seth McGowan "won the RB2 role ... a boost to guys who have claimed the number two position behind an
+# aging back against competition (he beat out Giddens)") a rookie / 2nd-year RB under 27 who is second on his team's depth
+# chart after passing the teammate who held the job (e_x_dc_won2), behind a lead back 27+, 4+ team games in, not on
+# IR/PUP: the next man up for an aging starter, worth at least HEIR_FLOOR (a solid 3rd)
+HEIR_FLOOR, HEIR_EXP, HEIR_LEAD_AGE = 93.0, 1, 27.0
+# (Oliver 2026-11-23, Devaughn Vele "decent with Tyson out, and Tyson and Olave both have extensive injury problems") a WR
+# second or third on the chart, scoring 9+ PPR/g on 80%+ of the snaps over 6+ games this season, healthy, with a WR
+# ahead of him on the same chart who was hurt in 2+ body parts in 3 years: a producing fill-in behind a fragile starter
+# plays real games every season, worth at least INJ_AHEAD_FLOOR (a 4th)
+INJ_AHEAD_FLOOR, INJ_AHEAD_PARTS, INJ_AHEAD_PPG, INJ_AHEAD_SNAP = 32.0, 2.0, 9.0, 0.80
 PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
 TEAM_NOW_ROOKIE = False
 COACH_EASE = 0.0                  # share of the negative team-quality docks lifted in the offseason when his team has a new head coach
@@ -528,6 +543,7 @@ OUT_ROOKIE = 1.0
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
 AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 3, 14.0, ("WR",)
 AVAIL_NOW_BAND = (-2.0, -1.0, 1e9, 2e9)
+LONG_OUT = 1.0
 # (Oliver 2026-11-23, Roman Wilson: "6 targets every healthy game this year ... probably worth a low 3/high 4") a young
 # WR who has earned a steady target role this season (4+ games, 7+ expected PPR/g, 12%+ of the team's targets, 40%+ of
 # the snaps), missed 3+ of the team's games and is healthy now: the missed games, not the role, sank his value, and a
@@ -867,6 +883,13 @@ def apply_rules(R, p, X=None, explain=False):
     if RUN_AVAIL:
         ra = (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < 27) * (np.nan_to_num(col(R, "e_x_comp_age"), nan=0) >= 28) * np.clip((np.nan_to_num(col(R, "e_x_team_run")) - 0.25) / 0.05, 0, 1)
         T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RUN_AVAIL * ra), T_["availability"])
+    if LONG_OUT:   # (Oliver 2026-11-23, Brandon Aiyuk "good last healthy season and has just been out a really long time")
+        # no games this season or last, a top-24 finish at his position in the last 4 seasons, one injury on record (at
+        # most one body part in 3 years), under 30: one long absence, not a pattern of missed games, so the missed-games
+        # dock eases by LONG_OUT (1 = gone)
+        lo_ = np.isin(pos, ["RB", "WR", "TE"]) * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=9) == 0) \
+            * (np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=999) <= 24) * (np.nan_to_num(col(R, "e_x_bodyparts_3y"), nan=9) <= 1) * (np.nan_to_num(col(R, "age"), nan=99) < 30)
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - LONG_OUT * lo_), T_["availability"])
     if AVAIL_NOW:
         gpc, tgc = np.nan_to_num(col(R, "e_x_gp_cur")), col(R, "e_x_team_games_cur")
         now_ = (gpc >= AVAIL_NOW_G) & (gpc >= np.nan_to_num(tgc, nan=99)) & (np.nan_to_num(col(R, "e_x_ppg_cur")) >= AVAIL_NOW_PPG) & np.isin(pos, AVAIL_NOW_POS)
@@ -1152,6 +1175,24 @@ def apply_rules(R, p, X=None, explain=False):
             * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= TGT_ROLE_SNAP) * (R.injury.fillna("").values == "") \
             * (np.nan_to_num(col(R, "e_x_team_games_cur")) - np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_MISS)
         out = np.where(tr_ > 0, np.maximum(out, TGT_FLOOR), out)
+    if PEAK_WIN_FLOOR:
+        pw_ = np.isin(R.pos.values, ["WR", "TE"]) * (np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=999) <= PEAK_WIN_RANK) * (np.nan_to_num(col(R, "age"), nan=99) < PEAK_WIN_AGE) \
+            * (np.nan_to_num(col(R, "e_x_team_win_cur")) >= PEAK_WIN_WIN) * (np.nan_to_num(col(R, "e_x_team_games_cur")) >= 6) * (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) <= 3) \
+            * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= PEAK_WIN_PPG) * (R.injury.fillna("").values == "")
+        out = np.where(pw_ > 0, np.maximum(out, PEAK_WIN_FLOOR), out)
+    if HEIR_FLOOR and "e_x_dc_won2" in R:
+        hr_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "exp"), nan=9) <= HEIR_EXP) * (np.nan_to_num(col(R, "age"), nan=99) < 27) \
+            * (np.nan_to_num(col(R, "e_x_dc_won2")) == 1) * (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) == 2) * (np.nan_to_num(col(R, "e_x_comp_age")) >= HEIR_LEAD_AGE) \
+            * (np.nan_to_num(col(R, "e_x_team_games_cur")) >= 4) * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"])
+        out = np.where(hr_ > 0, np.maximum(out, HEIR_FLOOR), out)
+    if INJ_AHEAD_FLOOR and "e_x_dc_team" in R:
+        tm_ = np.nan_to_num(col(R, "e_x_dc_team"), nan=-1); rk_ = np.nan_to_num(col(R, "e_x_dc_rank"), nan=99); bp_ = np.nan_to_num(col(R, "e_x_bodyparts_3y"))
+        K = pd.DataFrame(dict(d=R.date.values, t=tm_, p=R.pos.values, r=rk_, b=bp_)); K = K[(K.t >= 0) & (K.b >= INJ_AHEAD_PARTS) & (K.r < 99)]
+        best = K.groupby(["d", "t", "p"]).r.min()          # the highest-ranked fragile WR on each chart
+        fr_ = pd.Series(list(zip(R.date.values, tm_, R.pos.values))).map(best).values.astype(float)
+        ia_ = (R.pos.values == "WR") * np.isin(rk_, [2, 3]) * (np.nan_to_num(fr_, nan=99) < rk_) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 6) \
+            * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= INJ_AHEAD_SNAP) * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= INJ_AHEAD_PPG) * (R.injury.fillna("").values == "")
+        out = np.where(ia_ > 0, np.maximum(out, INJ_AHEAD_FLOOR), out)
     if LOW_ADD:
         lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
         out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
