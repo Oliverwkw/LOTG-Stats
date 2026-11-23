@@ -525,6 +525,11 @@ OUT_ROOKIE = 1.0
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
 AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 3, 14.0, ("WR",)
 AVAIL_NOW_BAND = (-2.0, -1.0, 1e9, 2e9)
+# (Oliver 2026-11-23, Roman Wilson: "6 targets every healthy game this year ... probably worth a low 3/high 4") a young
+# WR who has earned a steady target role this season (4+ games, 7+ expected PPR/g, 12%+ of the team's targets, 40%+ of
+# the snaps), missed 3+ of the team's games and is healthy now: the missed games, not the role, sank his value, and a
+# team pays a late 3rd for that role back on the field: worth at least TGT_FLOOR dollars (0 = off)
+TGT_FLOOR, TGT_ROLE_AGE, TGT_ROLE_G, TGT_ROLE_XFP, TGT_ROLE_SH, TGT_ROLE_SNAP, TGT_ROLE_MISS = 57.0, 26.0, 4, 7.0, 0.12, 0.40, 3   # ... back from 3+ missed games
 # far-off #3 (Aiyuk 2020: "rookie, target competition"): a rookie's breakout bonus is a few games' sample; it is capped at
 # SPIKE_ROOKIE_CAP (a multiplier; 99 = off) while he has under SPIKE_ROOKIE_CAP_G games
 SPIKE_ROOKIE_CAP, SPIKE_ROOKIE_CAP_G = 1.6, 6
@@ -1137,6 +1142,12 @@ def apply_rules(R, p, X=None, explain=False):
             * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"])
         vf_ = np.minimum(VET_RB_FLOOR + VET_RB_STEP * (np.nan_to_num(col(R, "e_x_ppg_cur")) - VET_RB_PPG), VET_RB_CAP)
         out = np.where(vr_ > 0, np.maximum(out, vf_), out)
+    if TGT_FLOOR:
+        tr_ = (R.pos.values == "WR") * (np.nan_to_num(col(R, "age"), nan=99) < TGT_ROLE_AGE) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_G) \
+            * (np.nan_to_num(col(R, "e_x_cur_xfp_pg")) >= TGT_ROLE_XFP) * (np.nan_to_num(col(R, "e_x_cur_tgt_share")) >= TGT_ROLE_SH) \
+            * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= TGT_ROLE_SNAP) * (R.injury.fillna("").values == "") \
+            * (np.nan_to_num(col(R, "e_x_team_games_cur")) - np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_MISS)
+        out = np.where(tr_ > 0, np.maximum(out, TGT_FLOOR), out)
     if LOW_ADD:
         lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
         out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
