@@ -508,6 +508,14 @@ SUMMER_MOVE = 0.0                 # share of the summer shift lifted for a playe
 SUMMER_LOW, SUMMER_LOW_V = 0.0, (40.0, 150.0)
 DC2_FLOOR, DC2_IMPL = 0.0, 26.0     # depth chart: an RB listed second on a top offense (implied points) is worth at least this (the handcuff)
 DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a contender (win % so far, 6+ team games) is worth at least this
+# (Oliver 2026-11-23: "the fade on bad aging RBs is too strong. White, Dowdle, Aaron Jones ... should be worth a solid
+# fourth") an RB 27+ who still holds a share of a backfield this season (4+ games, 40%+ of the snaps, 8+ PPR/g, not on
+# IR/PUP) is a weekly flex play a contender pays a late pick for: the age / injury / replacement-line docks cannot take
+# him under VET_RB_FLOOR dollars (a solid 4th: $30 at 8 PPR/g, VET_RB_STEP more per PPR/g, VET_RB_CAP at most)
+VET_RB_FLOOR, VET_RB_AGE, VET_RB_G, VET_RB_SNAP, VET_RB_PPG, VET_RB_STEP, VET_RB_CAP = 30.0, 27.0, 4, 0.40, 8.0, 2.5, 40.0
+# ... and a back who was a real lead in one of the last two seasons (15%+ of his team's expected points; Oliver: not
+# D'Onta Foreman 2023 / Devin Singletary 2024, 14.4% / 14.7% at best, whom the league traded for nothing)
+VET_RB_PEAK = 0.15
 PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
 TEAM_NOW_ROOKIE = False
 COACH_EASE = 0.0                  # share of the negative team-quality docks lifted in the offseason when his team has a new head coach
@@ -520,6 +528,11 @@ OUT_ROOKIE = 1.0
 # player who has played every team game this season (AVAIL_NOW_G+ games) at AVAIL_NOW_PPG+ PPR/g: he is healthy and producing now
 AVAIL_NOW, AVAIL_NOW_G, AVAIL_NOW_PPG, AVAIL_NOW_POS = 1.0, 3, 14.0, ("WR",)
 AVAIL_NOW_BAND = (-2.0, -1.0, 1e9, 2e9)
+# (Oliver 2026-11-23, Roman Wilson: "6 targets every healthy game this year ... probably worth a low 3/high 4") a young
+# WR who has earned a steady target role this season (4+ games, 7+ expected PPR/g, 12%+ of the team's targets, 40%+ of
+# the snaps), missed 3+ of the team's games and is healthy now: the missed games, not the role, sank his value, and a
+# team pays a late 3rd for that role back on the field: worth at least TGT_FLOOR dollars (0 = off)
+TGT_FLOOR, TGT_ROLE_AGE, TGT_ROLE_G, TGT_ROLE_XFP, TGT_ROLE_SH, TGT_ROLE_SNAP, TGT_ROLE_MISS = 57.0, 26.0, 4, 7.0, 0.12, 0.40, 3   # ... back from 3+ missed games
 # far-off #3 (Aiyuk 2020: "rookie, target competition"): a rookie's breakout bonus is a few games' sample; it is capped at
 # SPIKE_ROOKIE_CAP (a multiplier; 99 = off) while he has under SPIKE_ROOKIE_CAP_G games
 SPIKE_ROOKIE_CAP, SPIKE_ROOKIE_CAP_G = 1.6, 6
@@ -727,9 +740,11 @@ def final_terms(R, v, p, X):
 # Targeted rules (Oliver 2026-11-23: "a targeted attach for each of the 9 ... something unique or nearly-unique"). Each keys
 # on stats only (any player can meet it in any season); strengths 0 = off. AT_* names the trade that prompted it.
 AW_ELITE, AW_ELITE_BAND, AW_ELITE_POS = 0.45, (2000.0, 4000.0), ("RB",)   # share of the NFL-award boost removed for a top base (0 = off)
-AT_EX_ELITE = 2.5  # Saquon Barkley 2026: a 28+ RB/WR who finished top 3 at his position in the last 4 seasons and is still his
+AT_EX_ELITE = 2.72 # Saquon Barkley 2026: a 28+ RB/WR who finished top 3 at his position in the last 4 seasons and is still his
                    # team's depth-chart starter (not on IR / PUP: Oliver, a short-term Out keeps it): a former elite starter is not a cheap aging body yet
 WR_TOP, WR_TOP_AT = 0.4, 3600.0   # a WR's final value above WR_TOP_AT keeps only this share of the excess (1 = off)
+AT_EX_ELITE_IR = 1.03  # AT_EX_ELITE on IR / PUP x this (Oliver 2026-11-23: still about a 2.08 on IR; over 1 because the IR docks still apply)
+AT_EX_ELITE_OUT = 1.17 # AT_EX_ELITE on Out / Doubtful x this (Oliver: 2.05 healthy, 2.06 Out, 2.08 IR)
 AT_TE_TD = 1.3     # Cole Kmet 2022: a young TE (under 26) with a 16%+ target share and no touchdowns last season (14+ games): TDs follow volume
 AT_PAID_BRK = 0.6  # Mike Williams 2022: a WR just paid 9%+ of the cap after a breakout (14+ PPG, 4+ over the year before): the team bet on him
 AT_CROWD = -0.5     # Hunter Renfrow 2022 (Davante Adams arrives): offseason, after a one-year jump (5+ PPG over the year before) his team added
@@ -771,8 +786,8 @@ def _attach(R, T_, pos, raw):
     if AT_LEAD_CHEAP:
         T_["at_lead_cheap"] = AT_LEAD_CHEAP * ((pos == "WR") & (c_("e_x_tgt_lead_w") >= 1) & (c_("e_x_l0_tgt_share") >= 0.24) & (raw < 100) & (c_("exp") >= 1))
     if AT_EX_ELITE:
-        T_["at_ex_elite"] = AT_EX_ELITE * (np.isin(pos, ["RB", "WR"]) & (c_("age") >= 28) & (c_("e_x_best_rank_4y", 99) <= 3) & (c_("e_x_dc_rank", 9) == 1)
-                                           & ~np.isin(R.injury.fillna("").values, ["IR", "PUP"]) & (raw < 400))   # (Oliver) any tag but a season-scale one
+        T_["at_ex_elite"] = AT_EX_ELITE * (np.isin(pos, ["RB", "WR"]) & (c_("age") >= 28) & (c_("e_x_best_rank_4y", 99) <= 3) & (c_("e_x_dc_rank", 9) == 1) & (raw < 400)) \
+            * np.select([np.isin(R.injury.fillna("").values, ["IR", "PUP"]), np.isin(R.injury.fillna("").values, ["Out", "Doubtful"])], [AT_EX_ELITE_IR, AT_EX_ELITE_OUT], 1.0)   # (Oliver) IR/PUP: a share of the raise
     if AT_WON_JOB:
         m = (pos == "RB") & (c_("exp") >= 2) & (c_("e_x_rookie_backup") > 0) & (c_("e_x_gp_cur") >= 1) & (c_("e_x_gp_cur") <= 2) & (c_("e_x_cur_big") >= 1) & (c_("e_x_cur_xfp_share") >= 0.2) & (raw < 100)
         for k in ("rookie_backup", "share_talent", "replacement line"): spare(k, m, 1.0)
@@ -1124,6 +1139,19 @@ def apply_rules(R, p, X=None, explain=False):
     if DC1_FLOOR:
         c1 = np.isin(R.pos.values, ["RB", "WR", "TE"]) * (dcr2 == 1) * (tgc >= DC1_G) * (np.nan_to_num(col(R, "e_x_team_win_cur")) >= DC1_WIN) * (R.injury.fillna("").values == "")
         out = np.where(c1 > 0, np.maximum(out, DC1_FLOOR), out)
+    if VET_RB_FLOOR:
+        vr_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "age")) >= VET_RB_AGE) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= VET_RB_G) \
+            * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= VET_RB_SNAP) * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= VET_RB_PPG) \
+            * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"]) \
+            * (np.fmax(np.nan_to_num(col(R, "e_x_l0_xfp_share")), np.nan_to_num(col(R, "e_x_l1_xfp_share"))) >= VET_RB_PEAK)
+        vf_ = np.minimum(VET_RB_FLOOR + VET_RB_STEP * (np.nan_to_num(col(R, "e_x_ppg_cur")) - VET_RB_PPG), VET_RB_CAP)
+        out = np.where(vr_ > 0, np.maximum(out, vf_), out)
+    if TGT_FLOOR:
+        tr_ = (R.pos.values == "WR") * (np.nan_to_num(col(R, "age"), nan=99) < TGT_ROLE_AGE) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_G) \
+            * (np.nan_to_num(col(R, "e_x_cur_xfp_pg")) >= TGT_ROLE_XFP) * (np.nan_to_num(col(R, "e_x_cur_tgt_share")) >= TGT_ROLE_SH) \
+            * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= TGT_ROLE_SNAP) * (R.injury.fillna("").values == "") \
+            * (np.nan_to_num(col(R, "e_x_team_games_cur")) - np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_MISS)
+        out = np.where(tr_ > 0, np.maximum(out, TGT_FLOOR), out)
     if LOW_ADD:
         lp_ = np.where(pg_, np.nan_to_num(col(R, "e_x_ppg_cur")), np.nan_to_num(col(R, "e_x_ppg_l0")))
         out = out + LOW_ADD * np.exp(-out / LOW_S) * np.isin(R.pos.values, ["RB", "WR", "TE", "QB"]) * (lp_ >= LOW_PPG)
