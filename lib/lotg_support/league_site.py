@@ -1814,13 +1814,22 @@ class Site:
             if (y, w) not in rows:
                 # a week the exports don't reach yet isn't "not rostered": it's after the build
                 after = y == int(self.season) and w > int(self.week)
-                rows[(y, w)] = [y, w, f"Week {w}", None, "Since the last build" if after else "Not rostered", None, _clean(pts, 2),
+                # an NFL week after the league's last week that season (week 18; 2020's week 17)
+                done = y != int(self.season) and w > self._last_league_week().get(y, 99)
+                role = "Since the last build" if after else "After the league season" if done else "Not rostered"
+                rows[(y, w)] = [y, w, f"Week {w}", None, role, None, _clean(pts, 2),
                                 None, None, _clean(pts, 2), None, None, None, None]
         cols = ["Year", "Week", "Week Name", "Team", "Role", "Slot", "Points", "Opponent", "Win?",
                 "NFL points", "Snap %", "Targets", "Carries", "xFP"]
         return {"cols": cols, "rows": [rows[k] for k in sorted(rows, reverse=True)],
                 "fmt": {"Points": {"d": 2}, "NFL points": {"d": 2}, "Snap %": {"d": 1, "p": "x"},
                         "Targets": {"d": 0}, "Carries": {"d": 0}, "xFP": {"d": 2}}}
+
+    def _last_league_week(self) -> Dict[int, int]:
+        if getattr(self, "_llw", None) is None:
+            y = pd.to_numeric(self.tw["Year"], errors="coerce"); w = pd.to_numeric(self.tw["Week"], errors="coerce")
+            self._llw = {int(k): int(v) for k, v in w.groupby(y).max().items() if pd.notna(k) and pd.notna(v)}
+        return self._llw
 
     def full_seasons(self, sid: Optional[str], have: set) -> pd.DataFrame:
         """Season rows since 2020 for seasons he wasn't on a league roster: the whole NFL
