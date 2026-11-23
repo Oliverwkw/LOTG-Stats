@@ -1096,7 +1096,39 @@ class Site:
         return None
 
     # -- one week: every matchup with both lineups
+    def _reserve_weeks(self) -> set:
+        """(Sleeper id, season, week) for every player nflverse's weekly rosters list on
+        reserve (status RES: IR, PUP, NFI) that week, from the repo's .cache. Empty if
+        the files are missing."""
+        out = set()
+        for f in sorted((ROOT / ".cache").glob("nflverse_weekly_rosters_*.csv")):
+            try:
+                d = pd.read_csv(f, usecols=["season", "week", "status", "sleeper_id"], dtype=str)
+            except Exception:
+                continue
+            d = d[(d.status == "RES") & d.sleeper_id.notna()]
+            for sid, y, w in d[["sleeper_id", "season", "week"]].values:
+                try:
+                    out.add((str(sid).split(".")[0], int(float(y)), int(float(w))))
+                except ValueError:
+                    pass
+        return out
+
     def weeks(self, put) -> int:
+        res_weeks = self._reserve_weeks()
+        truthy = lambda v: str(v).strip().lower() in ("true", "1", "yes")   # noqa: E731
+
+        def flag(p, y, w):
+            """Why a player didn't play that week: Bye, Suspension, IR (on NFL reserve)
+            or Out (any other injury / inactive), from the player_week flags."""
+            if truthy(p.get("Bye?")):
+                return "Bye"
+            if truthy(p.get("Suspension?")):
+                return "Suspension"
+            if truthy(p.get("Injury?")):
+                sid = str(p.get("Player ID") or "").split(".")[0]
+                return "IR" if (sid, int(y), int(w)) in res_weeks else "Out"
+            return None
         pw = self.pw.copy()
         pw["Points"] = pd.to_numeric(pw.Points, errors="coerce")
         pw["Wk"] = pd.to_numeric(pw.Week, errors="coerce")
@@ -1126,7 +1158,8 @@ class Site:
                                  _clean(p["Position started in (if starter)"]) if p.st else None,
                                  _clean(p.Points, 2), bool(p.st), _clean(p.get("NFL team")),
                                  [_award_name(c) for c in PLAYER_AWARDS
-                                  if c in p.index and str(p[c]).lower() == "true"]]
+                                  if c in p.index and str(p[c]).lower() == "true"],
+                                 flag(p, y, w)]
                                 for _, p in mine.iterrows()]}
             put(f"week/{int(y)}-{int(w)}.json", {"year": int(y), "week": int(w),
                                                   "week_name": str(g["Week Name"].iloc[0]), "teams": teams})
