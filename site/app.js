@@ -2268,6 +2268,7 @@ async function predict(_a, query, live, opt = {}) {
     const mean = (reg.length ? reg : simWeeks).reduce((a, w) => a + wk[w].mean, 0) / (reg.length || simWeeks.length);
     return { wk, mean };
   };
+  let COLLECT = null;   // {team, want: "in" | "out", aWins: per game, n: seasons counted}
   function simulate(withChanges) {
     seed = 20261114;
     const R = withChanges ? rosterNow() : baseRosters();
@@ -2289,6 +2290,7 @@ async function predict(_a, query, live, opt = {}) {
     const score = (t, w) => { const x = (w === curWk && liveWeek[t]) || L[t].wk[w] || lineup(R[t]); return x.mean + gauss() * x.sd; };
     for (let n = 0; n < N; n++) {
       const st = Object.fromEntries(teams.map((t) => [t, { w: (base0[t] || {}).w || 0, pf: (base0[t] || {}).pf || 0 }]));
+      const aWon = COLLECT ? new Array(games.length) : null;
       games.forEach((g, i) => {
         let sa = score(g.a, g.w), sb = score(g.b, g.w);
         const forced = withChanges && picks[i];
@@ -2296,11 +2298,13 @@ async function predict(_a, query, live, opt = {}) {
         if (forced === "b" && sb < sa) [sa, sb] = [sb, sa];
         st[g.a].pf += sa; st[g.b].pf += sb;
         if (sa > sb) st[g.a].w++; else st[g.b].w++;
+        if (aWon) aWon[i] = sa > sb;
       });
       const order = teams.slice().sort((x, y) => st[y].w - st[x].w || st[y].pf - st[x].pf);
       for (const t of teams) tally[t].wins += st[t].w;
       const seeds = order.slice(0, P.teams);
       seeds.forEach((t) => tally[t].playoffs++);
+      if (COLLECT && seeds.includes(COLLECT.team) === (COLLECT.want === "in")) { COLLECT.n++; aWon.forEach((x, i) => { if (x) COLLECT.aWins[i]++; }); }
       tally[seeds[0]].seed1++;
       const semi = (hi, lo) => (score(hi, P.semifinal_week) + P.semifinal_bonus > score(lo, P.semifinal_week) ? hi : lo);
       const f1 = semi(seeds[0], seeds[3]), f2 = semi(seeds[1], seeds[2]);
@@ -2422,6 +2426,10 @@ async function predict(_a, query, live, opt = {}) {
       const table = TN.map((_, k) => k).sort((a, b) => half[b] - half[a] || pf[b] - pf[a] || nameRank[a] - nameRank[b]);
       for (let k = 0; k < nT; k++) { tally[TN[k]].wins += half[k] / 2; for (const w of regLeft) tally[TN[k]].pts += pts(w, k); }
       for (const k of table.slice(0, SIM.playoff_teams)) tally[TN[k]].playoffs++;
+      if (COLLECT && table.slice(0, SIM.playoff_teams).includes(tIdx[COLLECT.team]) === (COLLECT.want === "in")) {
+        COLLECT.n++;
+        games.forEach((g, i) => { const a = tIdx[g.a], b = tIdx[g.b]; if (a != null && b != null && pts(g.w, a) > pts(g.w, b)) COLLECT.aWins[i]++; });
+      }
       tally[TN[table[0]]].seed1++;
       const sfw = SIM.semifinal_week;
       if (SIM.playoff_teams < 4 || (!(sfw in wCol) && !(sfw in obs))) continue;
@@ -2483,6 +2491,9 @@ async function predict(_a, query, live, opt = {}) {
         <select id="mt"><option value="out">Out for the season</option>${teams.map((t) => `<option value="${esc(t)}">Trade to ${esc(t)}</option>`).join("")}</select>
         <button class="b" id="madd">Apply</button></div><div id="pmoves"></div></div>
     <div class="card"><h2>Remaining games</h2><p class="muted small">Tap a team to make it win; tap again for "simulate".</p>
+      <div class="controls"><select id="ppath" aria-label="Team">${teams.map((t) => `<option ${t === ME ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+        <button class="b" data-path="in">Most likely way in</button><button class="b" data-path="out">Most likely way out</button></div>
+      <p class="small" id="pathmsg" aria-live="polite"></p>
       ${byWeek.map(([w, gs]) => `<h3>Week ${w}${w === curWk ? " (in progress)" : ""}</h3><div class="pgames">${gs.map(([g, i]) => `<div class="pgame" data-g="${i}"><button data-side="a">${esc(g.a)}</button><span class="muted small">vs</span><button data-side="b">${esc(g.b)}</button></div>`).join("")}</div>`).join("")}
       <p><button class="b" id="preset">Clear every pick</button>${ME && teams.includes(ME) ? ` <button class="b" id="pme">★ ${esc(ME)} wins out</button>` : ""} <button class="b" id="pfav" title="Each game to the side with more projected points per week">Pick the favorites</button> ${shareBtn().replace("Share", "Share this scenario")}</p></div>`;
   const rerun = () => { document.getElementById("pres").style.opacity = .5; setTimeout(() => { draw(); document.getElementById("pres").style.opacity = 1; }, 20); };
@@ -2493,6 +2504,23 @@ async function predict(_a, query, live, opt = {}) {
     el.querySelectorAll("button").forEach((x) => x.classList.toggle("won", picks[i] === x.dataset.side));
     rerun();
   });
+  // fill every unpicked game with the result that happens most often in the simulated seasons
+  // where the team makes (or misses) the playoffs, keeping the picks already set
+  $$("[data-path]", $app).forEach((b) => (b.onclick = () => {
+    const team = $("#ppath").value, want = b.dataset.path;
+    COLLECT = { team, want, aWins: new Float64Array(games.length), n: 0 };
+    let res;
+    try { res = runSim(true); } finally { /* keep the counts, then switch the collector off */ }
+    const C = COLLECT; COLLECT = null;
+    const share = C.n / res.n;
+    if (!C.n) { $("#pathmsg").innerHTML = `<span class="neg">${esc(team)} ${want === "in" ? "doesn't make" : "doesn't miss"} the playoffs in any simulated season${Object.keys(picks).length ? " with the results you've set" : ""}.</span>`; return; }
+    const filled = [];
+    games.forEach((g, i) => { if (picks[i]) return; picks[i] = C.aWins[i] / C.n >= 0.5 ? "a" : "b"; filled.push(i); });
+    rerun();
+    const after = runSim(true), p = after.tally[team].playoffs / after.n;
+    $("#pathmsg").innerHTML = `Filled ${plural(filled.length, "game")}: in the ${(100 * share).toFixed(share < 0.01 ? 2 : 1)}% of simulated seasons where <b>${esc(team)}</b> ${want === "in" ? "makes" : "misses"} the playoffs, each is the result that happened most often${Object.keys(picks).length > filled.length ? " (your own picks kept)" : ""}. With these set, ${esc(team)} makes the playoffs <b>${oddsText(p, p >= 1, p <= 0, true)}</b> of the time. <button class="b sm ghost" id="pundo">Undo</button>`;
+    $("#pundo").onclick = () => { const keep = {}; for (const [i, v] of Object.entries(picks)) if (!filled.includes(+i)) keep[i] = v; picks = keep; rerun(); $("#pathmsg").textContent = ""; };
+  }));
   document.getElementById("preset").onclick = () => { picks = {}; $app.querySelectorAll(".pgame button").forEach((x) => x.classList.remove("won", "lost")); rerun(); };
   if ($("#pme")) $("#pme").onclick = () => { games.forEach((g, i) => { if (g.a === ME) picks[i] = "a"; else if (g.b === ME) picks[i] = "b"; }); rerun(); toast(`${ME} wins every remaining game`); };
   $("#pfav").onclick = () => { if (!base) return; games.forEach((g, i) => { const a = base.L[g.a]?.mean, b = base.L[g.b]?.mean; if (isFinite(a) && isFinite(b)) picks[i] = a >= b ? "a" : "b"; }); rerun(); toast("Every game to the projected favorite"); };
