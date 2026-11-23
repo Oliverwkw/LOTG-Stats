@@ -513,6 +513,9 @@ DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a conten
 # IR/PUP) is a weekly flex play a contender pays a late pick for: the age / injury / replacement-line docks cannot take
 # him under VET_RB_FLOOR dollars (a solid 4th: $30 at 8 PPR/g, VET_RB_STEP more per PPR/g, VET_RB_CAP at most)
 VET_RB_FLOOR, VET_RB_AGE, VET_RB_G, VET_RB_SNAP, VET_RB_PPG, VET_RB_STEP, VET_RB_CAP = 30.0, 27.0, 4, 0.40, 8.0, 2.5, 40.0
+# ... and a back who was a real lead in one of the last two seasons (15%+ of his team's expected points; Oliver: not
+# D'Onta Foreman 2023 / Devin Singletary 2024, 14.4% / 14.7% at best, whom the league traded for nothing)
+VET_RB_PEAK = 0.15
 PAID_UP, PAID_CAP, PAID_BAND = 0.0, (0.07, 0.12), (-2.0, -1.0, 400.0, 800.0)   # a non-QB the NFL just paid a big veteran deal (APY share of the cap), until he plays
 TEAM_NOW_ROOKIE = False
 COACH_EASE = 0.0                  # share of the negative team-quality docks lifted in the offseason when his team has a new head coach
@@ -1139,7 +1142,8 @@ def apply_rules(R, p, X=None, explain=False):
     if VET_RB_FLOOR:
         vr_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "age")) >= VET_RB_AGE) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= VET_RB_G) \
             * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= VET_RB_SNAP) * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= VET_RB_PPG) \
-            * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"])
+            * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"]) \
+            * (np.fmax(np.nan_to_num(col(R, "e_x_l0_xfp_share")), np.nan_to_num(col(R, "e_x_l1_xfp_share"))) >= VET_RB_PEAK)
         vf_ = np.minimum(VET_RB_FLOOR + VET_RB_STEP * (np.nan_to_num(col(R, "e_x_ppg_cur")) - VET_RB_PPG), VET_RB_CAP)
         out = np.where(vr_ > 0, np.maximum(out, vf_), out)
     if TGT_FLOOR:
