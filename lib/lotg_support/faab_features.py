@@ -1709,3 +1709,56 @@ def finish_ranks(rows, seasons=None, back=4):
         x = v[v.season == l0[i]]
         if len(x): trk[i] = x.trk.min()
     return best, trk
+
+
+def depth_mates(rows, seasons=None, stale=21):
+    """per row: his NFL team on the latest depth chart out by the date (the chart's team code as a number,
+    int.from_bytes(code), so every input stays numeric; NaN when no chart within `stale` days), and won2: 1 when he is second at his position on that chart and passed a teammate for it this season
+    (a teammate ranked second on an earlier chart since March 1 who is now ranked below him on the same team's latest
+    chart: he beat out the competition for the backup job), 0 otherwise, NaN with no chart. Charts as depth_chart
+    (weekly nflverse to 2024, daily ESPN from August 2025). rows: gsis, date. Returns (team, won2)."""
+    N = len(rows); tm = np.full(N, np.nan); w2 = np.full(N, np.nan)
+    seasons = seasons or range(2020, pd.Timestamp.today().year + 1)
+    Dl = []
+    for y in seasons:
+        d = kp._read(f"dc_{y}.csv")
+        if d is None: continue
+        if "depth_team" in d.columns:
+            d = d[(d.formation == "Offense") & d.position.isin(kp.POS) & (d.game_type == "REG")].copy()
+            d["avail"] = (kp._wkdate(y, d.week) - pd.Timedelta(days=4)).values
+            d["rank"] = pd.to_numeric(d.depth_team, errors="coerce"); d["team"] = d.club_code; d["pos"] = d.position
+        else:
+            d = d[d.pos_abb.isin(kp.POS)].copy()
+            d["avail"] = pd.to_datetime(d.dt.str[:10]); d["rank"] = d.pos_rank; d["team"] = d.team; d["pos"] = d.pos_abb
+        d["season"] = np.where(pd.to_datetime(d.avail).dt.month >= 3, pd.to_datetime(d.avail).dt.year, pd.to_datetime(d.avail).dt.year - 1)
+        Dl.append(d[["gsis_id", "avail", "rank", "team", "pos", "season"]])
+    if not Dl: return tm, w2
+    D_ = pd.concat(Dl).dropna(subset=["gsis_id", "rank"])
+    D_ = D_.groupby(["team", "pos", "season", "avail", "gsis_id"])["rank"].min().reset_index()
+    D_["avail"] = pd.to_datetime(D_.avail).values.astype("datetime64[D]")
+    # each player's charts: (avail, team, pos, season, rank)
+    byp = {g: v.sort_values("avail") for g, v in D_.groupby("gsis_id")}
+    # each team-position-season's chart days and ranks: {(team, pos, season): {avail: {gsis: rank}}}
+    byt = {k: v for k, v in D_.groupby(["team", "pos", "season"])}
+    dts = pd.to_datetime(pd.Series(rows["date"]).values).values.astype("datetime64[D]")
+    gs = pd.Series(rows["gsis"]).values
+    memo = {}
+    for i in range(N):
+        v = byp.get(gs[i])
+        if v is None: continue
+        av = v.avail.values.astype("datetime64[D]"); j = np.searchsorted(av, dts[i], side="right") - 1
+        if j < 0 or (dts[i] - av[j]).astype(int) > stale: continue
+        r = v.iloc[j]; tm[i] = float(int.from_bytes(str(r.team).encode(), "big")); key = (r.team, r.pos, r.season, av[j], gs[i])
+        if r["rank"] != 2: w2[i] = 0.0; continue
+        if key in memo: w2[i] = memo[key]; continue
+        T = byt[(r.team, r.pos, r.season)]; T = T[T.avail.values.astype("datetime64[D]") <= av[j]]
+        now = T[T.avail.values.astype("datetime64[D]") == av[j]].set_index("gsis_id")["rank"]
+        mine = T[T.gsis_id == gs[i]]
+        # the start of his current run at #2
+        st = av[j]
+        for a_, k_ in zip(mine.avail.values.astype("datetime64[D]")[::-1], mine["rank"].values[::-1]):
+            if k_ == 2: st = a_
+            else: break
+        prev2 = set(T[(T.avail.values.astype("datetime64[D]") < st) & (T["rank"] == 2) & (T.gsis_id != gs[i])].gsis_id)
+        memo[key] = w2[i] = float(any(g in now.index and now[g] > 2 for g in prev2))
+    return tm, w2
