@@ -2349,6 +2349,11 @@ def _preserve_na(col: str) -> bool:
     # started that position and it produced nothing).
     if col_l.startswith("% of points from "):
         return True
+    # Per-player positional average: N/A when nobody was started (or, for the
+    # roster version, nobody played) at the position — an empty-slot week like
+    # plehv79 2022 wk16 — distinct from a real 0 (started, scored nothing).
+    if col_l.startswith("avg points from "):
+        return True
     # % of points (highest/lowest team): a player's period-total starter
     # contribution to a team's scoring. N/A when he never started over the
     # period (no team to take a share of) — distinct from a real 0.0 (started
