@@ -20,6 +20,6 @@ Captured **11 week(s)** across seasons 2026 — 2777 player-snapshots total.
 | 2026 | 8 | 252 | 19 | 58 | 0 | 34/217/1 | 39/0/35 |
 | 2026 | 9 | 253 | 19 | 65 | 0 | 18/233/2 | 49/0/20 |
 | 2026 | 10 | 252 | 19 | 64 | 0 | 30/221/1 | 49/0/31 |
-| 2026 | 11 | 251 | 12 (not final) | 60 | 0 | 46/204/1 | – |
+| 2026 | 11 | 251 | 18 | 60 | 0 | 46/204/1 | 41/0/47 |
 
 _injury coverage: 11 week(s) captured, 2777 snapshots, 0 played-week gap(s)._
