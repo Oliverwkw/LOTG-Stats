@@ -567,7 +567,9 @@ def test_final_stage_is_in_the_explain_breakdown():
     # (round 7 adds more dollar floors and one cap, OLD_CAP, which can only lower)
     fl = [F.QB_START_FLOOR, F.RB_JOB_FLOOR, F.QB_PAID_FLOOR, F.QB_YOUNG_FLOOR, F.WR_ROLE_FLOOR, F.RB_PROD_FLOOR, F.MID_TRADE_FLOOR,
           F.CUFF_PROVEN_FLOOR, F.HEIR_FLOOR, F.DC1_FLOOR, F.DC1_TE_FLOOR]
-    floored = np.any([np.isclose(out, x) for x in fl if x], axis=0)
+    tg = np.nan_to_num(F.col(T, "e_x_team_games_cur")); old = np.nan_to_num(F.col(T, "age")) >= F.RB_PROD_OLD_AGE
+    fl.append(F.RB_PROD_FLOOR * np.where(old, 1 - F.RB_PROD_OLD * np.clip(tg / 17.0, 0, 1), 1.0))   # the faded floor, per row
+    floored = np.any([np.isclose(out, x) for x in fl if np.any(x)], axis=0)
     capped = np.isclose(out, F.OLD_CAP) & (F.OLD_CAP > 0)
     assert np.allclose(out[~floored & ~capped], fin[~floored & ~capped]) and (out[floored] >= fin[floored] - 1e-9).all() \
         and (out[capped] <= fin[capped] + 1e-9).all()
