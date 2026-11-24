@@ -454,8 +454,10 @@ Rule layer (`faab_value.py`):
   upside (`young_upside`, `wr_talent`) and draft capital fades. Applies only to stats-base $150-300+ (cheap backups
   keep their lottery value) and not to efficient scorers (13+ PPG).
 - `CUFF_SHORT`: the handcuff raise needs the lead RB on IR/PUP. A short Out tag is not a job opening.
-  `CUFF_BAD_PPG = 10`: the raise is kept, even for a short absence, when the lead was scoring under 10 PPR/g. A
-  backup to a bad starter has a better chance of taking the job (input `e_x_cuff_lead_ppg`).
+  The raise is kept, even for a short absence, as far as the lead was bad before he went down: the mean of three 0-1
+  scores, PPR/g under `CUFF_BAD_PPG` 10, yards a carry under `CUFF_BAD_YPC` 4.0 (20+ carries), actual / expected PPR
+  under `CUFF_BAD_EFF` 0.9 (inputs `e_x_cuff_lead_ppg/_ypc/_eff`). A backup to a bad starter has a better chance of
+  taking the job (Dameon Pierce 2023: 8.0 PPG, 3.0 YPC, 0.64 of xFP -> 0.83).
 - `ROOKIE_OUT` / `ROOKIE_UP`: a rookie outplayed by another rookie at the same team and position (in PPR/g and
   xFP/g) is docked. The one outplaying a better-drafted same-team rookie is raised.
 - `RET_BAD`: an RB/WR/TE in his first 1-3 games back from injury who scores well under his pre-injury PPG is docked.

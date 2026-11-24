@@ -610,6 +610,7 @@ SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 CUFF_SHORT = 1.0
 CUFF_BAD_PPG = 10.0   # lead back's PPR/g under which the short-absence cut eases (0 = off)
+CUFF_BAD_YPC, CUFF_BAD_EFF = 4.0, 0.9   # ... and his yards a carry / actual over expected PPR under which it eases
 RET_BAD, RET_G = 0.5, 3   # dock for a bad return from injury (log), over the first RET_G games back (0 = off)
 ROOKIE_UP = 0.6   # log raise for the rookie who outplays a same-team, same-position rookie drafted ahead of him
 ROOKIE_OUT = 0.5   # log dock for a rookie outplayed by a same-team, same-position rookie (0 = off)
@@ -933,9 +934,17 @@ def apply_rules(R, p, X=None, explain=False):
             lead_ = (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) <= 1) | (np.nan_to_num(col(R, "e_x_dc_prev"), nan=9) <= 1)   # the lead back
             lir = pd.Series(((pos == "RB") & lead_ & R.injury.fillna("").isin(["IR", "PUP"]).values).astype(float))
             long_ = lir.groupby([dt_, tm_]).transform("max").values * (tm_.values >= 0)
-            # (Oliver 2026-11-23, Devin Singletary 2023 for Dameon Pierce): stepping in for a bad starter (under CUFF_BAD_PPG
-            # PPR/g before he went down, none of the cut 4 under it) is a real shot at the job, so the short-absence cut eases
-            bad_ = np.clip((CUFF_BAD_PPG - np.nan_to_num(col(R, "e_x_cuff_lead_ppg"), nan=99)) / 4.0, 0, 1) if CUFF_BAD_PPG else 0.0
+            # (Oliver 2026-11-23, Devin Singletary 2023 for Dameon Pierce): stepping in for a bad starter is a real shot at the
+            # job, so the short-absence cut eases. "Bad" (Oliver: combine PPR/g, YPC, xFP) = the mean of three 0-1 scores on the
+            # lead's season before he went down: PPR/g under CUFF_BAD_PPG (full at 4 under), yards a carry under CUFF_BAD_YPC
+            # (full at 1 under; 20+ carries), actual / expected PPR under CUFF_BAD_EFF (full at 0.25 under); a missing score is left out
+            if CUFF_BAD_PPG:
+                sc_ = np.vstack([np.clip((CUFF_BAD_PPG - col(R, "e_x_cuff_lead_ppg")) / 4.0, 0, 1),
+                                 np.clip((CUFF_BAD_YPC - col(R, "e_x_cuff_lead_ypc")) / 1.0, 0, 1),
+                                 np.clip((CUFF_BAD_EFF - col(R, "e_x_cuff_lead_eff")) / 0.25, 0, 1)])
+                n_ = (~np.isnan(sc_)).sum(0)
+                bad_ = np.where(n_ > 0, np.nansum(sc_, axis=0) / np.maximum(n_, 1), 0.0)
+            else: bad_ = 0.0
             T_["cuff_act"] = T_["cuff_act"] * (1 - CUFF_SHORT * (1 - long_) * (1 - bad_))
     if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
         nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
