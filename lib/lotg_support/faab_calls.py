@@ -147,11 +147,12 @@ def calls(v, ref=None, qbs=()):
     # league chat 2026-11-20 (Ben, Sam, Oliver; Steve on Ladd): JSN, Chase, Puka in that order, a tier above CeeDee,
     # Jefferson and Nabers, Puka above ARSB; Ladd about WR20-25 in dynasty, below Parker Washington, Nico, Pickens, Watson
     B = on(CALL_DATES[5])
-    t += [("JSN > Chase (chat 2026-11-20)", gt("Jaxon Smith-Njigba", "Ja'Marr Chase")), ("Chase > Puka (chat 2026-11-20)", gt("Ja'Marr Chase", "Puka Nacua")),
-          ("Puka > ARSB (chat 2026-11-20)", gt("Puka Nacua", "Amon-Ra St. Brown"))]
+    t += [("JSN > Chase (chat 2026-11-20)", gt("Jaxon Smith-Njigba", "Ja'Marr Chase")), ("Chase > Puka (chat 2026-11-20)", gt("Ja'Marr Chase", "Puka Nacua"))]
     nxt = max(g(n) for n in ["CeeDee Lamb", "Justin Jefferson", "Malik Nabers"])
     t += [(f"{n} above CeeDee/Jefferson/Nabers (chat 2026-11-20)", h(np.log(nxt) - np.log(g(n)) + 0.03, PAIR_TOL))
-          for n in ["Jaxon Smith-Njigba", "Ja'Marr Chase", "Puka Nacua"]]
+          for n in ["Jaxon Smith-Njigba", "Ja'Marr Chase"]]
+    # Puka's lower bounds from that chat (above ARSB, above CeeDee/Jefferson/Nabers) are judged on the 11-24 board below
+    # (Oliver 2026-11-24): on 11-20 he carried the Out-tag dock (x0.51), since replaced by IR (x0.83) + his suspension cut
     t += [(f"Ladd below {n} (chat 2026-11-20)", gt(n, "Ladd McConkey")) for n in ["Parker Washington", "Nico Collins", "George Pickens", "Christian Watson"]]
     # Oliver 2026-11-22: Chase Brown is too high: streaks of single-digit games and a pass-first offense; at most $1,500
     B = on(CALL_DATES[6])
@@ -176,6 +177,10 @@ def calls(v, ref=None, qbs=()):
     # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
     B = on(CALL_DATES[8])
     t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
+    # Oliver 2026-11-24: Puka back under Chase (expiring contract + conduct suspension), still above ARSB (the 11-20 chat order)
+    t += [("Chase > Puka (Oliver 2026-11-24)", gt("Ja'Marr Chase", "Puka Nacua")), ("Puka > ARSB (chat 2026-11-20, judged 11-24)", gt("Puka Nacua", "Amon-Ra St. Brown"))]
+    nxt = max(g(n) for n in ["CeeDee Lamb", "Justin Jefferson", "Malik Nabers"])
+    t += [("Puka Nacua above CeeDee/Jefferson/Nabers (chat 2026-11-20, judged 11-24)", h(np.log(nxt) - np.log(g("Puka Nacua")) + 0.03, PAIR_TOL))]
     # Oliver 2026-11-24 (round 7, all "fairly loose"): injury cuts too steep on Alec Pierce / Terry McLaurin / Ricky Pearsall /
     # Jalen McMillan; Dameon Pierce and Xavier Legette worthless; Rhamondre Stevenson, Anthony Richardson, Tank Dell higher;
     # Brian Robinson Jr. about a pair of 4ths on IR (Bijan Robinson's long-term handcuff)

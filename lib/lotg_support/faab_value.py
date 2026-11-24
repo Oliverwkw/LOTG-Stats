@@ -689,6 +689,7 @@ VAC_SPARE = 0.0
 SUSP_EASE = 1.0
 NOT_BACK, NOT_BACK_G = -0.3, 14
 NOT_BACK_SKIP = ("Out", "Doubtful", "Questionable")
+CONTRACT_SUSP, CONTRACT_SUSP_G = 0.3, 3.0    # final-year RB/WR/TE suspended this season (log dock), full at this many games
 CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = 0.0, 22.5, 30.0, (-2.0, -1.0, 400.0, 800.0)
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
@@ -1172,6 +1173,13 @@ def apply_rules(R, p, X=None, explain=False):
     age_ = np.nan_to_num(col(R, "age"), nan=25.0)
     T_["contract_old"] = p.get("contract_old", 0.0) * last_ * np.clip((age_ - CONTRACT_AGE + 1) / 2.0, 0, 1)
     T_["contract_boom"] = p.get("contract_boom", 0.0) * last_ * (age_ < CONTRACT_AGE) * np.clip(X["spike"], 0, 1.5)
+    # (Oliver 2026-11-24, Puka Nacua: "a cut for his expiring contract and suspension") a conduct suspension in the final
+    # year of his deal: his team has the leverage (or the reason) not to pay him, and his next contract, team and
+    # availability are all in doubt. e_x_suspended = share of a season suspended, from the announcement (data/suspensions.csv);
+    # full at CONTRACT_SUSP_G+ games, a share for fewer
+    if CONTRACT_SUSP:
+        sg_ = np.nan_to_num(col(R, "e_x_suspended")) * 17.0
+        T_["contract_susp"] = -CONTRACT_SUSP * last_ * np.clip(sg_ / CONTRACT_SUSP_G, 0, 1)
     # Oliver (round 6): a final contract year cuts both ways with his situation: in a bad offense he may leave for a
     # better one (raised), in a good one he may leave it (lowered). Situation = his team's implied points (this season
     # from 4 games, else last), CONTRACT_SIT_MID +-4 for full; CONTRACT_SIT a log strength (0 = off)
