@@ -216,7 +216,7 @@ function assetHtml(a) {
   const m = /^(\d{4}) (\d+\.\d+)(?:\((.+)\))?$/.exec(a);
   if (m && PICKROWS && PICKROWS[`${m[1]} ${m[2]}`]) { const [sh, row] = PICKROWS[`${m[1]} ${m[2]}`]; return `<a href="#/pick/${sh}/${row}">${esc(a)}</a>`; }
   const f = /^(\d{4}) (\d)\((.+)\)$/.exec(a);
-  if (f) return `<a href="#/team/${tslug(f[3])}" title="${esc(f[3])}'s ${esc(f[1])} round ${esc(f[2])} pick, not drafted yet">${esc(a)}</a>`;
+  if (f) return `<a href="#/fpick/${f[1]}/${f[2]}/${encodeURIComponent(f[3])}" title="${esc(f[3])}'s ${esc(f[1])} ${esc(ORD[+f[2]] || f[2] + "th")}, not drafted yet: owner, value and every trade it moved in">${esc(a)}</a>`;
   return esc(a);
 }
 const nflLink = (t) => t && t !== "NFL" && t !== "FA" ? `<a href="#/nfl/${esc(t)}">${esc(t)}</a>` : esc(t || "");
@@ -444,7 +444,7 @@ function barChart(items, o = {}) {
 
 // ---------- pages
 const routes = {
-  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl, predict, weeks, compare, calc,
+  "": home, teams, team, player, records, h2h, trades, draft, search, faab, data, game, week, pick, nfl, predict, weeks, compare, calc, fpick,
 };
 
 // ---------- live layer: rosters and traded picks straight from Sleeper on open.
@@ -565,9 +565,15 @@ function futurePickValue(B, year, round) {
 }
 const ORD = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
 // a year's picks as numbered squares: outlined = own pick, filled = acquired
+let PICK_CONDS = [];   // picks.json conditions (swaps, protections), set when picks.json loads
+const pickConds = (y, r, o) => PICK_CONDS.filter((c) => +c.year === +y && +c.round === +r && (!c.picks || c.picks.includes(o)));
 function pickDots(picks, team) {
   if (!picks.length) return '<span class="muted">—</span>';
-  return `<span class="dots">${picks.slice().sort((a, b) => a.r - b.r).map((p) => `<span class="dot${p.o === team ? "" : " acq"}" title="${esc(ORD[p.r] || p.r)} round${p.o === team ? "" : ", from " + esc(p.o)}${p.v != null ? " · " + money(p.v) : ""}">${p.r}</span>`).join("")}</span>`;
+  return `<span class="dots">${picks.slice().sort((a, b) => a.r - b.r).map((p) => {
+    const cs = pickConds(p.y, p.r, p.o);
+    const tip = `${p.y} ${ORD[p.r] || p.r + "th"} round${p.o === team ? " (own pick)" : ", from " + p.o}${p.v != null ? " · " + stripHtml(money(p.v)) : ""}${cs.length ? " · " + cs.map((c) => c.text).join(" · ") : ""} — tap for its page`;
+    return `<a class="dot${p.o === team ? "" : " acq"}${cs.length ? " cond" : ""}" href="#/fpick/${p.y}/${p.r}/${encodeURIComponent(p.o)}" title="${esc(tip)}" aria-label="${esc(tip)}">${p.r}</a>`;
+  }).join("")}</span>`;
 }
 // the nearest rookie-pick comparison, as the rating page words it
 function pickText(B, v) {
@@ -1224,6 +1230,7 @@ async function team(slug, _q, live) {
   const atRow = AT.rows.find((r) => r[AT.cols.indexOf("Team")] === t.team) || [];
   const allStats = {}, allLabels = {};
   AT.cols.forEach((c, i) => { if (c !== "Team" && atRow[i] !== null && atRow[i] !== undefined) { allStats[c] = atRow[i]; allLabels[c] = AT.labels[i]; } });
+  PICK_CONDS = PK.conditions || [];
   const mine = (livePicks(PK, live)[t.team] || []).map(([y, r, o]) => ({ y, r, o, v: pickValue(PK, B, y, r, o) }));
   const byId = Object.fromEntries(tr.trades.map((x) => [x.id, x]));
   const ages = t.ages || {};
@@ -1776,6 +1783,7 @@ async function search(q) {
 
 async function faab(_, query, live) {
   const [B, meta, PK] = await Promise.all([loadBoard(), load("meta.json"), load("picks.json")]);
+  PICK_CONDS = PK.conditions || [];
   setTitle("FAAB values");
   if (!B) { $app.innerHTML = `${crumbs(["FAAB values"])}<h1>FAAB values</h1><div class="card empty"><div class="big">💲</div><p>The board is not published yet.</p></div>`; return; }
   const held = {};
@@ -1801,7 +1809,7 @@ async function faab(_, query, live) {
       && (!ql || r.name.toLowerCase().includes(ql)));
     // a team's board includes its future picks, valued on the same scale
     if (owner && owner !== "FA" && (!pos || pos === "PICK") && !ql) {
-      rs = rs.concat((held[owner] || []).map((p) => ({ pick: true, name: `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === owner ? "" : " (" + p.o + ")"}`, pos: "PICK", own: owner, value: p.v, rank: null })))
+      rs = rs.concat((held[owner] || []).map((p) => ({ pick: true, y: p.y, r: p.r, o: p.o, name: `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === owner ? "" : " (" + p.o + ")"}`, pos: "PICK", own: owner, value: p.v, rank: null })))
         .sort((a, b) => b.value - a.value);
     }
     const np = rs.filter((r) => r.pick).length;
@@ -1809,7 +1817,7 @@ async function faab(_, query, live) {
     $("#fo").classList.toggle("on", !!owner);
     $("#fb").innerHTML = `<p class="muted small">${plural(rs.length - np, "player")}${np ? ` · ${plural(np, "pick")}` : ""}${owner && owner !== "FA" ? ` · ${esc(owner)}: <b>${money(rs.reduce((a, r) => a + (r.value || 0), 0))}</b> in all` : ""}${pos || owner || q ? ` <button class="b sm ghost" id="fclear">Clear filters</button>` : ""}</p>` + table([
       { k: "rank", label: "#", html: (r) => r.rank ?? "" },
-      { k: "name", label: "Player", left: true, html: (r) => r.pick ? `<span class="chip">${esc(r.name)}</span>` : playerLink(r.name) },
+      { k: "name", label: "Player", left: true, html: (r) => r.pick ? `<a class="chip" href="#/fpick/${r.y}/${r.r}/${encodeURIComponent(r.o)}">${esc(r.name)}</a>` : playerLink(r.name) },
       { k: "pos", label: "Pos", left: true, html: (r) => posBadge(r.pos) }, { k: "team", label: "NFL", left: true, html: (r) => r.pick ? "" : nflLink(r.team) },
       { k: "age", label: "Age", spec: { d: 1 } },
       { k: "own", label: "Owner", left: true, html: (r) => (r.own ? teamLink(r.own) : '<span class="muted">Free agent</span>') },
@@ -3184,6 +3192,42 @@ function calcEngine(live) {
   return calc.E;
 }
 
+// ---------- a future (not yet drafted) rookie pick: who holds it now, whose it was, its value
+// (FAAB board scale, KTC), any swap or protection on it, and every trade it moved in
+async function fpick(rest, _q, live) {
+  const [y0, r0, ...o0] = String(rest || "").split("/");
+  const y = +y0, r = +r0, orig = decodeURIComponent(o0.join("/"));
+  const [PK, B, tr, meta, KT, H] = await Promise.all([load("picks.json"), loadBoard(), load("trades.json"), load("meta.json"), load("ktc.json").catch(() => null), load("home.json").catch(() => ({ standings: [] }))]);
+  PICK_CONDS = PK.conditions || [];
+  if (!y || !r || !meta.teams.includes(orig)) throw new Error("No such pick");
+  live = live || await loadLive();
+  const held = livePicks(PK, live);
+  const owner = Object.keys(held).find((t) => held[t].some(([yy, rr, oo]) => yy === y && rr === r && oo === orig));
+  const name = `${y} ${ORD[r] || r + "th"} round`;
+  const asset = `${y} ${r}(${orig})`;
+  const v = pickValue(PK, B, y, r, orig);
+  // KTC: the pick's overall place mapped onto KTC's 12-team quarters (the build's rule)
+  const rankNow = Object.fromEntries((H.standings || []).map((x) => [x.team, x.rank])), n = meta.teams.length;
+  const ovs = y === PK.years[0] && rankNow[orig] ? [(r - 1) * n + (n + 1 - rankNow[orig])] : Array.from({ length: n }, (_, j) => (r - 1) * n + j + 1);
+  const kv = KT && KT.picks ? ovs.map((ov) => { const rn = Math.floor((ov - 1) / 12) + 1, ps = (ov - 1) % 12 + 1; const e = KT.picks[`${y} ${ps <= 4 ? "Early" : ps <= 8 ? "Mid" : "Late"} ${ORD[rn] || rn + "th"}`]; return e ? e[0] : null; }).filter((x) => typeof x === "number") : [];
+  const ktc = kv.length ? kv.reduce((a, x) => a + x, 0) / kv.length : null;
+  const trades = tr.trades.filter((t) => t.sides.some((s) => s.got.concat(s.sent).includes(asset))).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const conds = pickConds(y, r, orig);
+  setTitle(`${name} (${orig})`);
+  $app.innerHTML = `${crumbs(["FAAB values", "faab"], [`${name} (${orig})`])}
+    <div class="page-head"><div><h1>${esc(name)} <span class="muted" style="font-weight:500">${esc(orig)}'s</span></h1>
+      <p class="lede">Not drafted yet · held by ${owner ? teamLink(owner) : '<span class="muted">unknown</span>'} ${liveNote(live)}${owner && owner !== orig ? ` · originally ${teamLink(orig)}'s` : owner ? " (its own pick)" : ""}</p></div>
+      <div class="actions">${owner ? `<a class="btn sec" href="#/calc?a=${encodeURIComponent(owner)}">🔁 Trade it</a>` : ""}${shareBtn()}</div></div>
+    <div class="tiles">
+      <div class="tile"><b>${v != null ? money(v) : "—"}</b><span>FAAB value${y === PK.years[0] ? " (by the original team's projected slot)" : " (round average)"}</span></div>
+      <div class="tile"><b>${ktc != null ? Math.round(ktc).toLocaleString() : "—"}</b><span>KTC superflex${y === PK.years[0] && rankNow[orig] ? " (slot from the standings)" : " (round average)"}</span></div>
+      <div class="tile"><b>${trades.length}</b><span>Trades it moved in</span></div>
+    </div>
+    ${conds.length ? `<div class="note">${conds.map((c) => `<div>⚠️ ${esc(c.text)}</div>`).join("")}</div>` : ""}
+    <div class="card"><h2>Its trades</h2>${trades.length ? trades.map((t) => tradeCard(t, tr.meta)).join("") : `<p class="muted">It hasn't been traded: still ${esc(orig)}'s own pick.</p>`}</div>
+    <p class="small"><a href="#/team/${tslug(orig)}">${esc(orig)}'s page →</a>${owner && owner !== orig ? ` · <a href="#/team/${tslug(owner)}">${esc(owner)}'s picks →</a>` : ""} · <a href="#/faab">every team's picks →</a></p>`;
+}
+
 // ---------- every week the league has played, by season (league_week)
 async function weeks(year) {
   const [ws, meta] = await Promise.all([loadWeeks(), load("meta.json")]);
@@ -3263,7 +3307,7 @@ async function compare(_a, query) {
 }
 
 // ---------- router
-const NAV_OF = { team: "teams", calc: "calc", game: "weeks", week: "weeks", pick: "draft", player: null, nfl: null, search: null };
+const NAV_OF = { fpick: "faab", team: "teams", calc: "calc", game: "weeks", week: "weeks", pick: "draft", player: null, nfl: null, search: null };
 const TITLES = { "": "Home", teams: "All-time standings", records: "Record book", h2h: "Head to head", trades: "Trades", draft: "Draft history",
   predict: "Predictions", calc: "Trade calculator", faab: "FAAB values", data: "Data", weeks: "Weeks", compare: "Compare", search: "Search" };
 // scroll positions by history entry: back / forward lands where you were, a new page at the top
@@ -3345,7 +3389,7 @@ function rememberVisit(page, rest, title) {
   r.unshift({ h: href, t: title.replace(/\s+★$/, ""), k: page });
   prefs.set("lotg:recent", r.slice(0, 8));
 }
-const LIVE_PAGES = new Set([team, player, faab, nfl]);
+const LIVE_PAGES = new Set([team, player, faab, nfl, fpick]);
 
 // ---------- search: suggestions as you type (players, teams, NFL teams, pages, stats);
 // arrows move, Enter opens, Esc closes; Enter with nothing picked opens the full results

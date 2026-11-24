@@ -665,3 +665,5 @@ browser.
 603. Player pages: the career stat boxes are removed (user); the numbers stay in the Seasons and Career tables.
 604. Points (full season) and Avg points (full season) get green / red best / worst marks.
 605. Matchup pages: each player who sat gets a flag — Out, IR (on NFL injured reserve that week, nflverse weekly rosters), Bye or Suspension — from the player_week flags.
+606. Future picks get their own page (#/fpick/<year>/<round>/<original team>): who holds it now (live from Sleeper), whose it was, FAAB and KTC value, any swap / protection on it, and every trade it moved in.
+607. Pick dots (FAAB page, team pages) are links to that page, with the hover text kept (and spoken by screen readers); a dot with a swap or protection carries a small amber mark. Trade cards and a team's board link future picks there too.
