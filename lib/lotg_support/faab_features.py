@@ -68,11 +68,12 @@ def build_week(X, FC, OUT, years):
         wk.append(g)
     W = pd.concat(wk, ignore_index=True)
     # snaps (pfr ids) -> offense / defense / special teams
-    sn = []
+    sn, snap_tw = [], []
     for y in YEARS:
         try: s = pd.read_csv(f"{FC}/snap_{y}.csv", low_memory=False)
         except FileNotFoundError: continue
         s = s[s.game_type == "REG"]; s["gsis"] = s.pfr_player_id.map(PFR2G)
+        snap_tw.append(s[["team", "season", "week"]].drop_duplicates())     # team-weeks whose snap counts are published
         sn.append(s.groupby(["gsis", "season", "week"]).agg(off=("offense_snaps", "sum"), off_pct=("offense_pct", "max"), dfn=("defense_snaps", "sum"),
                                                               dfn_pct=("defense_pct", "max"), st_pct=("st_pct", "max")).reset_index())
     W = key(W).merge(key(pd.concat(sn)), on=["gsis", "season", "week"], how="outer")
@@ -139,7 +140,14 @@ def build_week(X, FC, OUT, years):
     W["on_ir"] = W.status.isin(["RES", "PUP"])
     W["exempt"] = W.status.isin(["EXE"])                        # excused absence (personal leave / exempt list)
     W["no_team"] = W.status.isna() & ~W.played
-    W["scratch"] = (W.status == "INA") & W.report_status.isna() & ~W.inj_out & ~W.played   # game-day inactive with no injury report at all (not even Questionable): a healthy scratch
+    # healthy scratch: no injury report at all (not even Questionable) and no offensive/defensive snap in a game his team
+    # played with published snap counts: game-day inactive (INA), or active and dressed but used only on special teams
+    # (Oliver 2026-11-24, Eli Stowers week 11: 0 offensive snaps, 20 on special teams, "should count as a healthy scratch
+    # even if he was technically active"). Active with no snap of any kind is left out: that is a pregame injury
+    # (Ladd McConkey week 9, back spasms). Defensive snaps count as playing (two-way players, Travis Hunter).
+    stw = pd.concat(snap_tw).assign(snap_pub=True) if snap_tw else pd.DataFrame(columns=["team", "season", "week", "snap_pub"])
+    pub = W[["r_team", "season", "week"]].merge(stw.rename(columns={"team": "r_team"}), on=["r_team", "season", "week"], how="left").snap_pub.fillna(False).astype(bool).values
+    W["scratch"] = ((W.status == "INA") | ((W.status == "ACT") & (W.st_pct.fillna(0) > 0))) & W.report_status.isna() & ~W.inj_out & ~W.played & pub
     W["known"] = pd.to_datetime(W.season.map(KO)) + pd.to_timedelta(7 * (W.week - 1) + 5, unit="D")
 
     # season-to-date per player: sums and weighted means
