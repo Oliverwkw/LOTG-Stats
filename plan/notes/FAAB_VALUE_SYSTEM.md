@@ -550,6 +550,37 @@ columns of the run that fit it, so a column added since was empty on every cache
 14 game-log columns (`e_x_ppg_l0`, `e_x_duds_2y`, `e_x_rostered_recent`, ...) on every pre-2026 row and its trade
 error went 0.95 -> 1.12. The rebuild now refreshes every cached block's `e_x_*` columns from today's features.
 
+## No cliffs: every line is a ramp (2026-11-24)
+
+Oliver: "no arbitrary steep drops/cutoffs; everything that can fade in/out should", keeping today's order as far as
+possible. Every rule line on a continuous input (age, PPR/g, snap / target / xFP share, win %, implied points, a base
+or value band) is now a ramp: `ge(x, c, w, at)` / `le(...)` in `faab_value.py`, 0 to 1 over width `w`; `at` places the
+old line on the ramp (`RAMP_AT = 1`: the ramp ends at the line, so everyone who passed still fully passes and a near
+miss gets part of it). Whole-number counts (games, duds) use `gec` / `lec`: 0 at the old first failing count, rising
+over `w` counts. Dollar floors and caps apply with a weight (`flo` / `cap`), so a floor half-earned lifts a value half
+way. A season stat phased in by games (`_rowmean`, `blend`) moves from last season's number to this season's, never
+jumping when a player reaches the 3rd or 4th game. `SMOOTH = 0` restores the old hard steps (a check, not for use).
+
+Choices, with their evidence:
+- Near misses are lifted (Oliver, 2026-11-24, "lift near misses"). The floors were set on players just past their
+  lines (Jalen Coker's 18.1% targets for WR_ROLE), so centring the ramps would have cut those players instead.
+- WR_ROLE also needs 11+ expected PPR/g (`WR_ROLE_XFP`). The role is measured by usage, not TD-padded points:
+  Tre Tucker 2025 was traded for $2 with 9.6, and Coker has 12.6.
+- Some ramps are narrow on purpose, because a call or a trade sits right beside the line:
+  - vet_floor PPR/g (0.5; Tyler Lockett 2024, D'Onta Foreman 2023).
+  - two_bad (0.6; Jordan Addison 9.65 against Romeo Doubs 10.3).
+  - prod_lo (0.3 / 0.5; Quentin Johnston 2025).
+  - VET_RB peak share (0.01; Oliver ruled out Devin Singletary 2024 at 14.7%).
+  - The HEIR_SHOWN snap / PPR gates (Corey Kiner).
+- Results:
+  - Rank correlation against the pre-change board: 0.998 (players worth $30+).
+  - 10 players moved more than 15%.
+  - Calls: 206/206.
+  - Far-off trades: 22 (main had 20).
+  - True step cliffs in the nudge audit fell from 312 to 12. A step cliff is an all-or-nothing jump when the nudge is
+    cut to a quarter or a half; the 12 left are the narrow ramps above.
+  - One more game played can still move a value, because a game is a whole number.
+
 ## Commands
 
 ```bash

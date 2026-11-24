@@ -563,17 +563,18 @@ def test_final_stage_is_in_the_explain_breakdown():
     out, terms, st = F.apply_rules(T, p, explain=True)
     assert "vet_floor" in terms and "top" in st
     fin = st["top"] * np.exp(sum(terms[k] for k in F.final_terms(T, st["top"], p, F.characteristics(T))))
-    # the starter floors (QB at least a 3rd, an RB who won the job) lift a value after the final stage, never lower it
-    # (round 7 adds more dollar floors and one cap, OLD_CAP, which can only lower)
+    # the dollar floors lift a value after the final stage, never lower it; with their gates ramped (2026-11-24 smoothing)
+    # a near miss gets part of a floor, so a lifted value lies between the final-stage value and the largest floor
+    # (plus the small LOW_ADD bump). Only the caps lower: OLD_CAP (36+) and ROOKIE_SMALL_CAP (a rookie a few games in)
     fl = [F.QB_START_FLOOR, F.RB_JOB_FLOOR, F.QB_PAID_FLOOR, F.QB_YOUNG_FLOOR, F.WR_ROLE_FLOOR, F.RB_PROD_FLOOR, F.MID_TRADE_FLOOR,
-          F.CUFF_PROVEN_FLOOR, F.HEIR_FLOOR, F.DC1_FLOOR, F.DC1_TE_FLOOR]
-    tg = np.nan_to_num(F.col(T, "e_x_team_games_cur")); old = np.nan_to_num(F.col(T, "age")) >= F.RB_PROD_OLD_AGE
-    fl.append(F.RB_PROD_FLOOR * np.where(old, 1 - F.RB_PROD_OLD * np.clip(tg / 17.0, 0, 1), 1.0))   # the faded floor, per row
-    floored = np.any([np.isclose(out, x) for x in fl if np.any(x)], axis=0)
-    capped = np.isclose(out, F.OLD_CAP) & (F.OLD_CAP > 0)
-    capped |= (np.nan_to_num(F.col(T, "exp"), nan=9) == 0) & (np.nan_to_num(F.col(T, "e_x_gp_cur")) <= F.ROOKIE_SMALL_G) & (out < fin)   # ROOKIE_SMALL_CAP
-    assert np.allclose(out[~floored & ~capped], fin[~floored & ~capped]) and (out[floored] >= fin[floored] - 1e-9).all() \
-        and (out[capped] <= fin[capped] + 1e-9).all()
+          F.CUFF_PROVEN_FLOOR, F.HEIR_FLOOR, F.DC1_FLOOR, F.DC1_TE_FLOOR, F.DC2_FLOOR, F.TGT_FLOOR, F.PEAK_WIN_FLOOR, F.INJ_AHEAD_FLOOR,
+          F.VET_RB_CAP, F.PROVEN_FLOOR]
+    lifted = out > fin * (1 + 1e-9) + 1e-9; lowered = out < fin * (1 - 1e-9) - 1e-9
+    assert (out[lifted] <= max(fl) + F.LOW_ADD + 1e-6).all()
+    may_cap = (np.nan_to_num(F.col(T, "exp"), nan=9) == 0) | (np.nan_to_num(F.col(T, "age")) >= F.OLD_CAP_AGE - 1)
+    may_cap |= fin > min(F.WR_TOP_AT, F.RB_OLD_TOP_AT, F.RB_CEDE_AT)   # the top-end fades (elite WRs, older RBs, a back ceding work)
+    assert may_cap[lowered].all()
+    assert np.allclose(out[~lifted & ~lowered], fin[~lifted & ~lowered])
 
 
 def test_try_rule_scores_a_change_against_the_current_params():
