@@ -1511,19 +1511,22 @@ def vacated_role(rows, cache=None):
     return out
 
 
-def activated_cuff(rows, cache=None, exit_ratio=0.4):
+def activated_cuff(rows, cache=None, exit_ratio=0.4, lead_ppg=False):
     """per row: how many team games in a row (ending with his team's latest game known by the date: game day + 1) his
     team's lead RB has missed or left early (touches + targets under exit_ratio of his average this season before
     the streak), when this player was the team's second RB going into the streak (lead / second = most / second-most
     expected fantasy points among the team's RBs this season before the streak, the lead with 2+ games). 1 = the
     starter just went down and the backup has not yet had a full game as the lead. 0 for anyone else in season with
-    data, NaN before his team's first game or without data. rows: gsis, date, pos. ffopportunity weekly + games."""
+    data, NaN before his team's first game or without data. rows: gsis, date, pos. ffopportunity weekly + games.
+    lead_ppg=True also returns, per row in a streak, the lead's actual PPR points a game this season before the streak
+    (Oliver 2026-11-23: a backup stepping in for a bad starter has a better chance to take the job); NaN elsewhere."""
     import glob
     cache = Path(cache or D.CACHE); N = len(rows); out = np.full(N, np.nan)
     fs = sorted(glob.glob(str(cache / "ep_weekly_*.parquet"))); gp = cache / "games.parquet"
-    if not fs or not gp.exists(): return out
-    cols = ["season", "game_id", "player_id", "posteam", "position", "total_fantasy_points_exp", "rush_attempt", "rec_attempt"]
+    if not fs or not gp.exists(): return (out, np.full(N, np.nan)) if lead_ppg else out
+    cols = ["season", "game_id", "player_id", "posteam", "position", "total_fantasy_points_exp", "total_fantasy_points", "rush_attempt", "rec_attempt"]
     G = pd.concat([pd.read_parquet(f, columns=[c for c in cols if c != "position"] + ["position"]) for f in fs])
+    out2 = np.full(N, np.nan)
     G = G.merge(pd.read_parquet(gp, columns=["game_id", "gameday"]), on="game_id", how="left").dropna(subset=["gameday", "posteam"])
     G["season"] = G.season.astype(int); G["posteam"] = G.posteam.replace(TEAM_FIX)
     G["known"] = pd.to_datetime(G.gameday) + pd.Timedelta(days=1)
@@ -1534,7 +1537,7 @@ def activated_cuff(rows, cache=None, exit_ratio=0.4):
         games = g.drop_duplicates("game_id").sort_values("known", kind="mergesort")[["game_id", "known"]].values
         rb = R_[(R_.posteam == tm) & (R_.season == s)]
         by_g = {gid: v.set_index("player_id") for gid, v in rb.groupby("game_id")}
-        cum, cnt, opp_sum = {}, {}, {}
+        cum, cnt, opp_sum, fp_sum = {}, {}, {}, {}
         start = None                                  # (lead, cuff, avg) when a streak is running
         for j, (gid, kn) in enumerate(games):
             v = by_g.get(gid)
@@ -1544,26 +1547,27 @@ def activated_cuff(rows, cache=None, exit_ratio=0.4):
             if start is None and len(order) >= 2 and cnt[order[0]] >= 2:
                 lead, cuff = order[0], order[1]; avg = opp_sum[lead] / cnt[lead]
                 o = float(v.opp.get(lead, 0.0)) if v is not None and lead in v.index else 0.0
-                if avg >= 4 and o < exit_ratio * avg: start = (lead, cuff, avg, j)
+                if avg >= 4 and o < exit_ratio * avg: start = (lead, cuff, avg, j, fp_sum.get(lead, 0.0) / cnt[lead])
             elif start is not None:
-                lead, cuff, avg, j0 = start
+                lead, cuff, avg, j0, _ = start
                 o = float(v.opp.get(lead, 0.0)) if v is not None and lead in v.index else 0.0
                 if o >= exit_ratio * avg: start = None
             if start is not None:
-                spans.setdefault(start[1], []).append((kn, nxt, j - start[3] + 1))
+                spans.setdefault(start[1], []).append((kn, nxt, j - start[3] + 1, start[4]))
             if v is not None:
                 for p, r in v.iterrows():
                     cum[p] = cum.get(p, 0.0) + float(np.nan_to_num(r.total_fantasy_points_exp)); cnt[p] = cnt.get(p, 0) + 1
                     opp_sum[p] = opp_sum.get(p, 0.0) + float(r.opp)
+                    fp_sum[p] = fp_sum.get(p, 0.0) + float(np.nan_to_num(r.total_fantasy_points))
     first = G.groupby("season").known.min()
     d = pd.to_datetime(rows.date).values.astype("datetime64[ns]"); di = pd.DatetimeIndex(d); s = np.where(di.month >= 3, di.year, di.year - 1)
     for i, g in enumerate(rows.gsis.astype(str).values):
         f0 = first.get(int(s[i]))
         if f0 is None or d[i] < np.datetime64(f0) or d[i] > np.datetime64(f"{int(s[i]) + 1}-02-15"): continue
         out[i] = 0.0
-        for a, b, k in spans.get(g, ()):
-            if np.datetime64(a) <= d[i] < np.datetime64(b): out[i] = k; break
-    return out
+        for a, b, k, lp in spans.get(g, ()):
+            if np.datetime64(a) <= d[i] < np.datetime64(b): out[i] = k; out2[i] = lp; break
+    return (out, out2) if lead_ppg else out
 
 
 DRAFT_TEAM_FIX = {"GNB": "GB", "SFO": "SF", "NWE": "NE", "LVR": "LV", "KAN": "KC", "NOR": "NO", "TAM": "TB", "LAR": "LA", "SDG": "LAC", "OAK": "LV", "STL": "LA", "SD": "LAC"}

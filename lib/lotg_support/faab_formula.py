@@ -37,7 +37,7 @@ EXP = {"QB": 14, "RB": 9, "WR": 7, "TE": 5}                        # rookie-year
 # (Oliver 2026-11-23, KC Concepcion at 10 PPR/g read as beating his 1.07) the PPG that holds a slot's price rises with the
 # slot: EXP_TOP at the 1.01, falling linearly to EXP by the last pick of round EXP_ROUNDS (EXP from there on). A first-
 # round pick is drafted to start; a late-round pick only has to show he belongs. EXP_TOP = EXP: off.
-EXP_TOP = {"QB": 18, "RB": 14, "WR": 12, "TE": 9}
+EXP_TOP = {"QB": 16, "RB": 14, "WR": 12, "TE": 7}   # QB / TE lower (Oliver 2026-11-23): they take a while to adjust and break out
 EXP_ROUNDS, EXP_TEAMS = 2, 9
 TIER_R, TIER_V = [1, 3, 6, 10, 16, 22], [2000, 2000, 1500, 1000, 500, 0]
 TAU = 20.0

@@ -609,6 +609,9 @@ DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 CUFF_SHORT = 1.0
+CUFF_BAD_PPG = 10.0   # lead back's PPR/g under which the short-absence cut eases (0 = off)
+RET_BAD, RET_G = 0.5, 3   # dock for a bad return from injury (log), over the first RET_G games back (0 = off)
+ROOKIE_UP = 0.6   # log raise for the rookie who outplays a same-team, same-position rookie drafted ahead of him
 ROOKIE_OUT = 0.5   # log dock for a rookie outplayed by a same-team, same-position rookie (0 = off)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
@@ -892,6 +895,13 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_PREM:
         T_["cuff_prem"] = CUFF_PREM * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < CUFF_PREM_AGE) * (np.nan_to_num(col(R, "e_x_comp_share")) >= CUFF_PREM_COMP) \
             * (np.nan_to_num(col(R, "e_x_cur_xfp_share")) >= CUFF_PREM_SH) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * np.interp(raw, CUFF_PREM_BAND, [0, 1, 1, 0])
+    if RET_BAD:   # (Oliver 2026-11-23, Kyle Monangai 1.8 PPR in his first game back) back from an injury and scoring far under
+        # his pre-injury rate: the injury may not be behind him and the job may have moved. Over the first RET_G games back,
+        # docked by RET_BAD x the share of his pre-injury PPR/g he has lost (full at 75%+ lost); 0 once 4+ games back
+        gc_ = np.nan_to_num(col(R, "e_x_gp_cur")); gs_ = np.nan_to_num(col(R, "e_x_gp_since_inj")); pc_ = np.nan_to_num(col(R, "e_x_ppg_cur")); ps_ = np.nan_to_num(col(R, "e_x_ppg_since_inj"))
+        pre_ = np.where(gc_ - gs_ >= 2, (pc_ * gc_ - ps_ * gs_) / np.maximum(gc_ - gs_, 1), np.nan)
+        lost_ = np.clip((1 - ps_ / np.maximum(np.nan_to_num(pre_, nan=0), 1e-9)) / 0.75, 0, 1) * (np.nan_to_num(pre_) >= 8)
+        T_["ret_bad"] = -RET_BAD * lost_ * (gs_ >= 1) * (gs_ <= RET_G) * (gs_ < gc_) * (R.injury.fillna("").values == "") * np.isin(pos, ["RB", "WR", "TE"])
     if ROOKIE_OUT:   # (Oliver 2026-11-23, KC Concepcion behind Denzel Boston) a rookie outplayed by another rookie on his team at
         # his position (3+ games each, more PPR/g and more expected points a game): the room has picked its rookie. Ramps in
         # over the season's second half like SHOWN (team games SHOWN_T0 -> SHOWN_T1)
@@ -904,7 +914,16 @@ def apply_rules(R, p, X=None, explain=False):
             if len(g) < 2: continue
             for i in g.index: out_[i] = float(((g.ppg > g.ppg[i]) & (g.xfp > g.xfp[i]) & (g.index != i)).any())
         tg_ = np.nan_to_num(col(R, "e_x_team_games_cur"))
-        T_["rookie_out"] = -ROOKIE_OUT * out_ * np.clip((tg_ - SHOWN_T0) / max(SHOWN_T1 - SHOWN_T0, 1e-9), 0, 1)
+        # (Oliver 2026-11-23, Denzel Boston over KC Concepcion) the other side: a rookie who outplays (same test) a same-team,
+        # same-position rookie drafted ahead of him in the NFL draft has won the room: raised by ROOKIE_UP
+        pk_ = np.nan_to_num(col(R, "e_x_draft_pick"), nan=300); up_ = np.zeros(len(R))
+        df_["pk"] = pk_
+        for _, g in df_[rk_].groupby(["d", "t", "p"]):
+            if len(g) < 2: continue
+            for i in g.index: up_[i] = float(((g.ppg < g.ppg[i]) & (g.xfp < g.xfp[i]) & (g.pk < g.pk[i])).any())
+        ramp6 = np.clip((tg_ - SHOWN_T0) / max(SHOWN_T1 - SHOWN_T0, 1e-9), 0, 1)
+        T_["rookie_out"] = -ROOKIE_OUT * out_ * ramp6
+        T_["rookie_up"] = ROOKIE_UP * up_ * ramp6
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
@@ -914,7 +933,10 @@ def apply_rules(R, p, X=None, explain=False):
             lead_ = (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) <= 1) | (np.nan_to_num(col(R, "e_x_dc_prev"), nan=9) <= 1)   # the lead back
             lir = pd.Series(((pos == "RB") & lead_ & R.injury.fillna("").isin(["IR", "PUP"]).values).astype(float))
             long_ = lir.groupby([dt_, tm_]).transform("max").values * (tm_.values >= 0)
-            T_["cuff_act"] = T_["cuff_act"] * (1 - CUFF_SHORT * (1 - long_))
+            # (Oliver 2026-11-23, Devin Singletary 2023 for Dameon Pierce): stepping in for a bad starter (under CUFF_BAD_PPG
+            # PPR/g before he went down, none of the cut 4 under it) is a real shot at the job, so the short-absence cut eases
+            bad_ = np.clip((CUFF_BAD_PPG - np.nan_to_num(col(R, "e_x_cuff_lead_ppg"), nan=99)) / 4.0, 0, 1) if CUFF_BAD_PPG else 0.0
+            T_["cuff_act"] = T_["cuff_act"] * (1 - CUFF_SHORT * (1 - long_) * (1 - bad_))
     if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
         nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
             * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0) \

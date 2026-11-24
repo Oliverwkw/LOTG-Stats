@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
-CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20", "2026-11-22", "2026-11-23")
+CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20", "2026-11-22", "2026-11-23", "2026-11-24")
 # first review, second review, league chat consensus (10-26), chat (TLaw/Lamar, 11-03), votes (11-18), chat (top WRs / Ladd, 11-20)
 # Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
 # in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
@@ -172,6 +172,9 @@ def calls(v, ref=None, qbs=()):
           ("KC Concepcion below his 1.07 (< $796; Oliver 2026-11-23)", rng("KC Concepcion", 1, 796)),
           ("Kenyon Sadiq below his 1.08 (< $625; Oliver 2026-11-23)", rng("Kenyon Sadiq", 1, 625)),
           ("Emmett Johnson less than a first (< $625, the 1.08; Oliver 2026-11-23)", rng("Emmett Johnson", 1, 625))]
+    # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
+    B = on(CALL_DATES[8])
+    t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)
