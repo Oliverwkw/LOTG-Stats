@@ -139,7 +139,7 @@ def build_week(X, FC, OUT, years):
     W["on_ir"] = W.status.isin(["RES", "PUP"])
     W["exempt"] = W.status.isin(["EXE"])                        # excused absence (personal leave / exempt list)
     W["no_team"] = W.status.isna() & ~W.played
-    W["scratch"] = (W.status == "INA") & ~W.inj_out & ~W.played   # a game-day inactive with no injury report: a healthy scratch
+    W["scratch"] = (W.status == "INA") & W.report_status.isna() & ~W.inj_out & ~W.played   # game-day inactive with no injury report at all (not even Questionable): a healthy scratch
     W["known"] = pd.to_datetime(W.season.map(KO)) + pd.to_timedelta(7 * (W.week - 1) + 5, unit="D")
 
     # season-to-date per player: sums and weighted means
