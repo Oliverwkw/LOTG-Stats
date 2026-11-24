@@ -176,6 +176,39 @@ def calls(v, ref=None, qbs=()):
     # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
     B = on(CALL_DATES[8])
     t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
+    # Oliver 2026-11-24 (round 7, all "fairly loose"): injury cuts too steep on Alec Pierce / Terry McLaurin / Ricky Pearsall /
+    # Jalen McMillan; Dameon Pierce and Xavier Legette worthless; Rhamondre Stevenson, Anthony Richardson, Tank Dell higher;
+    # Brian Robinson Jr. about a pair of 4ths on IR (Bijan Robinson's long-term handcuff)
+    t += [("Alec Pierce up from $40 (> $50)", rng("Alec Pierce", 50, 99999)), ("Terry McLaurin up from $40 (> $45)", rng("Terry McLaurin", 45, 99999)),
+          ("Ricky Pearsall up (> $45)", rng("Ricky Pearsall", 45, 99999)), ("Jalen McMillan up (> $45)", rng("Jalen McMillan", 45, 99999)),
+          ("Dameon Pierce near worthless (< $20)", rng("Dameon Pierce", 0, 20)), ("Xavier Legette near worthless (< $15)", rng("Xavier Legette", 0, 15)),
+          ("Rhamondre Stevenson up (> $40)", rng("Rhamondre Stevenson", 40, 99999)), ("Anthony Richardson up a little (> $20)", rng("Anthony Richardson Sr.", 20, 99999)),
+          ("Tank Dell up (> $22)", rng("Tank Dell", 22, 99999)), ("Brian Robinson Jr. about a pair of 4ths on IR ($30-$110)", rng("Brian Robinson Jr.", 30, 110))]
+    # Oliver 2026-11-24 (top end, loose): older RBs a bit inflated, Kyren Williams ceding to Blake Corum, Malik Nabers too low,
+    # Jalen Hurts and Harold Fannin Jr. still too high (the QB order notes, Caleb > Stroud and Lamar > Maye, are "not calls")
+    t += [("Jonathan Taylor down (< $2,350)", rng("Jonathan Taylor", 1, 2350)), ("James Cook down (< $2,430)", rng("James Cook III", 1, 2430)),
+          ("Christian McCaffrey down (< $2,350)", rng("Christian McCaffrey", 1, 2350)), ("Kyren Williams down (< $2,240)", rng("Kyren Williams", 1, 2240)),
+          ("Malik Nabers up (> $2,330)", rng("Malik Nabers", 2330, 99999)), ("Jalen Hurts down (< $1,580)", rng("Jalen Hurts", 1, 1580)),
+          ("Harold Fannin Jr. down (< $1,560)", rng("Harold Fannin Jr.", 1, 1560))]
+    # Oliver 2026-11-24 (middle tier, loose)
+    t += [("Chase Brown a tad lower (< $1,120)", rng("Chase Brown", 1, 1120)), ("Jameson Williams lower (< $960)", rng("Jameson Williams", 1, 960)),
+          ("Sam LaPorta lower (< $830)", rng("Sam LaPorta", 1, 830)), ("Rome Odunze lower (< $760)", rng("Rome Odunze", 1, 760)),
+          ("Tyler Warren > Sam LaPorta", gt("Tyler Warren", "Sam LaPorta")), ("Tyler Warren > Kyle Pitts", gt("Tyler Warren", "Kyle Pitts Sr.")),
+          ("Kenneth Walker > Kyren Williams", gt("Kenneth Walker III", "Kyren Williams")), ("Travis Hunter down a bit (< $490)", rng("Travis Hunter", 1, 490)),
+          ("Emmett Johnson lower on a 2-game sample (< $460)", rng("Emmett Johnson", 1, 460)), 
+          # Antonio Williams "lower (< $320)" retired 2026-11-24 (Oliver: 22 points on MNF; WR_SHOWN stays, it applied before the breakout)
+
+          ("Chuba Hubbard way up (> $550)", rng("Chuba Hubbard", 550, 99999))]
+    # Oliver 2026-11-24 (middle tier, part 2, loose)
+    t += [("Jordan Addison down a peg (< $285)", rng("Jordan Addison", 1, 285)), ("Michael Wilson up (> $500)", rng("Michael Wilson", 500, 99999)),
+          ("Kyler Murray a low 3rd at most (< $90)", rng("Kyler Murray", 1, 90)), ("Travis Kelce a 3rd at best (< $137)", rng("Travis Kelce", 1, 137)),
+          ("Nicholas Singleton down (< $140)", rng("Nicholas Singleton", 1, 140)), ("Jaylen Warren a mid/high 2nd ($280-$600)", rng("Jaylen Warren", 280, 600)),
+          ("Jaylen Warren < Chuba Hubbard", gt("Chuba Hubbard", "Jaylen Warren")), ("Baker Mayfield a big boost (> $200)", rng("Baker Mayfield", 200, 99999)),
+          ("Jonathon Brooks > Trevor Etienne", gt("Jonathon Brooks", "Trevor Etienne")), ("Corey Kiner down (< $50)", rng("Corey Kiner", 1, 50)),
+          ("Jalen Coker a high 3rd / low 2nd ($120-$300)", rng("Jalen Coker", 120, 300)), ("Jalen Milroe below a 3rd (< $58)", rng("Jalen Milroe", 1, 58)),
+          ("LeQuint Allen Jr. down (< $40)", rng("LeQuint Allen Jr.", 1, 40)), ("J.J. McCarthy about a low 3rd ($55-$110)", rng("J.J. McCarthy", 55, 110)),
+          ("Josh Downs a mid 3rd ($75-$130)", rng("Josh Downs", 75, 130)), ("Kyle Pitts back up to about $550 ($480-$650)", rng("Kyle Pitts Sr.", 480, 650))]
+    t += [(f"{n} a low 4th at best (< $40)", rng(n, 1, 40)) for n in ("Mike Gesicki", "Evan Engram", "Brenton Strange")]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)

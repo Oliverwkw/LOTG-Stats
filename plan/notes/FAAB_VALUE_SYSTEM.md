@@ -464,6 +464,50 @@ Rule layer (`faab_value.py`):
 - Calls dated 2026-11-23 (each "less than"): Henderson < $500; Makai Lemon, Jadarian Price, KC Concepcion and
   Kenyon Sadiq under their league slot prices; Emmett Johnson < $625. On 2026-11-24: Kyle Monangai around $360.
 
+## Round 7: injury cuts, lost jobs, bad depth WRs, cuffs (Oliver 2026-11-24)
+
+Rule layer only (`faab_value.py`), with loose calls dated 2026-11-24 in `faab_calls.py`:
+- `IR_EASE` 0.5 / `IR_CONTRACT` 0.25: on IR with a proven role (50%+ snaps last season) and not fading before it (3+ games
+  under 60% of last season's PPR/g), the IR, missed-games, severity, not-back, lost-rookie-year and replacement-line docks
+  all charge for the same lost season, so half is lifted, plus a quarter with 2+ contract years left (Alec Pierce's deal).
+- `RET_GOOD` 0.6: back from a lost season (under 4 games, not a suspension), 3+ games and 9+ PPR/g: the availability dock eases (Tank Dell).
+- `QB_DC1` 0.3: a healthy young (under 26) first-round QB first on the depth chart: the availability dock eases (Anthony Richardson).
+- `WR_BAD` 1.5: a 3rd-year+ WR/TE, 4th+ on the depth chart, under 40% of snaps, under 6 PPR/g now and 7 last season (Xavier Legette).
+- `JOB_DC` 2: `xfp_jump` and `RB_JOB_FLOOR` need the back still 1st or 2nd on the depth chart (Dameon Pierce, now 5th).
+- `CUFF_PROVEN_FLOOR` $60: a top-24 RB finisher in 4 seasons, under 29, now RB2/RB3 behind a $1,000+ lead (Brian Robinson Jr. behind Bijan Robinson).
+- `VET_RB_SINCE` / `VET_RB_CAP` 50: the veteran RB floor reads the better of this season's PPR/g and his healthy stretch since
+  his last missed week, capped at $50 (Rhamondre Stevenson's game played hurt).
+
+Top end, same round (final-stage unless noted):
+- `RB_OLD_TOP` 0.7: an RB past 27 keeps 70% of his final value above $1,500 (Jonathan Taylor, James Cook, Christian McCaffrey).
+- `RB_CEDE` 0.15: a $1,500+ RB whose younger teammate holds 40%+ of his share of the team's expected points (4+ games each),
+  fading in over the next 0.2 (Kyren Williams / Blake Corum). Expected points stand in for carries (no carry-share input yet).
+- `NYG_TOP` 0.15: the Giants premium on a $1,500+ final value (Malik Nabers; the NYG_UP band fades out at a $600 base).
+- `IR_QB` 1: the IR relief reaches QBs (Lamar Jackson > Drake Maye); `QB_PRE_BAD` 1.25 (rule layer): a QB on IR whose pre-injury
+  PPR/g (3+ games) ran under 87% of last season's, full 4 points of ratio under it, is docked and gets no IR relief (Jalen Hurts).
+- `CEIL_YOUNG_PTS` 30 (rule layer): a TE in his first 3 seasons is judged against a 30-point best game, not 28 (Harold Fannin Jr.).
+
+Middle tier, same round (rule layer; the volatility rules read this season's games, 4+):
+- `RB_INJ_CUR_PPG` 16: a star season (6+ games at 16+ PPR/g) spares rb_inj through a short non-IR absence (Kenneth Walker III, Chuba Hubbard).
+- `RB_PASS_YPC` 0.1: an RB on a pass-first offense (run share under 18%) with under 4.5 yards a carry over 2 seasons (Chase Brown).
+- `VOL_SPIKE` 0.75: a 4th-year+ WR/TE with 5+ duds in 2 seasons and weekly PPR variation past 0.5 keeps less big-game bonus (Jameson Williams).
+- `TE_INCONS` 0.4: a TE past his rookie year, 4+ duds, swinging weeks, under a 22% target share (Sam LaPorta, Kyle Pitts; not Isaiah Likely).
+- `WR_LAPPED` 0.5: a WR outscored 30%+ by a younger teammate WR with more expected points keeps half his big-game bonus (Rome Odunze / Luther Burden III).
+- `AW_SNAP` 0.3: the college-award bonus fades under 30% of the offensive snaps (Travis Hunter).
+- `CUFF_SMALL` 0.3: a backup RB with 3 or fewer big games keeps less spike / efficiency raise (Emmett Johnson).
+- `WR_SHOWN` 0.5: a rookie WR with 60%+ snaps over 6+ games and under 9 PPR/g keeps half his talent / big-game / opening raises (Antonio Williams).
+
+### Round 7, part 4: middle tier, second pass (Oliver 2026-11-24)
+
+- `TWO_BAD` 0.5 / `TWO_BAD_DOCK` 0.5: a 4th-year+ WR under 10 PPR/g this season (5+ games) and last (8+) loses half his spike bonus plus a log dock (Jordan Addison $300 -> $154).
+- `WR_TOP_TGT` 1 / `WR_TOP_TGT_UP` 0.2: a WR with a 24%+ target share and 12+ PPR/g last season sheds the team docks; if his team's implied points are under `WR_TOP_IMPL` 21 (about the bottom third; record is not used, a defense can carry it) he gets a raise (Michael Wilson $451 -> $712). Not Wan'Dale Robinson 2025 (10.7 PPR/g the year before).
+- `QB_LOST` 1: a QB who started (e_x_dc_prev 1), now off the top of the chart and not on IR, whose team's new starter came in an in-season trade (Kyler Murray $199 -> $73). The existing `QB_BENCH` (healthy only) is not doubled.
+- `YU_DC` 1: the young-upside raise is dropped for a QB 3rd+ / RB or WR 4th+ on the chart, 6+ team games in, not on IR (Singleton, Milroe, LeQuint Allen Jr.).
+- New input `e_x_moved_cur` (faab_features): team now differs from his team in his first game this season. `MID_TRADE` 1 + `MID_TRADE_FLOOR` $90 for a WR under 30 traded in season to a 65%+ team (Josh Downs $45 -> $90). `e_x_new_team` alone also caught summer signings (Kalif Raymond, Greg Dortch).
+- `OLD_CAP` $90 (non-QB 36+, Travis Kelce), `QB_PAID_FLOOR` $300 (starter, 2+ contract years, under 34, top-6 in 4 seasons; not Derek Carr 2023), `QB_YOUNG_FLOOR` $75 (J.J. McCarthy), `WR_ROLE_FLOOR` $140 (Jalen Coker), `RB_PROD_FLOOR` $350 for a healthy lead RB under 30 at 15+ PPR/g over 8+ games, faded at 29+ by `RB_PROD_OLD` 0.7 x team games / 17 (Jaylen Warren $350, Tony Pollard $206), `DC1_TE_FLOOR` $25, `HEIR_SHOWN` (Trevor Etienne / Corey Kiner), `TE_R1_BOOM` 0.15 (top-10 pick TE with a 35+ game in 2 seasons: Kyle Pitts Sr. $548), `RB_INJ_CUR_PPG` 15.
+- Antonio Williams' "< $320" call retired (22 points on MNF); WR_SHOWN kept.
+- Result: calls 205/205, far-off 20.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in

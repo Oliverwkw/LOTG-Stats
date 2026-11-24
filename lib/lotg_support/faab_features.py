@@ -1312,6 +1312,11 @@ def add_x(df):
     # changed teams since last season
     t_now = np.where(cur_ok, m.team.values, None); t_l0 = f0.team.values
     out["e_x_new_team"] = np.where(pd.notna(t_now) & pd.notna(t_l0), (t_now != t_l0).astype(float), np.nan)
+    # traded (or cut and signed) during this season: his team now differs from his team in his first game this season (Oliver
+    # 2026-11-24, Josh Downs to Kansas City); known once his first game is, so no hindsight
+    first_ = C.sort_values("known").dropna(subset=["team"]).groupby(["gsis", "season"]).team.first()
+    t_first = first_.reindex(pd.MultiIndex.from_arrays([d.gsis.values, d.cur_s.values])).values
+    out["e_x_moved_cur"] = np.where(cur_ok & pd.notna(t_now) & pd.notna(t_first), (t_now != t_first).astype(float), np.nan)
     # team strength: win % so far, implied points from the betting lines for games up to a week ahead, last season win % and playoff depth
     tq = pd.DataFrame({"team": np.where(pd.notna(t_now), t_now, t_l0), "date": d.date.values, "s": np.where(d.in_season, d.cur_s, d.cur_s + 0)}).reset_index(drop=True)
     wp, imp = np.full(len(d), np.nan), np.full(len(d), np.nan)
