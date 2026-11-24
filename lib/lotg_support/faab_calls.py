@@ -137,7 +137,8 @@ def calls(v, ref=None, qbs=()):
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
     # Hampton at least Bucky, Henderson at least a high second
     B = on(CALL_DATES[2])
-    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-360; Oliver 2026-11-22: extended to take in $361)", rng("Kyle Monangai", 180, 360)),
+    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), 
+          # Monangai a mid-low second ($180-361) retired 2026-11-24 (Oliver): replaced by the 11-24 call below
           ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999)),
           ("Bucky a 1.06-1.07 ($783-875)", rng("Bucky Irving", 783, 875))]                  # Shmuel 1.07, Oliver 1.06, Ben 1.07
     # league chat 2026-11-03 (the TLaw trade-block thread): Lawrence at least Lamar (Ben, Peter, Sam's offer, Oliver)
