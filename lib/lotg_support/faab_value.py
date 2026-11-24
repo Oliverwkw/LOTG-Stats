@@ -606,6 +606,7 @@ DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
 CUFF_SHORT = 1.0
+ROOKIE_OUT = 0.5   # log dock for a rookie outplayed by a same-team, same-position rookie (0 = off)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
@@ -888,6 +889,19 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_PREM:
         T_["cuff_prem"] = CUFF_PREM * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < CUFF_PREM_AGE) * (np.nan_to_num(col(R, "e_x_comp_share")) >= CUFF_PREM_COMP) \
             * (np.nan_to_num(col(R, "e_x_cur_xfp_share")) >= CUFF_PREM_SH) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * np.interp(raw, CUFF_PREM_BAND, [0, 1, 1, 0])
+    if ROOKIE_OUT:   # (Oliver 2026-11-23, KC Concepcion behind Denzel Boston) a rookie outplayed by another rookie on his team at
+        # his position (3+ games each, more PPR/g and more expected points a game): the room has picked its rookie. Ramps in
+        # over the season's second half like SHOWN (team games SHOWN_T0 -> SHOWN_T1)
+        tm_ = np.nan_to_num(col(R, "e_x_dc_team"), nan=-1); dt_ = R["date"].values if "date" in R else np.zeros(len(R))
+        rk_ = (np.nan_to_num(col(R, "exp"), nan=9) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) & (tm_ >= 0)
+        df_ = pd.DataFrame({"d": dt_, "t": tm_, "p": pos, "ppg": np.where(rk_, np.nan_to_num(col(R, "e_x_ppg_cur")), -1.0),
+                            "xfp": np.where(rk_, np.nan_to_num(col(R, "e_x_cur_xfp_pg")), -1.0)})
+        out_ = np.zeros(len(R))
+        for _, g in df_[rk_].groupby(["d", "t", "p"]):
+            if len(g) < 2: continue
+            for i in g.index: out_[i] = float(((g.ppg > g.ppg[i]) & (g.xfp > g.xfp[i]) & (g.index != i)).any())
+        tg_ = np.nan_to_num(col(R, "e_x_team_games_cur"))
+        T_["rookie_out"] = -ROOKIE_OUT * out_ * np.clip((tg_ - SHOWN_T0) / max(SHOWN_T1 - SHOWN_T0, 1e-9), 0, 1)
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
