@@ -571,7 +571,9 @@ function pickDots(picks, team) {
   if (!picks.length) return '<span class="muted">—</span>';
   return `<span class="dots">${picks.slice().sort((a, b) => a.r - b.r).map((p) => {
     const cs = pickConds(p.y, p.r, p.o);
-    const tip = `${p.y} ${ORD[p.r] || p.r + "th"} round${p.o === team ? " (own pick)" : ", from " + p.o}${p.v != null ? " · " + stripHtml(money(p.v)) : ""}${cs.length ? " · " + cs.map((c) => c.text).join(" · ") : ""} — tap for its page`;
+    // one short line per condition (the full wording is on the pick's page)
+    const short = [...new Set(cs.map((c) => `${c.kind === "protection" ? "Protected" : c.kind === "swap" ? "Swap" : "Better-of"}: ${c.to} gets the better ${ORD[p.r] || p.r + "th"}`))];
+    const tip = `${p.y} ${ORD[p.r] || p.r + "th"}${p.o === team ? " (own)" : ` (${p.o})`}${p.v != null ? " · " + stripHtml(money(p.v)) : ""}${short.length ? " · " + short.join(" · ") : ""}`;
     return `<a class="dot${p.o === team ? "" : " acq"}${cs.length ? " cond" : ""}" href="#/fpick/${p.y}/${p.r}/${encodeURIComponent(p.o)}" title="${esc(tip)}" aria-label="${esc(tip)}">${p.r}</a>`;
   }).join("")}</span>`;
 }

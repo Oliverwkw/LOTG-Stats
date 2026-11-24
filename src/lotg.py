@@ -12769,12 +12769,30 @@ def build_all(repo_root: Path) -> None:
                 # round 5, two in round 8), and no synthetic 5.0X exists in its
                 # year — so excluding it left those legs rendering as a bare
                 # "2020 5.??" instead of naming the player.
-                if num.strip() == "2.09" or (rnd_i >= 5 and not _su_row(prow.get("_is_startup"))):
-                    continue
+                # They are keyed by their own SENTINEL round instead (2.09 -> _R209,
+                # 5.0N -> _R5XX_BASE + N), which no real pick uses, so their trade
+                # legs (which carry the sentinel round) name the drafted player too:
+                # '2026 5.01(D. Allar)', not a bare '2026 5.01'.
+                synthetic = num.strip() == "2.09" or (rnd_i >= 5 and not _su_row(prow.get("_is_startup")))
+                rnd_key = None
+                if synthetic:
+                    s5 = re.match(r"^5\.(\d+)$", num.strip())
+                    if num.strip() == "2.09":
+                        rnd_key = _R209
+                    elif s5:
+                        rnd_key = _R5XX_BASE + int(s5.group(1))
+                    else:
+                        continue
                 orig_team = str(prow.get("Original Team") or "").strip()
                 if not orig_team:
                     continue
                 player = str(prow.get("Player Picked") or "").strip()
+                if synthetic:
+                    if player and player.lower() not in ("unknown", "nan"):
+                        parts = player.split()
+                        short = f"{parts[0][0]}. {' '.join(parts[1:])}" if len(parts) >= 2 else player
+                        pick_lookup[(yr_i, rnd_key, orig_team)] = f"{yr_i} {num.strip()}({short})"
+                    continue
                 # Initial + last name: 'B. Robinson'. Fall back to full
                 # name when we can't tokenize. Skip 'Unknown' / blank
                 # since those aren't drafted yet.
