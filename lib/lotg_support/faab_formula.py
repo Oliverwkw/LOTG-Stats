@@ -62,10 +62,10 @@ def yqb_exp(d, size):
 
 STARTUP_SEASON = 2020    # the startup draft priced veterans and rookies on one board: not a rookie-draft price
 # (Oliver 2026-11-23, TreVeyon Henderson: Out/IR after six healthy games of a shrinking role took his base from $220
-# back to his preseason $1,036) an injured player's base is the best of now, just before the injury and preseason;
-# preseason stands in only while he has fewer than INJ_PRESEASON_G games this season (a camp or early injury: no
-# sample yet). After that his healthy games are the evidence, and an injury tag must not erase them. 99 = old behaviour.
-INJ_PRESEASON_G = 4
+# back to $1,036, his 2025-only value) an injured player's base hides this season's games (c_ppg/c_gp) so a partial
+# game does not count against him; that hides a season's evidence once he has a sample. They stay hidden only while he
+# has fewer than INJ_SEASON_G games this season (a camp or early injury). 99 = always hidden (the old behaviour).
+INJ_SEASON_G = 4
 UNDRAFTED_PICK = 300.0     # NFL overall pick an undrafted rookie counts as (past the 7th round)
 
 
@@ -207,14 +207,13 @@ class Formula:
             lf = d.Lf; new = {}
             for sid, t0 in start.items():
                 hd, hl = self._hist.get(sid, (np.array([], "datetime64[ns]"), None)); v = lf.loc[sid]
-                gp_ = d.c_gp.get(sid, np.nan); pre_ok = not (gp_ >= INJ_PRESEASON_G)
-                for t_ in ((t0, s_ko - pd.Timedelta(days=1)) if pre_ok else (t0,)):
+                for t_ in (t0, s_ko - pd.Timedelta(days=1)):
                     j = np.searchsorted(hd, np.datetime64(t_), side="right") - 1
                     if j >= 0: v = max(v, hl[j])
                 new[sid] = v
             for sid, v in new.items(): d.loc[sid, "Lf"] = v
         d["c_ppg_raw"], d["c_gp_raw"] = d.c_ppg, d.c_gp
-        d.loc[d.injury != "", ["c_ppg", "c_gp"]] = np.nan
+        d.loc[(d.injury != "") & ~(d.c_gp.fillna(0) >= INJ_SEASON_G), ["c_ppg", "c_gp"]] = np.nan
         d["bp"] = bp.reindex(d.index).fillna(""); d["a_y"] = d.a_y.astype(float)
         return d
 
