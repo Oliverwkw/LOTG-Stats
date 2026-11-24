@@ -564,8 +564,13 @@ def test_final_stage_is_in_the_explain_breakdown():
     assert "vet_floor" in terms and "top" in st
     fin = st["top"] * np.exp(sum(terms[k] for k in F.final_terms(T, st["top"], p, F.characteristics(T))))
     # the starter floors (QB at least a 3rd, an RB who won the job) lift a value after the final stage, never lower it
-    floored = np.isclose(out, F.QB_START_FLOOR) | np.isclose(out, F.RB_JOB_FLOOR)
-    assert np.allclose(out[~floored], fin[~floored]) and (out[floored] >= fin[floored] - 1e-9).all()
+    # (round 7 adds more dollar floors and one cap, OLD_CAP, which can only lower)
+    fl = [F.QB_START_FLOOR, F.RB_JOB_FLOOR, F.QB_PAID_FLOOR, F.QB_YOUNG_FLOOR, F.WR_ROLE_FLOOR, F.RB_PROD_FLOOR, F.MID_TRADE_FLOOR,
+          F.CUFF_PROVEN_FLOOR, F.HEIR_FLOOR, F.DC1_FLOOR, F.DC1_TE_FLOOR]
+    floored = np.any([np.isclose(out, x) for x in fl if x], axis=0)
+    capped = np.isclose(out, F.OLD_CAP) & (F.OLD_CAP > 0)
+    assert np.allclose(out[~floored & ~capped], fin[~floored & ~capped]) and (out[floored] >= fin[floored] - 1e-9).all() \
+        and (out[capped] <= fin[capped] + 1e-9).all()
 
 
 def test_try_rule_scores_a_change_against_the_current_params():
