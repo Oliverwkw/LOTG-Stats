@@ -424,3 +424,61 @@ season,sleeper_id,espn_id,player,position,status,return_date,return_week,season_
 2026,6083,4249087,Matt Gay,K,Active,,,false,,Hip,2026-11-19T00:07,2026-11-22T20:46:25+00:00
 2026,8135,4567156,Treylon Burks,WR,Active,,,false,,Foot,2026-11-20T21:26,2026-11-22T20:46:25+00:00
 2026,13411,4869748,Zavion Thomas,WR,Active,,,false,,Ankle,2026-11-20T20:43,2026-11-22T20:46:25+00:00
+2026,8142,4360078,Alec Pierce,WR,Injured Reserve,2027-01-10,18,false,,Heel,2026-11-23T19:48,2026-11-24T01:46:20+00:00
+2026,10226,4368003,Andrei Iosivas,WR,Injured Reserve,2026-11-29,12,false,,Thumb - Surgery,2026-11-23T22:36,2026-11-24T01:46:20+00:00
+2026,12048,4429835,George Holani,RB,Injured Reserve,2026-12-25,16,false,,Knee - MCL - Sprain,2026-11-23T23:11,2026-11-24T01:46:20+00:00
+2026,9225,4429013,Tank Bigsby,RB,Injured Reserve,2026-12-06,13,false,,Abdomen - Surgery,2026-10-06T23:17,2026-11-24T01:46:20+00:00
+2026,12487,4570037,Terrance Ferguson,TE,Injured Reserve,2027-02-15,,true,remainder of the season,Ankle - Surgery,2026-11-23T19:35,2026-11-24T01:46:20+00:00
+2026,13557,4432722,Athan Kaliakmanis,QB,Out,2026-11-29,12,false,,Coach's Decision,2026-11-24T00:09,2026-11-24T01:46:20+00:00
+2026,12062,4700712,Cam Grandy,TE,Out,2026-11-29,12,false,,Coach's Decision,2026-11-23T23:47,2026-11-24T01:46:20+00:00
+2026,11651,4372561,Isaac Guerendo,RB,Out,2026-11-29,12,false,,Pectoral - Surgery,2026-11-20T00:28,2026-11-24T01:46:20+00:00
+2026,13418,5151317,Robert Henry Jr.,RB,Out,2026-11-29,12,false,,Coach's Decision,2026-11-23T23:50,2026-11-24T01:46:20+00:00
+2026,13424,4686468,Seth McGowan,RB,Out,2026-12-13,14,false,,Hamstring,2026-11-23T20:02,2026-11-24T01:46:20+00:00
+2026,12490,4882093,Bhayshul Tuten,RB,Questionable,2026-11-29,12,false,,Ankle,2026-11-23T19:28,2026-11-24T01:46:20+00:00
+2026,5022,3121023,Dallas Goedert,TE,Questionable,2026-11-26,12,false,,Shin,2026-11-23T22:07,2026-11-24T01:46:20+00:00
+2026,8527,4401805,Dareke Young,WR,Questionable,2026-11-29,12,false,,Neck - Stinger,2026-11-22T22:53,2026-11-24T01:46:20+00:00
+2026,6797,4038941,Justin Herbert,QB,Questionable,2026-11-29,12,false,,Concussion - Concussion,2026-11-23T00:32,2026-11-24T01:46:20+00:00
+2026,7002,3929645,Juwan Johnson,TE,Questionable,2026-11-29,12,false,,Hamstring,2026-11-23T20:13,2026-11-24T01:46:20+00:00
+2026,9511,4596334,Keaton Mitchell,RB,Questionable,2026-11-29,12,false,,Knee,2026-11-22T21:54,2026-11-24T01:46:20+00:00
+2026,10235,4426386,Roschon Johnson,RB,Questionable,2026-11-26,12,false,,Ankle,2026-11-22T19:58,2026-11-24T01:46:20+00:00
+2026,10859,4430027,Sam LaPorta,TE,Questionable,2026-11-26,12,false,,Ankle,2026-11-24T00:38,2026-11-24T01:46:20+00:00
+2026,4866,3929630,Saquon Barkley,RB,Questionable,2026-11-26,12,false,,Neck,2026-11-23T22:04,2026-11-24T01:46:20+00:00
+2026,9230,4685201,Tanner McKee,QB,Questionable,2026-11-26,12,false,,Ribs,2026-11-24T00:14,2026-11-24T01:46:20+00:00
+2026,11577,4431545,Will Shipley,RB,Questionable,2026-11-26,12,false,,Illness,2026-11-24T00:21,2026-11-24T01:46:20+00:00
+2026,13302,4685526,Adam Randall,RB,Active,,,false,,Coach's Decision,2026-11-22T16:39,2026-11-24T01:46:20+00:00
+2026,12533,4575131,Jacory Croskey-Merritt,RB,Active,,,false,,Groin,2026-10-19T20:28,2026-11-24T01:46:20+00:00
+2026,6803,4360438,Brandon Aiyuk,WR,Active,,,false,,Personal,2026-11-09T22:31,2026-11-24T01:46:20+00:00
+2026,2216,16737,Mike Evans,WR,Active,,,false,,Achilles - Tendinitis,2026-11-16T22:05,2026-11-24T01:46:20+00:00
+2026,12715,4590292,Thomas Fidone II,TE,Active,,,false,,Coach's Decision,2026-11-22T20:05,2026-11-24T01:46:20+00:00
+2026,12541,4432775,Dont'e Thornton Jr.,WR,Active,,,false,,Coach's Decision,2026-11-22T20:12,2026-11-24T01:46:20+00:00
+2026,6828,4239934,AJ Dillon,RB,Active,,,false,,Coach's Decision,2026-11-22T16:46,2026-11-24T01:46:20+00:00
+2026,13554,5085024,CJ Williams,WR,Active,,,false,,Coach's Decision,2026-11-22T19:58,2026-11-24T01:46:20+00:00
+2026,13404,4567747,Garrett Nussmeier,QB,Active,,,false,,Coach's Decision,2026-11-22T16:50,2026-11-24T01:46:20+00:00
+2026,13415,4428993,Haynes King,QB,Active,,,false,,Coach's Decision,2026-11-22T17:06,2026-11-24T01:46:20+00:00
+2026,11600,4431588,Ja'Tavion Sanders,TE,Active,,,false,,Coach's Decision,2026-11-22T17:25,2026-11-24T01:46:20+00:00
+2026,8219,4241410,Jelani Woods,TE,Active,,,false,,Coach's Decision,2026-11-22T19:37,2026-11-24T01:46:20+00:00
+2026,13400,4912052,Justin Joly,TE,Active,,,false,,Coach's Decision,2026-11-22T16:40,2026-11-24T01:46:20+00:00
+2026,13288,4685555,Nicholas Singleton,RB,Active,,,false,,Coach's Decision,2026-11-22T16:55,2026-11-24T01:46:20+00:00
+2026,12470,4683423,Riley Leonard,QB,Active,,,false,,Coach's Decision,2026-11-20T20:31,2026-11-24T01:46:20+00:00
+2026,7538,4361259,Zach Wilson,QB,Active,,,false,,Coach's Decision,2026-11-22T16:48,2026-11-24T01:46:20+00:00
+2026,7527,4241464,Mac Jones,QB,Active,,,false,,Illness,2026-11-19T01:45,2026-11-24T01:46:20+00:00
+2026,12467,4685397,Jordan James,RB,Active,,,false,,Calf,2026-11-19T23:35,2026-11-24T01:46:20+00:00
+2026,8136,4697815,Rachaad White,RB,Active,,,false,,Heel,2026-11-20T21:09,2026-11-24T01:46:20+00:00
+2026,11579,4569682,Audric Estime,RB,Active,,,false,,Coach's Decision,2026-11-22T16:43,2026-11-24T01:46:20+00:00
+2026,1737,15168,Case Keenum,QB,Active,,,false,,Coach's Decision,2026-11-22T16:56,2026-11-24T01:46:20+00:00
+2026,13335,4879250,Cole Payton,QB,Active,,,false,,Coach's Decision,2026-11-22T16:38,2026-11-24T01:46:20+00:00
+2026,13577,5159802,Dallen Bentley,TE,Active,,,false,,Coach's Decision,2026-11-22T20:01,2026-11-24T01:46:20+00:00
+2026,13289,4714771,Drew Allar,QB,Active,,,false,,Coach's Decision,2026-11-22T16:39,2026-11-24T01:46:20+00:00
+2026,6185,3120590,Easton Stick,QB,Active,,,false,,Coach's Decision,2026-11-22T17:15,2026-11-24T01:46:20+00:00
+2026,13423,5081508,Eli Heidenreich,RB,Active,,,false,,Coach's Decision,2026-11-22T16:39,2026-11-24T01:46:20+00:00
+2026,13268,5088338,Elijah Sarratt,WR,Active,,,false,,Coach's Decision,2026-11-22T16:43,2026-11-24T01:46:20+00:00
+2026,13603,4691889,Gregory Desrosiers Jr.,RB,Active,,,false,,Coach's Decision,2026-11-22T20:05,2026-11-24T01:46:20+00:00
+2026,13491,5081338,Kaden Wetjen,WR,Active,,,false,,Coach's Decision,2026-11-22T17:19,2026-11-24T01:46:20+00:00
+2026,12670,4430870,KeAndre Lambert-Smith,WR,Active,,,false,,Coach's Decision,2026-11-22T19:46,2026-11-24T01:46:20+00:00
+2026,11648,4428512,Kedon Slovis,QB,Active,,,false,,Coach's Decision,2026-11-22T16:35,2026-11-24T01:46:20+00:00
+2026,5938,4039057,Lil'Jordan Humphrey,WR,Active,,,false,,Coach's Decision,2026-11-22T20:16,2026-11-24T01:46:20+00:00
+2026,13329,5150247,Malik Benson,WR,Active,,,false,,Coach's Decision,2026-11-22T20:01,2026-11-24T01:46:20+00:00
+2026,7583,4241820,Sam Ehlinger,QB,Active,,,false,,Coach's Decision,2026-11-22T20:12,2026-11-24T01:46:20+00:00
+2026,13402,4683153,Skyler Bell,WR,Active,,,false,,Coach's Decision,2026-11-22T16:55,2026-11-24T01:46:20+00:00
+2026,12511,4429955,Will Howard,QB,Active,,,false,,Coach's Decision,2026-11-22T16:51,2026-11-24T01:46:20+00:00
+2026,8150,4430737,Kyren Williams,RB,Active,,,false,,Toe - Soreness,2026-11-21T21:55,2026-11-24T01:46:20+00:00
