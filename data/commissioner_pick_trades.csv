@@ -101,8 +101,10 @@ pick_year,round,orig_owner,from_owner,to_owner,trade_completed_utc,deal,notes
 # Luke's 2029 3rd (traded to Ben in the Kupp deal) came back to Luke here.
 2026,209,Oliverwkw,LWebs53,shmuel256,2026-07-10 21:26:39,To Sam (5-team trade),2026 2.09 hop 2
 2029,3,LWebs53,BROsenzweig,LWebs53,2026-07-10 21:26:39,To Luke (5-team trade),2029 3rd away-and-back
-# --- 2026 draft-day: Luke's 2030 4th to Steve (with his recorded 2026 4.06) ---
-2030,4,LWebs53,LWebs53,stevenb123,2026-07-12 22:58:16,2026 4.06 trade,
+# --- 2026 draft-day: Steve's 2030 4th to Luke (with the 5.01, for Luke's recorded 2026 4.06) ---
+# Corrected 2026-11-24 (Oliver): Luke GOT Steve's 2030 4th in this deal; the ledger had it
+# backwards (Luke's 4th to Steve), which made Luke pay a 4.06 and a 4th for a 5.01.
+2030,4,stevenb123,stevenb123,LWebs53,2026-07-12 22:58:16,2026 4.06 trade,
 # --- 2026 draft-day 5.0X FAAB-buy trades (sentinel round 5NN: 501=5.01, 502=5.02) ---
 # Steve bought the 5.01 and sent it to Luke (who drafted Drew Allar) with the
 # 2026 4.06 deal; Ben bought the 5.02 and sent it to Peter (Max Klare) for 20 FAAB.
