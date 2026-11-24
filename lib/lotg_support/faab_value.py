@@ -94,8 +94,10 @@ UPSIDE_EXP = 2       # young_upside: a player in his first three seasons
 # NFL sample, low output is information, not upside. SHOWN fades the low-production credit by NFL games played (this
 # season and the last two, full at SHOWN_G); CAP_SHOWN fades rookie_capital by this season's games (full at CAP_SHOWN_G)
 # times how far under replacement his usage runs (CAP_SHOWN_U = full). 0 = off.
-SHOWN, SHOWN_G = 0.0, 16.0
-CAP_SHOWN, CAP_SHOWN_G, CAP_SHOWN_U = 0.0, 12.0, 0.5
+SHOWN, SHOWN_G = 1.0, 16.0
+SHOWN_PPG = 13.0   # PPR/g at which the ramp is fully off (full at 3 under it; 0 = no points gate)
+SHOWN_T0, SHOWN_T1 = 7.0, 10.0  # (start, full) in team games this season: the fades ramp over the season instead (full 0 = off; needs 3+ games played)
+CAP_SHOWN, CAP_SHOWN_G, CAP_SHOWN_U = 1.0, 12.0, 0.5
 ELITE_AGE = 24.0     # young_elite: full under this age, none a year older
 ROOKIE_PRIOR = {"QB": 1.0, "RB": 0.25, "WR": 1.0, "TE": 1.0}   # share of the 4-game usage prior a rookie year gets (Kyren 2023)
 OVR_AGE = 29.0      # "an aging veteran who loses his role to a rookie": full from this age, none 2 years younger
@@ -308,7 +310,11 @@ def characteristics(R, youth_age=26.0):
     # count talent only beyond what the player already produces (no double count for a star on a good offense)
     prod_z = np.clip(usage, -1, 2)
     nfl_g = cur_gp + np.nan_to_num(col(R, "e_x_l0_games")) + np.nan_to_num(col(R, "e_x_l1_games"))
-    shown = 1 - SHOWN * np.clip(nfl_g / SHOWN_G, 0, 1)            # share of the low-production credit kept (1 = all)
+    tgc_ = np.nan_to_num(col(R, "e_x_team_games_cur"))
+    ramp_ = np.clip((tgc_ - SHOWN_T0) / (SHOWN_T1 - SHOWN_T0), 0, 1) * (cur_gp >= 3)   # the season's second half
+    # ... and only for a player whose fantasy points are short too (an efficient scorer on few expected points is not a bust)
+    ramp_ = ramp_ * (np.clip((SHOWN_PPG - np.nan_to_num(col(R, "e_x_ppg_cur"), nan=0)) / 3.0, 0, 1) if SHOWN_PPG else 1.0)
+    shown = 1 - SHOWN * (ramp_ if SHOWN_T1 > 0 else np.clip(nfl_g / SHOWN_G, 0, 1))   # share of the low-production credit kept
     prod_s = np.where(prod_z < 0, prod_z * shown, prod_z)
     wr_talent = np.isin(posv, ["WR", "TE"]) * np.clip(wr_talent_raw - prod_s, 0, 2)   # (QBs/RBs: their own rule below)
     # a QB or RB in his first three seasons not producing yet: upside the stats have not shown (until 2026-11-08 this leaked into
@@ -326,7 +332,7 @@ def characteristics(R, youth_age=26.0):
     rb_age = (posv == "RB") * np.clip((np.nan_to_num(age, nan=25) - 28.5) / 2, 0, 1.5) * hurt
     # a high-drafted rookie keeps his draft value through his rookie season
     rookie_capital = (exp_ == 0) * np.where(np.isnan(pk), 0, np.clip((64 - pk) / 63, 0, 1))
-    rookie_capital = rookie_capital * (1 - CAP_SHOWN * np.clip(cur_gp / CAP_SHOWN_G, 0, 1) * np.clip(-prod_z / CAP_SHOWN_U, 0, 1))
+    rookie_capital = rookie_capital * (1 - CAP_SHOWN * (ramp_ if SHOWN_T1 > 0 else np.clip(cur_gp / CAP_SHOWN_G, 0, 1)) * np.clip(-prod_z / CAP_SHOWN_U, 0, 1))
     # the team's top target: leading target share (this season with last as prior)
     tsc, ts0 = col(R, "e_x_cur_tgt_share"), col(R, "e_x_l0_tgt_share")
     tsb = np.where(np.isnan(tsc), ts0, np.where(np.isnan(ts0), tsc, (tsc * cur_gp + ts0 * 4) / (cur_gp + 4)))
@@ -599,7 +605,7 @@ CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = 0.0, 22.5,
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
-CUFF_SHORT = 0.0
+CUFF_SHORT = 1.0
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
