@@ -55,9 +55,6 @@
 - 2026-10-28: **Courtland Sutton** $32 vs **Emanuel Wilson** $14: votes say Emanuel Wilson (s -1.00, 1 answers) — DISAGREES
   - Courtland Sutton: replacement line x0.61, position curve x1.16, team_q x1.16, share_talent x1.10
   - Emanuel Wilson: rookie_r1 x0.22, replacement line x0.66, availability x1.45, rookie_backup x0.78
-- 2026-10-26: **Dylan Sampson** $53 vs **Devaughn Vele** $23: votes say Devaughn Vele (s -1.00, 1 answers) — DISAGREES
-  - Dylan Sampson: young_upside x2.40, rb_band x1.76, team_q_lo x0.60, inj_ir x0.69
-  - Devaughn Vele: team_q_lo x0.73, r1_wr x0.74, wr_backup x0.82, availability x0.84
 - 2026-11-11: **Jalen Hurts** $1,549 vs **Jordyn Tyson** $679: votes say Jordyn Tyson (s -1.00, 1 answers) — DISAGREES
   - Jalen Hurts: qb_pre_bad x0.54, inj_ir x0.76, track x1.17, qb_band x0.86
   - Jordyn Tyson: rookie_capital x1.74, rookie_lost x0.67, inj_ir x0.69, wr_band x0.78
@@ -135,6 +132,9 @@
   - team_q_lo x0.52, wr_talent x1.66, spike x1.60, efficiency x1.25
 - 2026-11-09: **Jayden Higgins** board $253, votes: about right 1 (1 answers) — DISAGREES
   - share_talent x0.73, usage x0.81, td_dep x0.83, spike x1.19
+- 2026-10-26: **Dylan Sampson** $40 vs **Devaughn Vele** $23: votes say Devaughn Vele (s -1.00, 1 answers) — DISAGREES
+  - Dylan Sampson: young_upside x2.40, team_q_lo x0.60, rb_band x1.54, inj_ir x0.69
+  - Devaughn Vele: team_q_lo x0.73, r1_wr x0.74, wr_backup x0.82, availability x0.84
 - 2026-11-18: **Tucker Kraft** $174 vs **Blake Corum** $300: votes say Tucker Kraft (s +1.00, 2 answers) — DISAGREES
   - Tucker Kraft: te_line x0.43, te_incons x0.70, share_talent x0.83, availability x0.87
   - Blake Corum: young_upside x1.65, share_talent x0.68, rb_touch x0.69, spike x1.35
@@ -1759,7 +1759,7 @@
 - 2026-10-26: **Denzel Boston** $969 vs **Josh Jacobs** $938: votes say even (s +0.00, 1 answers)
 - 2026-10-26: **Denzel Boston** board $969, votes: too high 1 (1 answers)
 - 2026-10-26: **Josh Jacobs** board $938, votes: about right 1 (1 answers)
-- 2026-10-26: **Dylan Sampson** board $53, votes: too high 1 (1 answers)
+- 2026-10-26: **Dylan Sampson** board $40, votes: too high 1 (1 answers)
 - 2026-10-26: **Emeka Egbuka** $1,131 vs **Isaiah Likely** $982: votes say even (s +0.00, 1 answers)
 - 2026-10-26: **Colston Loveland** $1,326 vs **Omar Cooper Jr.** $681: votes say Colston Loveland (s +1.00, 1 answers)
 - 2026-10-26: **Omar Cooper Jr.** board $681, votes: too high 1 (1 answers)
@@ -2064,8 +2064,8 @@
 - 2026-10-28: **Justin Herbert** board $743, votes: about right 1 (1 answers)
 - 2026-10-28: **Zay Flowers** $1,807 vs **Joe Burrow** $2,204: votes say Joe Burrow (s -1.00, 1 answers)
 - 2026-10-28: **Zay Flowers** board $1,807, votes: too high 1 (1 answers)
-- 2026-10-28: **Romeo Doubs** $105 vs **Dylan Sampson** $59: votes say Romeo Doubs (s +1.00, 1 answers)
-- 2026-10-28: **Dylan Sampson** board $59, votes: too high 1 (1 answers)
+- 2026-10-28: **Romeo Doubs** $105 vs **Dylan Sampson** $47: votes say Romeo Doubs (s +1.00, 1 answers)
+- 2026-10-28: **Dylan Sampson** board $47, votes: too high 1 (1 answers)
 - 2026-10-28: **Harold Fannin Jr.** board $940, votes: too high 1 (1 answers)
 - 2026-10-28: **Parker Washington** board $802, votes: about right 1 (1 answers)
 - 2026-10-28: **Kenyon Sadiq** board $671, votes: too high 1 (1 answers)
