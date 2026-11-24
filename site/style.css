@@ -559,3 +559,8 @@ table.lens tr.me td{background:color-mix(in srgb,var(--accent) 10%,transparent)!
 .gtile{display:flex;flex-direction:column;gap:2px;background:var(--bg2);border-radius:12px;padding:9px 11px;border:1px solid var(--line)}
 .gtile b{font:700 22px var(--display);letter-spacing:-.01em}
 .gtile.st{border-color:var(--accent-line)}
+/* future picks: each dot opens the pick's page */
+a.dot{text-decoration:none;transition:transform .1s,box-shadow .1s}
+a.dot:hover{text-decoration:none;transform:translateY(-1px);box-shadow:0 0 0 2px var(--accent-line)}
+.dot.cond{position:relative}
+.dot.cond::after{content:"";position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:var(--warn);border:1px solid var(--card)}
