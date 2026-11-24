@@ -497,6 +497,17 @@ Middle tier, same round (rule layer; the volatility rules read this season's gam
 - `CUFF_SMALL` 0.3: a backup RB with 3 or fewer big games keeps less spike / efficiency raise (Emmett Johnson).
 - `WR_SHOWN` 0.5: a rookie WR with 60%+ snaps over 6+ games and under 9 PPR/g keeps half his talent / big-game / opening raises (Antonio Williams).
 
+### Round 7, part 4: middle tier, second pass (Oliver 2026-11-24)
+
+- `TWO_BAD` 0.5 / `TWO_BAD_DOCK` 0.5: a 4th-year+ WR under 10 PPR/g this season (5+ games) and last (8+) loses half his spike bonus plus a log dock (Jordan Addison $300 -> $154).
+- `WR_TOP_TGT` 1 / `WR_TOP_TGT_UP` 0.2: a WR with a 24%+ target share and 12+ PPR/g last season sheds the team docks; if his team's implied points are under `WR_TOP_IMPL` 21 (about the bottom third; record is not used, a defense can carry it) he gets a raise (Michael Wilson $451 -> $712). Not Wan'Dale Robinson 2025 (10.7 PPR/g the year before).
+- `QB_LOST` 1: a QB who started (e_x_dc_prev 1), now off the top of the chart and not on IR, whose team's new starter came in an in-season trade (Kyler Murray $199 -> $73). The existing `QB_BENCH` (healthy only) is not doubled.
+- `YU_DC` 1: the young-upside raise is dropped for a QB 3rd+ / RB or WR 4th+ on the chart, 6+ team games in, not on IR (Singleton, Milroe, LeQuint Allen Jr.).
+- New input `e_x_moved_cur` (faab_features): team now differs from his team in his first game this season. `MID_TRADE` 1 + `MID_TRADE_FLOOR` $90 for a WR under 30 traded in season to a 65%+ team (Josh Downs $45 -> $90). `e_x_new_team` alone also caught summer signings (Kalif Raymond, Greg Dortch).
+- `OLD_CAP` $90 (non-QB 36+, Travis Kelce), `QB_PAID_FLOOR` $300 (starter, 2+ contract years, under 34, top-6 in 4 seasons; not Derek Carr 2023), `QB_YOUNG_FLOOR` $75 (J.J. McCarthy), `WR_ROLE_FLOOR` $140 (Jalen Coker), `RB_PROD_FLOOR` $350 for a healthy lead RB under 30 at 15+ PPR/g over 8+ games, faded at 29+ by `RB_PROD_OLD` 0.7 x team games / 17 (Jaylen Warren $350, Tony Pollard $206), `DC1_TE_FLOOR` $25, `HEIR_SHOWN` (Trevor Etienne / Corey Kiner), `TE_R1_BOOM` 0.15 (top-10 pick TE with a 35+ game in 2 seasons: Kyle Pitts Sr. $548), `RB_INJ_CUR_PPG` 15.
+- Antonio Williams' "< $320" call retired (22 points on MNF); WR_SHOWN kept.
+- Result: calls 205/205, far-off 20.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
