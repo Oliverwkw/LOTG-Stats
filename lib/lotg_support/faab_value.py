@@ -88,6 +88,17 @@ AGE_WALL = {"QB": 99, "RB": 30, "WR": 31, "TE": 32}     # past this, a declining
 UK = 2.5     # no NFL team (off every depth chart, no games, not hurt): x0.08
 def col(R, c): return R[c].values.astype(float) if c in R else np.full(len(R), np.nan)
 UPSIDE_EXP = 2       # young_upside: a player in his first three seasons
+# (Oliver 2026-11-23, TreVeyon Henderson / Makai Lemon / Jadarian Price / KC Concepcion / Kenyon Sadiq): low production
+# in a young player is credited as "upside not shown yet" (young_upside for QB/RB, the talent-minus-production gap in
+# wr_talent for WR/TE) and a rookie keeps his draft capital (rookie_capital) all season. Both are priors: once he has an
+# NFL sample, low output is information, not upside. SHOWN fades the low-production credit by NFL games played (this
+# season and the last two, full at SHOWN_G); CAP_SHOWN fades rookie_capital by this season's games (full at CAP_SHOWN_G)
+# times how far under replacement his usage runs (CAP_SHOWN_U = full). 0 = off.
+SHOWN, SHOWN_G = 1.0, 16.0
+SHOWN_PPG = 13.0   # PPR/g at which the ramp is fully off (full at 3 under it; 0 = no points gate)
+SHOWN_B0, SHOWN_B1 = 150.0, 300.0   # (none, full) stats base for the fades; (0, 0) = everyone
+SHOWN_T0, SHOWN_T1 = 7.0, 10.0  # (start, full) in team games this season: the fades ramp over the season instead (full 0 = off; needs 3+ games played)
+CAP_SHOWN, CAP_SHOWN_G, CAP_SHOWN_U = 1.0, 12.0, 0.5
 ELITE_AGE = 24.0     # young_elite: full under this age, none a year older
 ROOKIE_PRIOR = {"QB": 1.0, "RB": 0.25, "WR": 1.0, "TE": 1.0}   # share of the 4-game usage prior a rookie year gets (Kyren 2023)
 OVR_AGE = 29.0      # "an aging veteran who loses his role to a rookie": full from this age, none 2 years younger
@@ -299,10 +310,19 @@ def characteristics(R, youth_age=26.0):
                                                     + 0.2 * np.nan_to_num((sp_ - 2.8) / 0.4) + 0.25 * np.nan_to_num(col(R, "e_x_top5_6y")) / 3, -1, 2)
     # count talent only beyond what the player already produces (no double count for a star on a good offense)
     prod_z = np.clip(usage, -1, 2)
-    wr_talent = np.isin(posv, ["WR", "TE"]) * np.clip(wr_talent_raw - prod_z, 0, 2)   # (QBs/RBs: their own rule below)
+    nfl_g = cur_gp + np.nan_to_num(col(R, "e_x_l0_games")) + np.nan_to_num(col(R, "e_x_l1_games"))
+    tgc_ = np.nan_to_num(col(R, "e_x_team_games_cur"))
+    ramp_ = np.clip((tgc_ - SHOWN_T0) / (SHOWN_T1 - SHOWN_T0), 0, 1) * (cur_gp >= 3)   # the season's second half
+    # ... and only for a player whose fantasy points are short too (an efficient scorer on few expected points is not a bust)
+    ramp_ = ramp_ * (np.clip((SHOWN_PPG - np.nan_to_num(col(R, "e_x_ppg_cur"), nan=0)) / 3.0, 0, 1) if SHOWN_PPG else 1.0)
+    # ... and only for a priced-in prospect (stats base over SHOWN_BAND): a cheap backup's upside is what the league buys
+    ramp_ = ramp_ * np.interp(np.nan_to_num(col(R, "V_raw"), nan=0), (SHOWN_B0, SHOWN_B1), [0, 1]) if SHOWN_B1 > 0 else ramp_
+    shown = 1 - SHOWN * (ramp_ if SHOWN_T1 > 0 else np.clip(nfl_g / SHOWN_G, 0, 1))   # share of the low-production credit kept
+    prod_s = np.where(prod_z < 0, prod_z * shown, prod_z)
+    wr_talent = np.isin(posv, ["WR", "TE"]) * np.clip(wr_talent_raw - prod_s, 0, 2)   # (QBs/RBs: their own rule below)
     # a QB or RB in his first three seasons not producing yet: upside the stats have not shown (until 2026-11-08 this leaked into
     # wr_talent for every QB/RB with usage under replacement; now its own rule, young players only)
-    young_upside = np.isin(posv, ["QB", "RB"]) * (exp_ <= UPSIDE_EXP) * np.clip(-prod_z, 0, 1)
+    young_upside = np.isin(posv, ["QB", "RB"]) * (exp_ <= UPSIDE_EXP) * np.clip(-prod_s, 0, 1)
     # a top pick finally playing as advertised: this season's points per game above his own last season (upswings only)
     fp_c = col(R, "e_x_cur_xfp_pg") + col(R, "e_x_cur_fpoe_pg"); fp_0 = col(R, "e_x_l0_xfp_pg") + col(R, "e_x_l0_fpoe_pg")
     pk = col(R, "e_x_draft_pick"); top_pick = np.where(np.isnan(pk), 0, np.clip((16 - pk) / 15, 0, 1))
@@ -315,6 +335,7 @@ def characteristics(R, youth_age=26.0):
     rb_age = (posv == "RB") * np.clip((np.nan_to_num(age, nan=25) - 28.5) / 2, 0, 1.5) * hurt
     # a high-drafted rookie keeps his draft value through his rookie season
     rookie_capital = (exp_ == 0) * np.where(np.isnan(pk), 0, np.clip((64 - pk) / 63, 0, 1))
+    rookie_capital = rookie_capital * (1 - CAP_SHOWN * (ramp_ if SHOWN_T1 > 0 else np.clip(cur_gp / CAP_SHOWN_G, 0, 1)) * np.clip(-prod_z / CAP_SHOWN_U, 0, 1))
     # the team's top target: leading target share (this season with last as prior)
     tsc, ts0 = col(R, "e_x_cur_tgt_share"), col(R, "e_x_l0_tgt_share")
     tsb = np.where(np.isnan(tsc), ts0, np.where(np.isnan(ts0), tsc, (tsc * cur_gp + ts0 * 4) / (cur_gp + 4)))
@@ -587,6 +608,12 @@ CONTRACT_SIT, CONTRACT_SIT_MID, CONTRACT_SIT_AGE, CONTRACT_SIT_BAND = 0.0, 22.5,
 DOCK_CAP, DOCK_KEEP, DOCK_POS = -99.0, ("summer",), ("QB", "RB", "WR", "TE")
 SPIKE_DAY3, SPIKE_DAY3_PICK = 0.5, 100
 CUFF_ACT, CUFF_FADE, CUFF_BAND = 2.0, (1.0, 2.0, 4.0), (-2.0, -1.0, 150.0, 300.0)
+CUFF_SHORT = 1.0
+CUFF_BAD_PPG = 10.0   # lead back's PPR/g under which the short-absence cut eases (0 = off)
+CUFF_BAD_YPC, CUFF_BAD_EFF = 4.0, 0.9   # ... and his yards a carry / actual over expected PPR under which it eases
+RET_BAD, RET_G = 0.5, 3   # dock for a bad return from injury (log), over the first RET_G games back (0 = off)
+ROOKIE_UP = 0.6   # log raise for the rookie who outplays a same-team, same-position rookie drafted ahead of him
+ROOKIE_OUT = 0.5   # log dock for a rookie outplayed by a same-team, same-position rookie (0 = off)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
 # offseason, a player whose upcoming team lost players at his position holding a share of its expected points (net of
 # other newcomers', e_x_vacated) has a role opening: raised (VAC_UP, a log term; VAC_LO none, VAC_HI full) in VAC_BAND
@@ -869,9 +896,56 @@ def apply_rules(R, p, X=None, explain=False):
     if CUFF_PREM:
         T_["cuff_prem"] = CUFF_PREM * (pos == "RB") * (np.nan_to_num(col(R, "age"), nan=99) < CUFF_PREM_AGE) * (np.nan_to_num(col(R, "e_x_comp_share")) >= CUFF_PREM_COMP) \
             * (np.nan_to_num(col(R, "e_x_cur_xfp_share")) >= CUFF_PREM_SH) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * np.interp(raw, CUFF_PREM_BAND, [0, 1, 1, 0])
+    if RET_BAD:   # (Oliver 2026-11-23, Kyle Monangai 1.8 PPR in his first game back) back from an injury and scoring far under
+        # his pre-injury rate: the injury may not be behind him and the job may have moved. Over the first RET_G games back,
+        # docked by RET_BAD x the share of his pre-injury PPR/g he has lost (full at 75%+ lost); 0 once 4+ games back
+        gc_ = np.nan_to_num(col(R, "e_x_gp_cur")); gs_ = np.nan_to_num(col(R, "e_x_gp_since_inj")); pc_ = np.nan_to_num(col(R, "e_x_ppg_cur")); ps_ = np.nan_to_num(col(R, "e_x_ppg_since_inj"))
+        pre_ = np.where(gc_ - gs_ >= 2, (pc_ * gc_ - ps_ * gs_) / np.maximum(gc_ - gs_, 1), np.nan)
+        lost_ = np.clip((1 - ps_ / np.maximum(np.nan_to_num(pre_, nan=0), 1e-9)) / 0.75, 0, 1) * (np.nan_to_num(pre_) >= 8)
+        T_["ret_bad"] = -RET_BAD * lost_ * (gs_ >= 1) * (gs_ <= RET_G) * (gs_ < gc_) * (R.injury.fillna("").values == "") * np.isin(pos, ["RB", "WR", "TE"])
+    if ROOKIE_OUT:   # (Oliver 2026-11-23, KC Concepcion behind Denzel Boston) a rookie outplayed by another rookie on his team at
+        # his position (3+ games each, more PPR/g and more expected points a game): the room has picked its rookie. Ramps in
+        # over the season's second half like SHOWN (team games SHOWN_T0 -> SHOWN_T1)
+        tm_ = np.nan_to_num(col(R, "e_x_dc_team"), nan=-1); dt_ = R["date"].values if "date" in R else np.zeros(len(R))
+        rk_ = (np.nan_to_num(col(R, "exp"), nan=9) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) & (tm_ >= 0)
+        df_ = pd.DataFrame({"d": dt_, "t": tm_, "p": pos, "ppg": np.where(rk_, np.nan_to_num(col(R, "e_x_ppg_cur")), -1.0),
+                            "xfp": np.where(rk_, np.nan_to_num(col(R, "e_x_cur_xfp_pg")), -1.0)})
+        out_ = np.zeros(len(R))
+        for _, g in df_[rk_].groupby(["d", "t", "p"]):
+            if len(g) < 2: continue
+            for i in g.index: out_[i] = float(((g.ppg > g.ppg[i]) & (g.xfp > g.xfp[i]) & (g.index != i)).any())
+        tg_ = np.nan_to_num(col(R, "e_x_team_games_cur"))
+        # (Oliver 2026-11-23, Denzel Boston over KC Concepcion) the other side: a rookie who outplays (same test) a same-team,
+        # same-position rookie drafted ahead of him in the NFL draft has won the room: raised by ROOKIE_UP
+        pk_ = np.nan_to_num(col(R, "e_x_draft_pick"), nan=300); up_ = np.zeros(len(R))
+        df_["pk"] = pk_
+        for _, g in df_[rk_].groupby(["d", "t", "p"]):
+            if len(g) < 2: continue
+            for i in g.index: up_[i] = float(((g.ppg < g.ppg[i]) & (g.xfp < g.xfp[i]) & (g.pk < g.pk[i])).any())
+        ramp6 = np.clip((tg_ - SHOWN_T0) / max(SHOWN_T1 - SHOWN_T0, 1e-9), 0, 1)
+        T_["rookie_out"] = -ROOKIE_OUT * out_ * ramp6
+        T_["rookie_up"] = ROOKIE_UP * up_ * ramp6
     if CUFF_ACT:
         ca = np.nan_to_num(col(R, "e_x_cuff_act"))
         T_["cuff_act"] = CUFF_ACT * (pos == "RB") * (ca > 0) * np.interp(ca, CUFF_FADE, [1, 0.6, 0]) * np.interp(raw, CUFF_BAND, [0, 1, 1, 0])
+        if CUFF_SHORT:   # (Oliver 2026-11-23, Emmett Johnson behind Kenneth Walker's Out tag): the backup's bump is for a
+            # long absence; when his team's lead RB (depth chart 1 now or last week) is not on IR/PUP the starter is week to week, keep 1 - CUFF_SHORT
+            tm_ = pd.Series(np.nan_to_num(col(R, "e_x_dc_team"), nan=-1)); dt_ = pd.Series(R["date"].values if "date" in R else np.zeros(len(R)))
+            lead_ = (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) <= 1) | (np.nan_to_num(col(R, "e_x_dc_prev"), nan=9) <= 1)   # the lead back
+            lir = pd.Series(((pos == "RB") & lead_ & R.injury.fillna("").isin(["IR", "PUP"]).values).astype(float))
+            long_ = lir.groupby([dt_, tm_]).transform("max").values * (tm_.values >= 0)
+            # (Oliver 2026-11-23, Devin Singletary 2023 for Dameon Pierce): stepping in for a bad starter is a real shot at the
+            # job, so the short-absence cut eases. "Bad" (Oliver: combine PPR/g, YPC, xFP) = the mean of three 0-1 scores on the
+            # lead's season before he went down: PPR/g under CUFF_BAD_PPG (full at 4 under), yards a carry under CUFF_BAD_YPC
+            # (full at 1 under; 20+ carries), actual / expected PPR under CUFF_BAD_EFF (full at 0.25 under); a missing score is left out
+            if CUFF_BAD_PPG:
+                sc_ = np.vstack([np.clip((CUFF_BAD_PPG - col(R, "e_x_cuff_lead_ppg")) / 4.0, 0, 1),
+                                 np.clip((CUFF_BAD_YPC - col(R, "e_x_cuff_lead_ypc")) / 1.0, 0, 1),
+                                 np.clip((CUFF_BAD_EFF - col(R, "e_x_cuff_lead_eff")) / 0.25, 0, 1)])
+                n_ = (~np.isnan(sc_)).sum(0)
+                bad_ = np.where(n_ > 0, np.nansum(sc_, axis=0) / np.maximum(n_, 1), 0.0)
+            else: bad_ = 0.0
+            T_["cuff_act"] = T_["cuff_act"] * (1 - CUFF_SHORT * (1 - long_) * (1 - bad_))
     if NOT_BACK:   # (#20 Godwin 2022 "off injury") in the offseason, not yet back from the injury that ended last season
         nb = (np.nan_to_num(col(R, "e_x_gp_since_inj"), nan=9) == 0) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=17) <= NOT_BACK_G) * (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) >= 4) \
             * (np.nan_to_num(col(R, "e_x_gp_cur")) == 0) * (np.nan_to_num(col(R, "e_x_susp_last")) == 0) \

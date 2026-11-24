@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 CALLS_DATE = "2026-10-24"                                  # the reviewed board (reviewed_board_<date>.csv)
-CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20", "2026-11-22")
+CALL_DATES = ("2026-10-24", "2026-10-25", "2026-10-26", "2026-11-03", "2026-11-18", "2026-11-20", "2026-11-22", "2026-11-23", "2026-11-24")
 # first review, second review, league chat consensus (10-26), chat (TLaw/Lamar, 11-03), votes (11-18), chat (top WRs / Ladd, 11-20)
 # Oliver 2026-11-09: McConkey cut to a low first / top-2 second, Coker to at least a mid second (his breakout call folded
 # in), Henderson's low-first call dropped (it was Oliver's, not the league's); prices are the 2026 pick board's slots.
@@ -137,7 +137,8 @@ def calls(v, ref=None, qbs=()):
     # league chat consensus (2026-10-25/26, the Bucky/Tuten thread): Tuten ~2.01-2.03, Monangai a mid-low second,
     # Hampton at least Bucky, Henderson at least a high second
     B = on(CALL_DATES[2])
-    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), ("Monangai a mid-low second ($180-360; Oliver 2026-11-22: extended to take in $361)", rng("Kyle Monangai", 180, 360)),
+    t += [("Tuten about a 2.01-2.03 ($395-615)", rng("Bhayshul Tuten", 395, 615)), 
+          # Monangai a mid-low second ($180-361) retired 2026-11-24 (Oliver): replaced by the 11-24 call below
           ("Hampton >= Bucky", gt("Omarion Hampton", "Bucky Irving", 0.0)), ("Henderson at least a high second (>= $615)", rng("TreVeyon Henderson", 615, 99999)),
           ("Bucky a 1.06-1.07 ($783-875)", rng("Bucky Irving", 783, 875))]                  # Shmuel 1.07, Oliver 1.06, Ben 1.07
     # league chat 2026-11-03 (the TLaw trade-block thread): Lawrence at least Lamar (Ben, Peter, Sam's offer, Oliver)
@@ -161,6 +162,20 @@ def calls(v, ref=None, qbs=()):
     t += [("Penix at least a 3rd (>= $58; Oliver 2026-11-22)", rng("Michael Penix", 58, 99999))]
     # Oliver 2026-11-22: Fannin too high: run-first offense, low ceiling (boom weeks only so big), inconsistent
     t += [("Harold Fannin below the $1,901 flagged as too high (Oliver 2026-11-22)", rng("Harold Fannin Jr.", 1, 0.85 * 1901))]
+    # Oliver 2026-11-23 (prices: the 2026-11-23 pick board's slots), loose "less than" calls on purpose: TreVeyon
+    # Henderson under $500 (he thinks a low second at best); the 2026 first-round rookies who underperformed are worth less
+    # than the slot they went at (Makai Lemon 1.05, Jadarian Price 1.06, KC Concepcion 1.07, Kenyon Sadiq 1.08); Emmett
+    # Johnson less than a first (under 1.08, $625; he thinks a good/high second), still Kenneth Walker's backup. The 10-24/10-26 Henderson and Sadiq calls stand (each on its own day's board).
+    B = on(CALL_DATES[7])
+    t += [("Henderson under $500 (Oliver 2026-11-23)", rng("TreVeyon Henderson", 1, 500)),
+          ("Makai Lemon below his 1.05 (< $1,064; Oliver 2026-11-23)", rng("Makai Lemon", 1, 1064)),
+          ("Jadarian Price below his 1.06 (< $889; Oliver 2026-11-23)", rng("Jadarian Price", 1, 889)),
+          ("KC Concepcion below his 1.07 (< $796; Oliver 2026-11-23)", rng("KC Concepcion", 1, 796)),
+          ("Kenyon Sadiq below his 1.08 (< $625; Oliver 2026-11-23)", rng("Kenyon Sadiq", 1, 625)),
+          ("Emmett Johnson less than a first (< $625, the 1.08; Oliver 2026-11-23)", rng("Emmett Johnson", 1, 625))]
+    # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
+    B = on(CALL_DATES[8])
+    t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)
