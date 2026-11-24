@@ -34,6 +34,11 @@ P = {'oldqb': -0.6, 'oldrb': -0.2, 'h': 2.5, 'leg_cap': 0.4, 'kappa': 1.0, 'top_
 TOP5 = {"QB": 22.0, "RB": 18.5, "WR": 17.0, "TE": 13.0}            # approx position top-5 PPG level
 FADE = {"QB": (33, 37), "RB": (29, 33), "WR": (30, 33), "TE": (30, 33)}
 EXP = {"QB": 14, "RB": 9, "WR": 7, "TE": 5}                        # rookie-year PPG that holds a slot's price
+# (Oliver 2026-11-23, KC Concepcion at 10 PPR/g read as beating his 1.07) the PPG that holds a slot's price rises with the
+# slot: EXP_TOP at the 1.01, falling linearly to EXP by the last pick of round EXP_ROUNDS (EXP from there on). A first-
+# round pick is drafted to start; a late-round pick only has to show he belongs. EXP_TOP = EXP: off.
+EXP_TOP = {"QB": 18, "RB": 14, "WR": 12, "TE": 9}
+EXP_ROUNDS, EXP_TEAMS = 2, 9
 TIER_R, TIER_V = [1, 3, 6, 10, 16, 22], [2000, 2000, 1500, 1000, 500, 0]
 TAU = 20.0
 CRED_MIN = 0.35
@@ -366,7 +371,13 @@ class Formula:
         wr = np.where(sv.notna().values & d.dprice.notna().values, wr, 0.0)
         cur = self.robust_now(d, rob); cg = d.c_gp.fillna(0).values; l0 = d.n_ppg_l0.values.astype(float); g0 = d.n_gp_l0.fillna(0).values
         rnow = np.where(cg >= 3, cur, np.where((g0 >= 3) & (dt > end - np.timedelta64(7, 'D')), l0, np.nan))
-        f = np.where(~np.isnan(rnow), np.clip(1 + 0.06 * (rnow - d.pos.map(EXP).values), 0.75, 1.25), np.where(d.injury.values != "", 0.8, 1.0))
+        def _k(x):    # overall pick in the rookie draft from "R.PP" (NaN when unknown)
+            try: r_, p_ = str(x).split("."); return (int(r_) - 1) * EXP_TEAMS + int(p_)
+            except (ValueError, TypeError): return np.nan
+        kk = np.array([_k(x) for x in slot], dtype=float); kn = EXP_ROUNDS * EXP_TEAMS
+        sh = np.clip((kn - np.nan_to_num(kk, nan=kn)) / (kn - 1), 0, 1)        # 1 at the 1.01, 0 from the end of round EXP_ROUNDS
+        ex = d.pos.map(EXP).values.astype(float) + sh * (d.pos.map(EXP_TOP).values.astype(float) - d.pos.map(EXP).values.astype(float))
+        f = np.where(~np.isnan(rnow), np.clip(1 + 0.06 * (rnow - ex), 0.75, 1.25), np.where(d.injury.values != "", 0.8, 1.0))
         rv = np.nan_to_num(sv.values * f, nan=1.0)
         v = pd.Series(np.exp((1 - wr) * np.log(np.maximum(v.values, 1)) + wr * np.log(np.maximum(rv, 1))), index=v.index)
         d["V_raw"] = v.values
