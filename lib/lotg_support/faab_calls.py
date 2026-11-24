@@ -209,6 +209,8 @@ def calls(v, ref=None, qbs=()):
           ("LeQuint Allen Jr. down (< $40)", rng("LeQuint Allen Jr.", 1, 40)), ("J.J. McCarthy about a low 3rd ($55-$110)", rng("J.J. McCarthy", 55, 110)),
           ("Josh Downs a mid 3rd ($75-$130)", rng("Josh Downs", 75, 130)), ("Kyle Pitts back up to about $550 ($480-$650)", rng("Kyle Pitts Sr.", 480, 650))]
     t += [(f"{n} a low 4th at best (< $40)", rng(n, 1, 40)) for n in ("Mike Gesicki", "Evan Engram", "Brenton Strange")]
+    # Oliver 2026-11-24: Fernando Mendoza too high for two career games; about the 1.01 now (drafted 1.02), no more
+    t += [("Fernando Mendoza about the 1.01, no more ($1,500-$1,850)", rng("Fernando Mendoza", 1500, 1850))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)

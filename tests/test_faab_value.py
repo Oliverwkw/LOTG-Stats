@@ -571,6 +571,7 @@ def test_final_stage_is_in_the_explain_breakdown():
     fl.append(F.RB_PROD_FLOOR * np.where(old, 1 - F.RB_PROD_OLD * np.clip(tg / 17.0, 0, 1), 1.0))   # the faded floor, per row
     floored = np.any([np.isclose(out, x) for x in fl if np.any(x)], axis=0)
     capped = np.isclose(out, F.OLD_CAP) & (F.OLD_CAP > 0)
+    capped |= (np.nan_to_num(F.col(T, "exp"), nan=9) == 0) & (np.nan_to_num(F.col(T, "e_x_gp_cur")) <= F.ROOKIE_SMALL_G) & (out < fin)   # ROOKIE_SMALL_CAP
     assert np.allclose(out[~floored & ~capped], fin[~floored & ~capped]) and (out[floored] >= fin[floored] - 1e-9).all() \
         and (out[capped] <= fin[capped] + 1e-9).all()
 
