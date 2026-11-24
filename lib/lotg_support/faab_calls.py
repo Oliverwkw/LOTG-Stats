@@ -184,6 +184,12 @@ def calls(v, ref=None, qbs=()):
           ("Dameon Pierce near worthless (< $20)", rng("Dameon Pierce", 0, 20)), ("Xavier Legette near worthless (< $15)", rng("Xavier Legette", 0, 15)),
           ("Rhamondre Stevenson up (> $40)", rng("Rhamondre Stevenson", 40, 99999)), ("Anthony Richardson up a little (> $20)", rng("Anthony Richardson Sr.", 20, 99999)),
           ("Tank Dell up (> $22)", rng("Tank Dell", 22, 99999)), ("Brian Robinson Jr. about a pair of 4ths on IR ($30-$110)", rng("Brian Robinson Jr.", 30, 110))]
+    # Oliver 2026-11-24 (top end, loose): older RBs a bit inflated, Kyren Williams ceding to Blake Corum, Malik Nabers too low,
+    # Jalen Hurts and Harold Fannin Jr. still too high (the QB order notes, Caleb > Stroud and Lamar > Maye, are "not calls")
+    t += [("Jonathan Taylor down (< $2,350)", rng("Jonathan Taylor", 1, 2350)), ("James Cook down (< $2,430)", rng("James Cook III", 1, 2430)),
+          ("Christian McCaffrey down (< $2,350)", rng("Christian McCaffrey", 1, 2350)), ("Kyren Williams down (< $2,240)", rng("Kyren Williams", 1, 2240)),
+          ("Malik Nabers up (> $2,330)", rng("Malik Nabers", 2330, 99999)), ("Jalen Hurts down (< $1,580)", rng("Jalen Hurts", 1, 1580)),
+          ("Harold Fannin Jr. down (< $1,560)", rng("Harold Fannin Jr.", 1, 1560))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)

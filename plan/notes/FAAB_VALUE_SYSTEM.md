@@ -478,6 +478,15 @@ Rule layer only (`faab_value.py`), with loose calls dated 2026-11-24 in `faab_ca
 - `VET_RB_SINCE` / `VET_RB_CAP` 50: the veteran RB floor reads the better of this season's PPR/g and his healthy stretch since
   his last missed week, capped at $50 (Rhamondre Stevenson's game played hurt).
 
+Top end, same round (final-stage unless noted):
+- `RB_OLD_TOP` 0.7: an RB past 27 keeps 70% of his final value above $1,500 (Jonathan Taylor, James Cook, Christian McCaffrey).
+- `RB_CEDE` 0.15: a $1,500+ RB whose younger teammate holds 40%+ of his share of the team's expected points (4+ games each),
+  fading in over the next 0.2 (Kyren Williams / Blake Corum). Expected points stand in for carries (no carry-share input yet).
+- `NYG_TOP` 0.15: the Giants premium on a $1,500+ final value (Malik Nabers; the NYG_UP band fades out at a $600 base).
+- `IR_QB` 1: the IR relief reaches QBs (Lamar Jackson > Drake Maye); `QB_PRE_BAD` 1.25 (rule layer): a QB on IR whose pre-injury
+  PPR/g (3+ games) ran under 87% of last season's, full 4 points of ratio under it, is docked and gets no IR relief (Jalen Hurts).
+- `CEIL_YOUNG_PTS` 30 (rule layer): a TE in his first 3 seasons is judged against a 30-point best game, not 28 (Harold Fannin Jr.).
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
