@@ -621,7 +621,8 @@ VOL_EXP = 4   # VOL_SPIKE: a veteran (4+ seasons) with 5+ duds in 2 seasons: the
 VOL_SPIKE, VOL_CV, TE_INCONS, TE_VOL, WR_LAPPED, AW_SNAP, CUFF_SMALL, WR_SHOWN = 0.75, 0.5, 0.4, 0.0, 0.5, 0.3, 0.3, 0.5
 # round 7 middle tier, part 2 (Oliver 2026-11-24; 0 = off)
 TWO_BAD, WR_TOP_TGT, QB_LOST, YU_DC, MID_TRADE = 0.5, 1.0, 1.0, 1.0, 1.0
-TWO_BAD_DOCK, WR_TOP_TGT_UP = 0.5, 0.2   # extra log dock / raise for the same narrow sets (Oliver 2026-11-24: bigger effects for the narrower WR sets)
+TWO_BAD_DOCK, WR_TOP_TGT_UP = 0.5, 0.2
+WR_TOP_IMPL = 21.0   # implied team points under this = a bottom-third offense (2026-11-24 board: 33rd pct 20.99)   # extra log dock / raise for the same narrow sets (Oliver 2026-11-24: bigger effects for the narrower WR sets)
 OLD_CAP, OLD_CAP_AGE = 90.0, 36.0          # a non-QB this old is worth at most OLD_CAP ($; 0 = off)
 QB_PAID_FLOOR = 300.0                      # a starting QB (1st on the chart) with 2+ contract years left, under 34: at least this ($)
 QB_YOUNG_FLOOR = 75.0                     # a young (under 26) first-round QB, 1st on the chart, 12+ games over 2 seasons: at least this ($)
@@ -1283,7 +1284,10 @@ def apply_rules(R, p, X=None, explain=False):
         tt_ = (pos == "WR") & (gpc_ >= 6) & (np.nan_to_num(col(R, "e_x_cur_tgt_share")) >= 0.24) & (np.nan_to_num(col(R, "e_x_ppg_l0")) >= 12)
         for k in ("team_q", "team_q_lo"):
             if k in T_: T_[k] = np.where((T_[k] < 0) & tt_, T_[k] * (1 - WR_TOP_TGT), T_[k])
-        if WR_TOP_TGT_UP: T_["wr_top_tgt"] = WR_TOP_TGT_UP * tt_ * (np.nan_to_num(col(R, "e_x_team_win_cur"), nan=1) < 0.4)   # held back: a losing team
+        if WR_TOP_TGT_UP:   # held back by his offense: his team's implied points this season (betting lines, the offense's expected output)
+            # under WR_TOP_IMPL, about the league's bottom third, not its record, which a defense can carry (Oliver 2026-11-24: Minnesota).
+            # A fixed bar, because a dated row cannot rank against teams not in the inputs that day
+            T_["wr_top_tgt"] = WR_TOP_TGT_UP * tt_ * (np.nan_to_num(col(R, "e_x_team_implied_cur"), nan=99) < WR_TOP_IMPL)
     if QB_LOST:   # (Kyler Murray "lost his job", Oliver 2026-11-24: "use the midseason trade for another team's starting QB") his team
         # traded in season for a QB who now starts (e_x_moved_cur, 1st on the chart) and he, the starter before (e_x_dc_prev 1), is off
         # the top: the team replaced him, so it is not a short injury absence. qb_bench (healthy only) is not doubled
