@@ -507,6 +507,7 @@ Middle tier, same round (rule layer; the volatility rules read this season's gam
 - `OLD_CAP` $90 (non-QB 36+, Travis Kelce), `QB_PAID_FLOOR` $300 (starter, 2+ contract years, under 34, top-6 in 4 seasons; not Derek Carr 2023), `QB_YOUNG_FLOOR` $75 (J.J. McCarthy), `WR_ROLE_FLOOR` $140 (Jalen Coker), `RB_PROD_FLOOR` $350 for a healthy lead RB under 30 at 15+ PPR/g over 8+ games, faded at 29+ by `RB_PROD_OLD` 0.7 x team games / 17 (Jaylen Warren $350, Tony Pollard $206), `DC1_TE_FLOOR` $25, `HEIR_SHOWN` (Trevor Etienne / Corey Kiner), `TE_R1_BOOM` 0.15 (top-10 pick TE with a 35+ game in 2 seasons: Kyle Pitts Sr. $548), `RB_INJ_CUR_PPG` 15.
 - Antonio Williams' "< $320" call retired (22 points on MNF); WR_SHOWN kept.
 - Result: calls 205/205, far-off 20.
+- `ROOKIE_SMALL_CAP` (follow-up PR): a rookie with 4 or fewer NFL games, 4+ team games into the season, is worth at most the next class's 1.01 that day (`faab_pick_schedule`). Fernando Mendoza $2,204 -> $1,782 (Oliver: about the 1.01, no more). 6 evidence rows move, no trade or call changes.
 
 ## The noise bar, and every rule needs a reason
 

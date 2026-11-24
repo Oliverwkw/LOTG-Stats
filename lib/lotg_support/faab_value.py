@@ -631,6 +631,7 @@ TE_R1_BOOM, TE_R1_PICK, TE_R1_PTS = 0.15, 10, 35.0   # top-10 pick TE with a 35+
 RB_PROD_FLOOR, RB_PROD_PPG = 350.0, 15.0
 RB_PROD_OLD, RB_PROD_OLD_AGE = 0.7, 29.0   # the floor fades for an RB this old as his team's season goes on (x(1 - RB_PROD_OLD * games/17))   # a healthy lead RB under 30 scoring RB_PROD_PPG+ PPR/g over 8+ games this season: at least this ($)
 MID_TRADE_FLOOR = 90.0                   # a WR traded in season to a 65%+ contender (MID_TRADE gate): at least this ($)
+ROOKIE_SMALL_CAP, ROOKIE_SMALL_G = 1.0, 4   # 1 = a rookie with this few NFL games, 4+ team games into the season, is worth at most the next class's 1.01
 DC1_TE_FLOOR = 25.0                      # DC1_FLOOR for a TE (Oliver: a replacement TE is a low 4th at best)
 HEIR_SHOWN = 1.0                         # 1 = HEIR_FLOOR needs something shown (20%+ snaps or 4+ PPR/g, 3+ games)
 IR_POS = ("RB", "WR", "TE")   # positions the IR relief reaches
@@ -1414,6 +1415,18 @@ def apply_rules(R, p, X=None, explain=False):
             & (np.nan_to_num(col(R, "e_x_team_win_cur")) >= 0.65) & (R.injury.fillna("").values == "") \
             & (np.nan_to_num(col(R, "age"), nan=99) < 30)   # a 30+ deadline pickup is a rental (Keenan Allen 2026, 34)
         out = np.where(mf_, np.maximum(out, MID_TRADE_FLOOR), out)
+    if ROOKIE_SMALL_CAP:   # (Oliver 2026-11-24, Fernando Mendoza "too high for two career games ... around the 1.01, but no more")
+        # a rookie this few games in has shown too little to be worth more than the best unknown rookie: the next class's 1.01 that day
+        from lotg_support import faab_pick_schedule as PS
+        sch_ = PS.load(); dts_ = pd.to_datetime(pd.Series(R["date"].values if "date" in R else [pd.Timestamp.today()] * len(R)))
+        c101_ = {}
+        for d_ in dts_.unique():
+            d_ = pd.Timestamp(d_); y_ = d_.year + (1 if d_.month >= 8 else 0)   # the next league draft's class (it is held in July)
+            c101_[d_] = sch_.table(y_, d_).get("1.01", np.inf)
+        cap_ = dts_.map(c101_).values.astype(float)
+        rs_ = (np.nan_to_num(col(R, "exp"), nan=9) == 0) & (np.nan_to_num(col(R, "e_x_gp_cur")) <= ROOKIE_SMALL_G) \
+            & (np.nan_to_num(col(R, "e_x_team_games_cur")) >= 4)
+        out = np.where(rs_, np.minimum(out, cap_), out)
     if OLD_CAP:   # (Travis Kelce "seconds from retirement") a non-QB 36 or older: one season left at most, a 3rd at best
         out = np.where((R.pos.values != "QB") & (np.nan_to_num(col(R, "age")) >= OLD_CAP_AGE), np.minimum(out, OLD_CAP), out)
     # round 6 (Oliver: far-off trades must go under 100%): a proven producer is never a free body in a trade. The
