@@ -139,12 +139,13 @@ def build_week(X, FC, OUT, years):
     W["on_ir"] = W.status.isin(["RES", "PUP"])
     W["exempt"] = W.status.isin(["EXE"])                        # excused absence (personal leave / exempt list)
     W["no_team"] = W.status.isna() & ~W.played
+    W["scratch"] = (W.status == "INA") & W.report_status.isna() & ~W.inj_out & ~W.played   # game-day inactive with no injury report at all (not even Questionable): a healthy scratch
     W["known"] = pd.to_datetime(W.season.map(KO)) + pd.to_timedelta(7 * (W.week - 1) + 5, unit="D")
 
     # season-to-date per player: sums and weighted means
     W = W.sort_values(["gsis", "season", "week"])
     SUMS = ["exempt", "ppr", "ppr2", "td_pts", "dropbacks", "pass_epa", "skill_epa", "big", "good", "xfp", "fp", "tgt", "car", "att", "ay", "rz", "tgt_t", "car_t", "ay_t", "xfp_t", "recyd", "off", "dfn", "routes",
-            "brk_rec", "brk_rush", "drops", "yaco", "car_pfr", "bad", "press", "played", "inj_out", "on_ir", "no_team"]
+            "brk_rec", "brk_rush", "drops", "yaco", "car_pfr", "bad", "press", "played", "inj_out", "on_ir", "no_team", "scratch"]
     for c in SUMS:
         if c in W: W[c] = W[c].astype(float)
     g = W.groupby(["gsis", "season"])
@@ -1352,6 +1353,9 @@ def add_x(df):
     out["e_x_bodyparts_3y"] = bp(d.cur_s.values) * cur_ok + bp(d.l0_s.values) + bp(d.l0_s.values - 1)
     out["e_x_cur_exempt"] = np.where(cur_ok, np.nan_to_num(m.exempt.values.astype(float)), 0.0)    # weeks on the exempt list this season
     out["e_x_no_team_frac"] = np.where(cur_ok, np.nan_to_num(m.no_team.values.astype(float)) / np.maximum(np.nan_to_num(m.weeks.values.astype(float)), 1), np.nan)
+    # (Oliver 2026-11-24, Eli Stowers) healthy scratches this season: game-day inactive (roster status INA) with no
+    # Out / Doubtful report and no snaps
+    out["e_x_scratch_cur"] = np.where(cur_ok, np.nan_to_num(m.scratch.values.astype(float)) if "scratch" in m else 0.0, np.nan)
     # track record through the last complete season: consecutive top-2 / top-5 / top-12 finishes, top-12 / top-5 seasons in the last 6
     fn = FN.reindex(pd.MultiIndex.from_arrays([d.gsis.values, d.l0_s.values]))
     for c in ["streak2", "streak5", "streak12", "top12_6y", "top5_6y", "starter_3y"]: out[f"e_x_{c}"] = fn[c].fillna(0).values
