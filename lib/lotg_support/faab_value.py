@@ -533,7 +533,8 @@ DC1_FLOOR, DC1_WIN, DC1_G = 50.0, 0.65, 6   # depth chart: a starter on a conten
 # fourth") an RB 27+ who still holds a share of a backfield this season (4+ games, 40%+ of the snaps, 8+ PPR/g, not on
 # IR/PUP) is a weekly flex play a contender pays a late pick for: the age / injury / replacement-line docks cannot take
 # him under VET_RB_FLOOR dollars (a solid 4th: $30 at 8 PPR/g, VET_RB_STEP more per PPR/g, VET_RB_CAP at most)
-VET_RB_FLOOR, VET_RB_AGE, VET_RB_G, VET_RB_SNAP, VET_RB_PPG, VET_RB_STEP, VET_RB_CAP = 30.0, 27.0, 4, 0.40, 8.0, 2.5, 40.0
+VET_RB_FLOOR, VET_RB_AGE, VET_RB_G, VET_RB_SNAP, VET_RB_PPG, VET_RB_STEP, VET_RB_CAP = 30.0, 27.0, 4, 0.40, 8.0, 2.5, 50.0   # cap 40 -> 50 (Oliver 2026-11-24, Rhamondre Stevenson higher)
+VET_RB_SINCE = 1.0   # 1 = the floor reads the better of this season's PPR/g and since his last missed week (Oliver 2026-11-24)
 # ... and a back who was a real lead in one of the last two seasons (15%+ of his team's expected points; Oliver: not
 # D'Onta Foreman 2023 / Devin Singletary 2024, 14.4% / 14.7% at best, whom the league traded for nothing)
 VET_RB_PEAK = 0.15
@@ -612,6 +613,14 @@ CUFF_SHORT = 1.0
 CUFF_BAD_PPG = 10.0   # lead back's PPR/g under which the short-absence cut eases (0 = off)
 CUFF_BAD_YPC, CUFF_BAD_EFF = 4.0, 0.9   # ... and his yards a carry / actual over expected PPR under which it eases
 RET_BAD, RET_G = 0.5, 3   # dock for a bad return from injury (log), over the first RET_G games back (0 = off)
+# round 7 (Oliver 2026-11-24; 0 = off):
+IR_EASE, IR_CONTRACT, IR_ROLE_SNAP = 0.5, 0.25, 0.5   # on IR with a proven role: share of the injury docks lifted (+ more with 2+ contract years left)
+IR_DOCKS = ("inj_ir", "availability", "severe", "not_back", "rookie_lost", "replacement line")   # the replacement line reads the injury-shortened season
+RET_GOOD, RET_GOOD_G, RET_GOOD_PPG = 0.6, 3, 9.0     # back from a long absence (under 4 games last season) and scoring: availability dock lifted
+QB_DC1 = 0.3                                         # a healthy QB first on the depth chart (named starter): availability dock lifted
+WR_BAD, WR_BAD_PPG, WR_BAD_L0 = 1.5, 6.0, 7.0        # a WR/TE in his 3rd+ year, deep on the depth chart, no snaps, scoring under these (log dock)
+JOB_DC = 2                                           # xfp_jump / RB_JOB_FLOOR need the depth chart rank at or under this (9 = off)
+CUFF_PROVEN_FLOOR, CUFF_PROVEN_RANK, CUFF_PROVEN_AGE, CUFF_PROVEN_LEAD = 60.0, 24, 29.0, 1000.0   # a proven starter (top-24 finish in 4 seasons) now a team's RB2/3: at least this ($)
 ROOKIE_UP = 0.6   # log raise for the rookie who outplays a same-team, same-position rookie drafted ahead of him
 ROOKIE_OUT = 0.5   # log dock for a rookie outplayed by a same-team, same-position rookie (0 = off)
 # far-off #14 / #16 / #20 / #48 / #51 (Pacheco to Detroit, Samuel to Buffalo, Gallup, JSN after DK, Palmer 2024): in the
@@ -887,7 +896,7 @@ def apply_rules(R, p, X=None, explain=False):
         # ... fading out on a bad offense (his new team's, TEAM_NOW), and (VAC_LESS, Oliver) only into a bigger role than his own
     if XFP_JUMP:
         xj = np.nan_to_num(col(R, "e_x_cur_xfp_share")) - np.nan_to_num(col(R, "e_x_l0_xfp_share"), nan=1)
-        T_["xfp_jump"] = XFP_JUMP * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * np.clip((xj - XFP_JUMP_LO) / (XFP_JUMP_HI - XFP_JUMP_LO), 0, 1) * np.interp(raw, XFP_JUMP_BAND, [0, 1, 1, 0])
+        T_["xfp_jump"] = XFP_JUMP * (pos == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) * (np.nan_to_num(col(R, "e_x_dc_rank"), nan=0) <= JOB_DC) * np.clip((xj - XFP_JUMP_LO) / (XFP_JUMP_HI - XFP_JUMP_LO), 0, 1) * np.interp(raw, XFP_JUMP_BAND, [0, 1, 1, 0])
     if RQB_WR:
         rq = col(R, "e_x_rookie_qb_pick")
         T_["rqb_wr"] = RQB_WR * np.isin(pos, ["WR", "TE"]) * (np.nan_to_num(rq) > 0) * (np.nan_to_num(rq) <= RQB_PICK) * (np.nan_to_num(col(R, "e_x_l0_tgt_share")) >= RQB_SH) * (np.nan_to_num(col(R, "e_x_moved_off")) == 0) * (np.nan_to_num(col(R, "e_x_offseason")) > 0 if RQB_OFF else 1) * np.interp(raw, RQB_BAND, [0, 1, 1, 0])
@@ -1166,6 +1175,35 @@ def apply_rules(R, p, X=None, explain=False):
     if SUMMER_LOW and "summer" in T_:
         pre_ = v * np.exp(sum(t for k, t in T_.items() if k != "summer"))
         T_["summer"] = T_["summer"] * np.interp(pre_, SUMMER_LOW_V, (1 - SUMMER_LOW, 1.0))
+    if IR_EASE or IR_CONTRACT:   # (Oliver 2026-11-24, Alec Pierce / Terry McLaurin / Ricky Pearsall / Jalen McMillan) the IR tag,
+        # the missed-games record, the severity and the not-back docks all charge for the same lost season; for a player with a
+        # proven role before it (50%+ of the snaps last season) the job is still his when he is back, so part of them is lifted,
+        # more when his team is committed to him (2+ contract years left: Alec Pierce's new deal)
+        ir_ = (R.injury.fillna("").values == "IR") & np.isin(pos, ["RB", "WR", "TE"]) & (np.nan_to_num(col(R, "e_x_l0_off_pct")) >= IR_ROLE_SNAP)
+        # ... and not already fading before it (3+ games this season under 60% of last season's PPR/g: Michael Pittman Jr. 2026)
+        fade_ = (np.nan_to_num(col(R, "e_x_gp_cur")) >= 3) & (np.nan_to_num(col(R, "e_x_ppg_cur"), nan=99) < 0.6 * np.nan_to_num(col(R, "e_x_ppg_l0"), nan=0))
+        ir_ = ir_ & ~fade_
+        e_ = ir_ * np.clip(IR_EASE + IR_CONTRACT * (np.nan_to_num(col(R, "e_x_contract_left")) >= 2), 0, 1)
+        for k in IR_DOCKS:
+            if k in T_: T_[k] = np.where(T_[k] < 0, T_[k] * (1 - e_), T_[k])
+    if RET_GOOD and "availability" in T_:   # (Oliver 2026-11-24, Tank Dell) back from a lost season and producing: the missed
+        # games are behind him, so most of the availability dock goes
+        rg_ = (np.nan_to_num(col(R, "e_x_l0_games"), nan=0) < 4) & (np.nan_to_num(col(R, "e_x_gp_since_inj")) >= RET_GOOD_G) \
+            & (np.nan_to_num(col(R, "e_x_ppg_since_inj")) >= RET_GOOD_PPG) & (R.injury.fillna("").values == "") & (np.nan_to_num(col(R, "exp")) >= 1) \
+            & (np.nan_to_num(col(R, "e_x_susp_last")) == 0)   # a suspension (Calvin Ridley 2023) is not an injury comeback
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - RET_GOOD * rg_), T_["availability"])
+    if QB_DC1 and "availability" in T_:   # (Oliver 2026-11-24, Anthony Richardson named the Colts' starter) a healthy QB first on the
+        # depth chart has the job now: part of the missed-games dock goes
+        # ... a young (under 26) first-round QB: his team's investment, not a stopgap (Sam Darnold / Tommy DeVito 2024 were priced low)
+        q1_ = (pos == "QB") & (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) == 1) & (R.injury.fillna("").values == "") \
+            & (np.nan_to_num(col(R, "age"), nan=99) < 26) & (np.nan_to_num(col(R, "e_x_draft_pick"), nan=999) <= 32)
+        T_["availability"] = np.where(T_["availability"] < 0, T_["availability"] * (1 - QB_DC1 * q1_), T_["availability"])
+    if WR_BAD:   # (Oliver 2026-11-24, Xavier Legette "replacement and bad") a 3rd-year+ WR/TE 4th+ on the depth chart, under 40% of the
+        # snaps, under WR_BAD_PPG PPR/g this season (2+ games) and WR_BAD_L0 last season: no role and no sign of one
+        wb_ = np.isin(pos, ["WR", "TE"]) & (np.nan_to_num(col(R, "exp")) >= 2) & (np.nan_to_num(col(R, "e_x_dc_rank"), nan=0) >= 4) \
+            & (np.nan_to_num(col(R, "e_x_cur_off_pct"), nan=1) < 0.4) & (np.nan_to_num(col(R, "e_x_gp_cur")) >= 2) \
+            & (np.nan_to_num(col(R, "e_x_ppg_cur"), nan=99) < WR_BAD_PPG) & (np.nan_to_num(col(R, "e_x_ppg_l0"), nan=99) < WR_BAD_L0)
+        T_["wr_bad"] = -WR_BAD * wb_
     _attach(R, T_, pos, raw)
     if DOCK_CAP > -90:
         ks = [k for k in T_ if k not in DOCK_KEEP]
@@ -1220,8 +1258,18 @@ def apply_rules(R, p, X=None, explain=False):
     # round 6 (far-off #6, Malcolm Brown 2020 "won the RB job: worth 75+"): an RB who has just taken the job (this season
     # 55%+ of the snaps, 25+ points over last season's) is worth at least RB_JOB_FLOOR, a multiplier cannot lift a $2 body
     sj_ = np.nan_to_num(col(R, "e_x_cur_off_pct")); s0j = np.nan_to_num(col(R, "e_x_l0_off_pct"))
-    job_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * (sj_ >= 0.55) * (sj_ - s0j >= 0.25)
+    # (Oliver 2026-11-24, Dameon Pierce: 3 games as the lead, now 5th on the depth chart) the job won must still be his: depth chart rank <= JOB_DC
+    job_ = (R.pos.values == "RB") * (np.nan_to_num(col(R, "e_x_gp_cur")) >= 1) * (sj_ >= 0.55) * (sj_ - s0j >= 0.25) * (np.nan_to_num(col(R, "e_x_dc_rank"), nan=0) <= JOB_DC)
     out = np.where(job_ > 0, np.maximum(out, RB_JOB_FLOOR), out)
+    if CUFF_PROVEN_FLOOR:   # (Oliver 2026-11-24, Brian Robinson Jr. behind Bijan Robinson: "has shown he can handle the role") a back who
+        # has finished top-CUFF_PROVEN_RANK at RB in the last 4 seasons, under CUFF_PROVEN_AGE, now his team's RB2/RB3: a handcuff who can carry the job
+        cp_ = (R.pos.values == "RB") & (np.nan_to_num(col(R, "e_x_best_rank_4y"), nan=999) <= CUFF_PROVEN_RANK) & (np.nan_to_num(col(R, "age"), nan=99) < CUFF_PROVEN_AGE) \
+            & np.isin(np.nan_to_num(col(R, "e_x_dc_rank"), nan=0), [2, 3])
+        # ... behind a star (the team's RB1 at CUFF_PROVEN_LEAD+ stats base): the long-term handcuff to a lead worth protecting
+        tm_ = pd.Series(np.nan_to_num(col(R, "e_x_dc_team"), nan=-1)); dt_ = pd.Series(R["date"].values if "date" in R else np.zeros(len(R)))
+        l1_ = pd.Series(np.where((R.pos.values == "RB") & (np.nan_to_num(col(R, "e_x_dc_rank"), nan=9) == 1), np.nan_to_num(col(R, "V_raw")), 0.0))
+        cp_ = cp_ & (l1_.groupby([dt_, tm_]).transform("max").values >= CUFF_PROVEN_LEAD) & (tm_.values >= 0)
+        out = np.where(cp_, np.maximum(out, CUFF_PROVEN_FLOOR), out)
     # round 6 (Oliver: far-off trades must go under 100%): a proven producer is never a free body in a trade. The
     # league never trades a player who scored PROVEN_PPG+ PPR/g over a real sample (this season from 4 games, else
     # last season from 8) for nothing: he is worth at least PROVEN_FLOOR (a late pick), under age PROVEN_AGE
@@ -1241,7 +1289,11 @@ def apply_rules(R, p, X=None, explain=False):
             * (np.nan_to_num(col(R, "e_x_cur_off_pct")) >= VET_RB_SNAP) * (np.nan_to_num(col(R, "e_x_ppg_cur")) >= VET_RB_PPG) \
             * ~np.isin(R.injury.fillna("").values, ["IR", "PUP"]) \
             * (np.fmax(np.nan_to_num(col(R, "e_x_l0_xfp_share")), np.nan_to_num(col(R, "e_x_l1_xfp_share"))) >= VET_RB_PEAK)
-        vf_ = np.minimum(VET_RB_FLOOR + VET_RB_STEP * (np.nan_to_num(col(R, "e_x_ppg_cur")) - VET_RB_PPG), VET_RB_CAP)
+        # (Oliver 2026-11-24, Rhamondre Stevenson dragged down by a game played hurt on a snap count) with VET_RB_SINCE the
+        # floor reads the better of this season's PPR/g and his PPR/g since his last missed week (4+ games: his healthy stretch)
+        pf_ = np.nan_to_num(col(R, "e_x_ppg_cur"))
+        if VET_RB_SINCE: pf_ = np.where(np.nan_to_num(col(R, "e_x_gp_since_inj")) >= 4, np.fmax(pf_, np.nan_to_num(col(R, "e_x_ppg_since_inj"))), pf_)
+        vf_ = np.minimum(VET_RB_FLOOR + VET_RB_STEP * (pf_ - VET_RB_PPG), VET_RB_CAP)
         out = np.where(vr_ > 0, np.maximum(out, vf_), out)
     if TGT_FLOOR:
         tr_ = (R.pos.values == "WR") * (np.nan_to_num(col(R, "age"), nan=99) < TGT_ROLE_AGE) * (np.nan_to_num(col(R, "e_x_gp_cur")) >= TGT_ROLE_G) \

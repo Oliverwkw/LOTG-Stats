@@ -176,6 +176,14 @@ def calls(v, ref=None, qbs=()):
     # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
     B = on(CALL_DATES[8])
     t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
+    # Oliver 2026-11-24 (round 7, all "fairly loose"): injury cuts too steep on Alec Pierce / Terry McLaurin / Ricky Pearsall /
+    # Jalen McMillan; Dameon Pierce and Xavier Legette worthless; Rhamondre Stevenson, Anthony Richardson, Tank Dell higher;
+    # Brian Robinson Jr. about a pair of 4ths on IR (Bijan Robinson's long-term handcuff)
+    t += [("Alec Pierce up from $40 (> $50)", rng("Alec Pierce", 50, 99999)), ("Terry McLaurin up from $40 (> $45)", rng("Terry McLaurin", 45, 99999)),
+          ("Ricky Pearsall up (> $45)", rng("Ricky Pearsall", 45, 99999)), ("Jalen McMillan up (> $45)", rng("Jalen McMillan", 45, 99999)),
+          ("Dameon Pierce near worthless (< $20)", rng("Dameon Pierce", 0, 20)), ("Xavier Legette near worthless (< $15)", rng("Xavier Legette", 0, 15)),
+          ("Rhamondre Stevenson up (> $40)", rng("Rhamondre Stevenson", 40, 99999)), ("Anthony Richardson up a little (> $20)", rng("Anthony Richardson Sr.", 20, 99999)),
+          ("Tank Dell up (> $22)", rng("Tank Dell", 22, 99999)), ("Brian Robinson Jr. about a pair of 4ths on IR ($30-$110)", rng("Brian Robinson Jr.", 30, 110))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)

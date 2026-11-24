@@ -464,6 +464,20 @@ Rule layer (`faab_value.py`):
 - Calls dated 2026-11-23 (each "less than"): Henderson < $500; Makai Lemon, Jadarian Price, KC Concepcion and
   Kenyon Sadiq under their league slot prices; Emmett Johnson < $625. On 2026-11-24: Kyle Monangai around $360.
 
+## Round 7: injury cuts, lost jobs, bad depth WRs, cuffs (Oliver 2026-11-24)
+
+Rule layer only (`faab_value.py`), with loose calls dated 2026-11-24 in `faab_calls.py`:
+- `IR_EASE` 0.5 / `IR_CONTRACT` 0.25: on IR with a proven role (50%+ snaps last season) and not fading before it (3+ games
+  under 60% of last season's PPR/g), the IR, missed-games, severity, not-back, lost-rookie-year and replacement-line docks
+  all charge for the same lost season, so half is lifted, plus a quarter with 2+ contract years left (Alec Pierce's deal).
+- `RET_GOOD` 0.6: back from a lost season (under 4 games, not a suspension), 3+ games and 9+ PPR/g: the availability dock eases (Tank Dell).
+- `QB_DC1` 0.3: a healthy young (under 26) first-round QB first on the depth chart: the availability dock eases (Anthony Richardson).
+- `WR_BAD` 1.5: a 3rd-year+ WR/TE, 4th+ on the depth chart, under 40% of snaps, under 6 PPR/g now and 7 last season (Xavier Legette).
+- `JOB_DC` 2: `xfp_jump` and `RB_JOB_FLOOR` need the back still 1st or 2nd on the depth chart (Dameon Pierce, now 5th).
+- `CUFF_PROVEN_FLOOR` $60: a top-24 RB finisher in 4 seasons, under 29, now RB2/RB3 behind a $1,000+ lead (Brian Robinson Jr. behind Bijan Robinson).
+- `VET_RB_SINCE` / `VET_RB_CAP` 50: the veteran RB floor reads the better of this season's PPR/g and his healthy stretch since
+  his last missed week, capped at $50 (Rhamondre Stevenson's game played hurt).
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
