@@ -190,6 +190,13 @@ def calls(v, ref=None, qbs=()):
           ("Christian McCaffrey down (< $2,350)", rng("Christian McCaffrey", 1, 2350)), ("Kyren Williams down (< $2,240)", rng("Kyren Williams", 1, 2240)),
           ("Malik Nabers up (> $2,330)", rng("Malik Nabers", 2330, 99999)), ("Jalen Hurts down (< $1,580)", rng("Jalen Hurts", 1, 1580)),
           ("Harold Fannin Jr. down (< $1,560)", rng("Harold Fannin Jr.", 1, 1560))]
+    # Oliver 2026-11-24 (middle tier, loose)
+    t += [("Chase Brown a tad lower (< $1,120)", rng("Chase Brown", 1, 1120)), ("Jameson Williams lower (< $960)", rng("Jameson Williams", 1, 960)),
+          ("Sam LaPorta lower (< $830)", rng("Sam LaPorta", 1, 830)), ("Rome Odunze lower (< $760)", rng("Rome Odunze", 1, 760)),
+          ("Tyler Warren > Sam LaPorta", gt("Tyler Warren", "Sam LaPorta")), ("Tyler Warren > Kyle Pitts", gt("Tyler Warren", "Kyle Pitts Sr.")),
+          ("Kenneth Walker > Kyren Williams", gt("Kenneth Walker III", "Kyren Williams")), ("Travis Hunter down a bit (< $490)", rng("Travis Hunter", 1, 490)),
+          ("Emmett Johnson lower on a 2-game sample (< $460)", rng("Emmett Johnson", 1, 460)), ("Antonio Williams lower (< $320)", rng("Antonio Williams", 1, 320)),
+          ("Chuba Hubbard way up (> $550)", rng("Chuba Hubbard", 550, 99999))]
     # rating-page votes that count as calls (Oliver 2026-11-10: unanimous with 3+ teams agreeing), on the board they were shown
     for d, kind, a, b in VOTE_CALLS:
         B = on(d)

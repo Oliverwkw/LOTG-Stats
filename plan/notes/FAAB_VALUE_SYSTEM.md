@@ -487,6 +487,16 @@ Top end, same round (final-stage unless noted):
   PPR/g (3+ games) ran under 87% of last season's, full 4 points of ratio under it, is docked and gets no IR relief (Jalen Hurts).
 - `CEIL_YOUNG_PTS` 30 (rule layer): a TE in his first 3 seasons is judged against a 30-point best game, not 28 (Harold Fannin Jr.).
 
+Middle tier, same round (rule layer; the volatility rules read this season's games, 4+):
+- `RB_INJ_CUR_PPG` 16: a star season (6+ games at 16+ PPR/g) spares rb_inj through a short non-IR absence (Kenneth Walker III, Chuba Hubbard).
+- `RB_PASS_YPC` 0.1: an RB on a pass-first offense (run share under 18%) with under 4.5 yards a carry over 2 seasons (Chase Brown).
+- `VOL_SPIKE` 0.75: a 4th-year+ WR/TE with 5+ duds in 2 seasons and weekly PPR variation past 0.5 keeps less big-game bonus (Jameson Williams).
+- `TE_INCONS` 0.4: a TE past his rookie year, 4+ duds, swinging weeks, under a 22% target share (Sam LaPorta, Kyle Pitts; not Isaiah Likely).
+- `WR_LAPPED` 0.5: a WR outscored 30%+ by a younger teammate WR with more expected points keeps half his big-game bonus (Rome Odunze / Luther Burden III).
+- `AW_SNAP` 0.3: the college-award bonus fades under 30% of the offensive snaps (Travis Hunter).
+- `CUFF_SMALL` 0.3: a backup RB with 3 or fewer big games keeps less spike / efficiency raise (Emmett Johnson).
+- `WR_SHOWN` 0.5: a rookie WR with 60%+ snaps over 6+ games and under 9 PPR/g keeps half his talent / big-game / opening raises (Antonio Williams).
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
