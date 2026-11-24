@@ -441,6 +441,27 @@ slot fade-in (`faab_pick_slots`) weights the schedule's slot prices exactly as b
   $626 -> $478, its 1st $1,782 -> $1,488. No fitted trade moves (none is a next-year pick in an unfinished season).
 - Classes 2027+: the NFL draft date is the Thursday in Apr 23-29 (every draft 2020-26 fits); `NFL_DRAFT` overrides.
 
+## Young players who have shown too little (PR #651, Oliver 2026-11-23)
+
+Fixes for TreVeyon Henderson, the 2026 first-round rookies and Emmett Johnson being priced above what they had shown.
+Base (`faab_formula.py`, needs a rebuild):
+- `INJ_SEASON_G = 4`: an injured player keeps this season's PPG once he has 4+ games. Before, an Out/IR tag NaN'd
+  the season and production fell back to last season (Henderson: $220 -> $1,036 on the Out tag alone).
+- `EXP_TOP`: the rookie PPG expectation scales with draft slot, from `EXP_TOP` at 1.01 down to `EXP` by the end of
+  round 2. QB 16 and TE 7 are lower than RB 14 / WR 12 because QBs and TEs take longer to adjust and break out.
+Rule layer (`faab_value.py`):
+- `SHOWN` / `CAP_SHOWN`: once the team has played 7-10 games and the player 3+, low production stops counting as
+  upside (`young_upside`, `wr_talent`) and draft capital fades. Applies only to stats-base $150-300+ (cheap backups
+  keep their lottery value) and not to efficient scorers (13+ PPG).
+- `CUFF_SHORT`: the handcuff raise needs the lead RB on IR/PUP. A short Out tag is not a job opening.
+  `CUFF_BAD_PPG = 10`: the raise is kept, even for a short absence, when the lead was scoring under 10 PPR/g. A
+  backup to a bad starter has a better chance of taking the job (input `e_x_cuff_lead_ppg`).
+- `ROOKIE_OUT` / `ROOKIE_UP`: a rookie outplayed by another rookie at the same team and position (in PPR/g and
+  xFP/g) is docked. The one outplaying a better-drafted same-team rookie is raised.
+- `RET_BAD`: an RB/WR/TE in his first 1-3 games back from injury who scores well under his pre-injury PPG is docked.
+- Calls dated 2026-11-23 (each "less than"): Henderson < $500; Makai Lemon, Jadarian Price, KC Concepcion and
+  Kenyon Sadiq under their league slot prices; Emmett Johnson < $625. On 2026-11-24: Kyle Monangai around $360.
+
 ## The noise bar, and every rule needs a reason
 
 FAAB formula changes are build changes (they go in a PR) but are exempt from the 3-part audit in
