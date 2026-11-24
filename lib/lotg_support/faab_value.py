@@ -96,6 +96,7 @@ UPSIDE_EXP = 2       # young_upside: a player in his first three seasons
 # times how far under replacement his usage runs (CAP_SHOWN_U = full). 0 = off.
 SHOWN, SHOWN_G = 1.0, 16.0
 SHOWN_PPG = 13.0   # PPR/g at which the ramp is fully off (full at 3 under it; 0 = no points gate)
+SHOWN_B0, SHOWN_B1 = 150.0, 300.0   # (none, full) stats base for the fades; (0, 0) = everyone
 SHOWN_T0, SHOWN_T1 = 7.0, 10.0  # (start, full) in team games this season: the fades ramp over the season instead (full 0 = off; needs 3+ games played)
 CAP_SHOWN, CAP_SHOWN_G, CAP_SHOWN_U = 1.0, 12.0, 0.5
 ELITE_AGE = 24.0     # young_elite: full under this age, none a year older
@@ -314,6 +315,8 @@ def characteristics(R, youth_age=26.0):
     ramp_ = np.clip((tgc_ - SHOWN_T0) / (SHOWN_T1 - SHOWN_T0), 0, 1) * (cur_gp >= 3)   # the season's second half
     # ... and only for a player whose fantasy points are short too (an efficient scorer on few expected points is not a bust)
     ramp_ = ramp_ * (np.clip((SHOWN_PPG - np.nan_to_num(col(R, "e_x_ppg_cur"), nan=0)) / 3.0, 0, 1) if SHOWN_PPG else 1.0)
+    # ... and only for a priced-in prospect (stats base over SHOWN_BAND): a cheap backup's upside is what the league buys
+    ramp_ = ramp_ * np.interp(np.nan_to_num(col(R, "V_raw"), nan=0), (SHOWN_B0, SHOWN_B1), [0, 1]) if SHOWN_B1 > 0 else ramp_
     shown = 1 - SHOWN * (ramp_ if SHOWN_T1 > 0 else np.clip(nfl_g / SHOWN_G, 0, 1))   # share of the low-production credit kept
     prod_s = np.where(prod_z < 0, prod_z * shown, prod_z)
     wr_talent = np.isin(posv, ["WR", "TE"]) * np.clip(wr_talent_raw - prod_s, 0, 2)   # (QBs/RBs: their own rule below)
