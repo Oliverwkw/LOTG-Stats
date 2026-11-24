@@ -1393,6 +1393,8 @@ def add_x(df):
     sus = np.zeros(len(d))
     for r in SUSP.itertuples():
         ko = KO.get(int(r.season)); a = np.datetime64(ko - pd.Timedelta(days=30)); b = np.datetime64(ko + pd.Timedelta(days=7 * int(r.week_end)))
+        an = getattr(r, "announced", np.nan)   # known only from its announcement (an in-season ban: Puka Nacua 2026-11-19)
+        if pd.notna(an): a = max(a, np.datetime64(pd.Timestamp(an)))
         sus = np.maximum(sus, ((g_ == r.gsis_id) & (date_v >= a) & (date_v < b)).astype(float) * min(1.0, (int(r.week_end) - int(r.week_start) + 1) / 17))
     out["e_x_suspended"] = sus
     off = np.zeros(len(d))

@@ -1,16 +1,17 @@
-player_name,gsis_id,season,week_start,week_end,reason
-Calvin Ridley,00-0034837,2022,1,18,Gambling (full-season)
-Deshaun Watson,00-0033537,2022,1,11,Personal conduct policy
-DeAndre Hopkins,00-0030564,2022,1,6,Performance enhancing substances
-Rashee Rice,00-0039067,2025,1,6,Personal conduct policy
-Jordan Addison,00-0038994,2024,9,9,Substance abuse / driving
-Jordan Addison,00-0038994,2025,1,3,Substance abuse / driving
-Isaiah Rodgers,00-0036222,2023,1,18,Gambling (full-season)
-Demetrius Taylor,00-0037445,2023,1,18,Gambling (full-season)
-Nicholas Petit-Frere,00-0037754,2023,1,6,Gambling
-Eyioma Uwazurike,00-0038106,2023,1,18,Gambling (full-season)
-Shaka Toney,00-0036666,2023,1,18,Gambling (full-season)
-Quintez Cephus,00-0036277,2022,1,18,Gambling (full-season)
-C.J. Moore,00-0035327,2022,1,18,Gambling (full-season)
-Alvin Kamara,00-0033906,2023,1,3,Personal conduct policy
-Jameson Williams,00-0037240,2023,1,4,Gambling
+player_name,gsis_id,season,week_start,week_end,reason,announced
+Calvin Ridley,00-0034837,2022,1,18,Gambling (full-season),
+Deshaun Watson,00-0033537,2022,1,11,Personal conduct policy,
+DeAndre Hopkins,00-0030564,2022,1,6,Performance enhancing substances,
+Rashee Rice,00-0039067,2025,1,6,Personal conduct policy,
+Jordan Addison,00-0038994,2024,9,9,Substance abuse / driving,
+Jordan Addison,00-0038994,2025,1,3,Substance abuse / driving,
+Isaiah Rodgers,00-0036222,2023,1,18,Gambling (full-season),
+Demetrius Taylor,00-0037445,2023,1,18,Gambling (full-season),
+Nicholas Petit-Frere,00-0037754,2023,1,6,Gambling,
+Eyioma Uwazurike,00-0038106,2023,1,18,Gambling (full-season),
+Shaka Toney,00-0036666,2023,1,18,Gambling (full-season),
+Quintez Cephus,00-0036277,2022,1,18,Gambling (full-season),
+C.J. Moore,00-0035327,2022,1,18,Gambling (full-season),
+Alvin Kamara,00-0033906,2023,1,3,Personal conduct policy,
+Jameson Williams,00-0037240,2023,1,4,Gambling,
+Puka Nacua,00-0039075,2026,12,14,Personal conduct policy (served on IR),2026-11-19

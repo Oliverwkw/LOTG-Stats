@@ -176,6 +176,8 @@ def calls(v, ref=None, qbs=()):
     # Oliver 2026-11-23 (on the 11-24 board, his first game back): Kyle Monangai around $360 after 1.8 PPR on his return
     B = on(CALL_DATES[8])
     t += [("Monangai around $360 after a bad return (Oliver 2026-11-23)", rng("Kyle Monangai", 1, 360))]
+    # Oliver 2026-11-24: Puka back under Chase (expiring contract + conduct suspension), still above ARSB (the 11-20 chat order)
+    t += [("Chase > Puka (Oliver 2026-11-24)", gt("Ja'Marr Chase", "Puka Nacua")), ("Puka > ARSB (Oliver 2026-11-24)", gt("Puka Nacua", "Amon-Ra St. Brown"))]
     # Oliver 2026-11-24 (round 7, all "fairly loose"): injury cuts too steep on Alec Pierce / Terry McLaurin / Ricky Pearsall /
     # Jalen McMillan; Dameon Pierce and Xavier Legette worthless; Rhamondre Stevenson, Anthony Richardson, Tank Dell higher;
     # Brian Robinson Jr. about a pair of 4ths on IR (Bijan Robinson's long-term handcuff)
