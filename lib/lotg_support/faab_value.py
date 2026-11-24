@@ -709,6 +709,7 @@ WR_TOP_IMPL = 21.0   # implied team points under this = a bottom-third offense (
 OLD_CAP, OLD_CAP_AGE = 90.0, 36.0          # a non-QB this old is worth at most OLD_CAP ($; 0 = off)
 QB_PAID_FLOOR = 300.0                      # a starting QB (1st on the chart) with 2+ contract years left, under 34: at least this ($)
 QB_YOUNG_FLOOR = 75.0                     # a young (under 26) first-round QB, 1st on the chart, 12+ games over 2 seasons: at least this ($)
+SCRATCH, SCRATCH_N = 0.4, 3.0              # healthy-scratch dock (log), full at this many scratches this season
 WR_ROLE_XFP = 11.0                         # ... with 11+ expected PPR/g (his targets' worth; Tucker 2025 had 9.6, Jalen Coker 12.6)
 WR_ROLE_FLOOR = 140.0                      # a WR under 26 with a starter's role (70%+ snaps, 18%+ targets, 10+ PPR/g over 8+ games): at least this ($)
 TE_R1_BOOM, TE_R1_PICK, TE_R1_PTS = 0.15, 10, 35.0   # top-10 pick TE with a 35+ PPR game in the last 2 seasons + this one: raise (log)
@@ -1310,6 +1311,9 @@ def apply_rules(R, p, X=None, explain=False):
         e_ = ir_ * np.clip(IR_EASE + IR_CONTRACT * (np.nan_to_num(col(R, "e_x_contract_left")) >= 2), 0, 1)
         for k in IR_DOCKS:
             if k in T_: T_[k] = np.where(T_[k] < 0, T_[k] * (1 - e_), T_[k])
+    if SCRATCH:   # (Oliver 2026-11-24, Eli Stowers "a cut for healthy scratches") a healthy player his team chose not to dress
+        # has no role yet: docked SCRATCH (log) at SCRATCH_N+ healthy scratches this season, a share of it for fewer
+        T_["scratched"] = -SCRATCH * np.clip(np.nan_to_num(col(R, "e_x_scratch_cur")) / SCRATCH_N, 0, 1) * np.isin(pos, ["RB", "WR", "TE"])
     if QB_PRE_BAD:   # (Oliver 2026-11-24, Jalen Hurts "bad before injury") a QB on IR whose season before the injury
         # (3+ games) ran under QB_PRE_R of last season's PPR/g: the decline started before the injury; full dock QB_PRE_SPAN under it
         qb_ = (pos == "QB") * (R.injury.fillna("").values == "IR") * gec(col(R, "e_x_gp_cur"), 3, 2)   # IR: a lost season, not a week; a sample of 2-3 games phases in

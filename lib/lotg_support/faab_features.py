@@ -1352,6 +1352,11 @@ def add_x(df):
     out["e_x_bodyparts_3y"] = bp(d.cur_s.values) * cur_ok + bp(d.l0_s.values) + bp(d.l0_s.values - 1)
     out["e_x_cur_exempt"] = np.where(cur_ok, np.nan_to_num(m.exempt.values.astype(float)), 0.0)    # weeks on the exempt list this season
     out["e_x_no_team_frac"] = np.where(cur_ok, np.nan_to_num(m.no_team.values.astype(float)) / np.maximum(np.nan_to_num(m.weeks.values.astype(float)), 1), np.nan)
+    # (Oliver 2026-11-24, Eli Stowers) healthy scratches this season: team games he neither played nor missed on an
+    # injury report (Out / Doubtful / IR / PUP), an excused absence, or with no team
+    _nn = lambda c: np.nan_to_num(m[c].values.astype(float)) if c in m else 0.0
+    out["e_x_scratch_cur"] = np.where(cur_ok, np.maximum(np.nan_to_num(out["e_x_team_games_cur"].values.astype(float)) - _nn("played")
+                                                          - _nn("inj_out") - _nn("exempt") - _nn("no_team"), 0.0), np.nan)
     # track record through the last complete season: consecutive top-2 / top-5 / top-12 finishes, top-12 / top-5 seasons in the last 6
     fn = FN.reindex(pd.MultiIndex.from_arrays([d.gsis.values, d.l0_s.values]))
     for c in ["streak2", "streak5", "streak12", "top12_6y", "top5_6y", "starter_3y"]: out[f"e_x_{c}"] = fn[c].fillna(0).values
