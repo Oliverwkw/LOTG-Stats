@@ -1,8 +1,8 @@
-# Rating-page votes vs the board (inputs as of 2026-11-24)
+# Rating-page votes vs the board (inputs as of 2026-11-25)
 
 862 answers (2529 signals: picks and price checks) from 5 teams; 2529 signals on board dates the inputs hold, vote term weight 1.37 of max 1.5 (trades and cuts weigh 3.0 each).
 
-1236 of 1960 checks agree with the board.
+1238 of 1960 checks agree with the board.
 
 - 2026-10-24: **Tyrone Tracy Jr.** board $8, votes: about right 1; typed $25 (2 answers) — DISAGREES
   - rb_inj x0.61, young_upside x1.47, team_q_lo x0.71, availability x1.28
@@ -243,9 +243,6 @@
 - 2026-11-09: **Omarion Hampton** $909 vs **Emeka Egbuka** $614: votes say Emeka Egbuka (s -1.00, 1 answers) — DISAGREES
   - Omarion Hampton: availability x0.59, share_talent x1.18, team_q x0.90, efficiency x0.92
   - Emeka Egbuka: inj_out x0.51, share_talent x1.33, efficiency x0.86, usage x1.10
-- 2026-10-28: **Kyren Williams** $2,484 vs **Carnell Tate** $1,692: votes say Carnell Tate (s -1.00, 1 answers) — DISAGREES
-  - Kyren Williams: availability x1.37, share_talent x1.34, usage x1.22, aw_nfl x1.18
-  - Carnell Tate: rookie_capital x1.81, wr_band x0.78, team_q x0.80, share_talent x1.23
 - 2026-10-28: **Jalen Coker** board $191, votes: about right 1 (1 answers) — DISAGREES
   - spike x1.78, availability x0.65, position curve x1.15, share_talent x0.90
 - 2026-11-11: **Jordyn Tyson** $679 vs **Chase Brown** $994: votes say Jordyn Tyson (s +1.00, 1 answers) — DISAGREES
@@ -308,6 +305,9 @@
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
 - 2026-10-28: **Jadarian Price** board $903, votes: too high 1 (1 answers) — DISAGREES
   - young_upside x1.62, inj_ir x0.69, rookie_capital x1.37, team_q x1.23
+- 2026-10-28: **Kyren Williams** $2,393 vs **Carnell Tate** $1,692: votes say Carnell Tate (s -1.00, 1 answers) — DISAGREES
+  - Kyren Williams: availability x1.37, share_talent x1.34, usage x1.22, aw_nfl x1.18
+  - Carnell Tate: rookie_capital x1.81, wr_band x0.78, team_q x0.80, share_talent x1.23
 - 2026-10-28: **Davante Adams** board $189, votes: about right 1 (1 answers) — DISAGREES
   - contract_old x0.61, aw_nfl x1.46, usage x1.26, share_talent x1.25
 - 2026-10-28: **Davante Adams** board $189, votes: about right 1 (1 answers) — DISAGREES
@@ -1602,9 +1602,6 @@
   - Javonte Williams: availability x1.37, usage x1.24, share_talent x1.21, team_q x1.06
 - 2026-11-15: **Rashee Rice** board $938, votes: too high 1 (1 answers) — DISAGREES
   - availability x0.35, wr_talent x1.41, wr_band x0.78, share_talent x1.24
-- 2026-10-28: **Malik Nabers** $2,593 vs **Kyren Williams** $2,484: votes say Malik Nabers (s +1.00, 1 answers) — DISAGREES
-  - Malik Nabers: share_talent x1.66, usage x1.21, wr_band x0.84, position curve x0.86
-  - Kyren Williams: availability x1.37, share_talent x1.34, usage x1.22, aw_nfl x1.18
 - 2026-11-09: **Jacory Croskey-Merritt** board $97, votes: about right 1 (1 answers) — DISAGREES
   - rb_band x1.82, young_upside x1.67, team_q_lo x0.65, inj_ir x0.69
 - 2026-11-15: **Tetairoa McMillan** board $1,719, votes: too high 1 (1 answers) — DISAGREES
@@ -1668,8 +1665,6 @@
   - aw_college x1.22, pick_boom x1.18, qb_quality x0.91, usage x1.08
 - 2026-11-09: **Bryce Young** board $568, votes: about right 1 (1 answers) — DISAGREES
   - aw_college x1.22, pick_boom x1.18, qb_quality x0.91, usage x1.08
-- 2026-10-28: **Kyren Williams** board $2,484, votes: too high 1 (1 answers) — DISAGREES
-  - availability x1.37, share_talent x1.34, usage x1.22, aw_nfl x1.18
 - 2026-11-09: **Germie Bernard** $268 vs **Ladd McConkey** $208: votes say even (s +0.00, 1 answers) — DISAGREES
   - Germie Bernard: wr_talent x1.32, usage x0.83, spike x1.20, rookie_capital x1.18
   - Ladd McConkey: spike x1.46, team_q_lo x0.76, wr_talent x1.24, position curve x1.16
@@ -1930,7 +1925,8 @@
 - 2026-10-28: **George Pickens** board $1,979, votes: too high 1 (1 answers)
 - 2026-10-28: **Sam Darnold** $131 vs **Khalil Shakir** $86: votes say Sam Darnold (s +1.00, 1 answers)
 - 2026-10-28: **Khalil Shakir** board $86, votes: too high 1 (1 answers)
-- 2026-10-28: **Kyren Williams** $2,484 vs **Jared Goff** $2,164: votes say even (s +0.00, 1 answers)
+- 2026-10-28: **Kyren Williams** $2,393 vs **Jared Goff** $2,164: votes say even (s +0.00, 1 answers)
+- 2026-10-28: **Kyren Williams** board $2,393, votes: too high 1 (1 answers)
 - 2026-10-28: **Jared Goff** board $2,164, votes: too high 1 (1 answers)
 - 2026-10-28: **Rashee Rice** $889 vs **Bucky Irving** $1,028: votes say Bucky Irving (s -1.00, 1 answers)
 - 2026-10-28: **Rashee Rice** board $889, votes: too high 1 (1 answers)
@@ -2097,7 +2093,7 @@
 - 2026-10-28: **Chris Olave** board $1,438, votes: too high 1 (1 answers)
 - 2026-10-28: **De'Von Achane** board $2,266, votes: about right 1 (1 answers)
 - 2026-10-28: **James Cook III** board $2,190, votes: about right 1 (1 answers)
-- 2026-10-28: **Kyren Williams** board $2,484, votes: too high 1 (1 answers)
+- 2026-10-28: **Kyren Williams** board $2,393, votes: too high 1 (1 answers)
 - 2026-10-28: **Carnell Tate** board $1,692, votes: too high 1 (1 answers)
 - 2026-10-28: **Kyle Monangai** board $371, votes: about right 1 (1 answers)
 - 2026-10-28: **Malik Nabers** $2,593 vs **Chase Brown** $1,232: votes say Malik Nabers (s +1.00, 1 answers)
@@ -2164,8 +2160,9 @@
 - 2026-10-28: **Jonathan Taylor** $2,273 vs **Malik Nabers** $2,593: votes say Malik Nabers (s -1.00, 1 answers)
 - 2026-10-28: **Jonathan Taylor** board $2,273, votes: too high 1 (1 answers)
 - 2026-10-28: **Malik Nabers** board $2,593, votes: about right 1 (1 answers)
+- 2026-10-28: **Malik Nabers** $2,593 vs **Kyren Williams** $2,393: votes say Malik Nabers (s +1.00, 1 answers)
 - 2026-10-28: **Malik Nabers** board $2,593, votes: about right 1 (1 answers)
-- 2026-10-28: **Kyren Williams** board $2,484, votes: too high 1 (1 answers)
+- 2026-10-28: **Kyren Williams** board $2,393, votes: too high 1 (1 answers)
 - 2026-10-28: **Chuba Hubbard** $300 vs **Tyler Warren** $652: votes say Tyler Warren (s -1.00, 1 answers)
 - 2026-10-28: **Chuba Hubbard** board $300, votes: too high 1 (1 answers)
 - 2026-10-28: **Tyler Warren** board $652, votes: about right 1 (1 answers)
