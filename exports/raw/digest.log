@@ -1,11 +1,9 @@
 [digest] 39 filtered stat(s) added: PF in a loss, PF in a win, Max PF in a loss, Max PF in a win, Efficiency in a loss, Efficiency in a win, Points from QBs in a loss, Points from RBs in a loss, Points from WRs in a loss, Points from TEs in a loss, Points above Sleeper Projection in a loss, Points above Sleeper Projection in a win, Points above Claude Projection in a loss, Points above Claude Projection in a win, Points above Enhanced Projection in a loss, Points above Enhanced Projection in a win, Lineup Boldness in a win, Lineup Boldness in a loss, Players under 10 pts (starters) in a win, Players over 30 pts (starters) in a loss, Number of rookies started in a win, Points as starter, Points on bench, QB points, QB points as starter, QB points on bench, RB points, RB points as starter, RB points on bench, WR points, WR points as starter, WR points on bench, TE points, TE points as starter, TE points on bench, Points by a rookie starter, Points by a starter in a loss, Points on bench in a loss, Avg points by a rookie
 [digest] 100 percent column(s) stored as 0-1 fractions
-[digest] build-inputs fingerprint: fef87a05a7bdb1fd
+[digest] build-inputs fingerprint: 7bde4eed38f3f18d
 [digest] season=2026 weeks_completed=11
 [digest] on pace: 490 standing(s)
-[digest] renamed players carried across: 1 name(s), 3 row key(s), 0 board label(s)
-[digest] baselining 35 on-pace standing(s) on column(s) new since the last snapshot (no diff yet).
-[digest] new data: 1 new week(s), 250 player(s) / 8 team(s) in them, 3 player(s) / 2 team(s) in new transactions; edit landed: True -> 415 item(s) with the news, 201 under edits
-[digest] lede: The league's Number of QB rostered this week (48) is the highest single week ever, passing 2026 week 10 and 2026 week 7. It was an active week — 412 of the 613 other moves are new results (158 on teams and 83 on players); 201 re-valued history besides. Jonah Coleman joins Emmett Johnson and Isaac Guerendo in a tie for highest Starter boom % (50.00%), passing Emanuel Wilson and Rashaad Penny; CeeDee Lamb passes Davante Adams for highest Targets (940). The biggest single thread is 106 FAAB moves; 67 of the 616 were ties rather than overtakes.
-[digest] 29 single-week highlight(s), 101 crossing(s), 0 record(s), 289 board move(s), 2 milestone(s), 146 on-pace change(s) -> exports/raw/weekly_digest.html
+[digest] new data: 0 new week(s), 0 player(s) / 0 team(s) in them, 0 player(s) / 0 team(s) in new transactions; edit landed: True -> 5 item(s) with the news, 1 under edits
+[digest] lede: Jahmyr Gibbs is on pace for the 2nd-highest Points (full season) of any season (527.04). 5 more moves across players and the on-pace list.
+[digest] 0 single-week highlight(s), 1 crossing(s), 0 record(s), 0 board move(s), 0 milestone(s), 3 on-pace change(s) -> exports/raw/weekly_digest.html
 [digest] snapshot saved -> data/digest/ranks_snapshot.json
