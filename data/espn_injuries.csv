@@ -1,167 +1,169 @@
 season,sleeper_id,espn_id,player,position,nfl_team,status,fantasy_status,return_date,return_week,season_ending,evidence,injury,updated,matched_by,captured_at_utc
-2026,5859,4047646,A.J. Brown,WR,NE,Doubtful,DOUBTFUL,2026-11-29,12,false,,Hamstring,2026-11-26T20:52,id,2026-11-26T23:07:59+00:00
-2026,9756,4429205,Jordan Addison,WR,MIN,Doubtful,DOUBTFUL,2026-11-29,12,false,,Thumb - Surgery,2026-11-26T19:36,id,2026-11-26T23:07:59+00:00
-2026,8142,4360078,Alec Pierce,WR,IND,Injured Reserve,IR,2027-01-10,18,false,,Heel,2026-11-25T18:36,id,2026-11-26T23:07:59+00:00
-2026,10226,4368003,Andrei Iosivas,WR,CIN,Injured Reserve,IR-R,2026-11-29,12,false,,Thumb - Surgery,2026-11-23T22:36,id,2026-11-26T23:07:59+00:00
-2026,12539,4429105,Arian Smith,WR,NYJ,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Knee - ACL - Surgery,2026-09-23T21:53,id,2026-11-26T23:07:59+00:00
-2026,7757,4035656,Ben Skowronek,WR,PIT,Injured Reserve,IR,2026-12-27,16,false,,Calf,2026-11-26T22:43,id,2026-11-26T23:07:59+00:00
-2026,11273,4372070,Ben VanSumeren,RB,KC,Injured Reserve,IR,2026-12-27,16,false,,Knee - Sprain,2026-11-24T21:28,id,2026-11-26T23:07:59+00:00
-2026,11058,4259619,Blake Grupe,K,LAR,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Knee - ACL,2026-10-19T22:01,id,2026-11-26T23:07:59+00:00
-2026,12455,4596602,Brashard Smith,RB,KC,Injured Reserve,IR,2026-12-03,13,false,,Hamstring,2026-10-24T18:05,id,2026-11-26T23:07:59+00:00
-2026,5121,3123075,Braxton Berrios,WR,NYG,Injured Reserve,IR,2027-02-15,,true,remainder of the 2026 season,Foot - Surgery,2026-10-14T21:17,id,2026-11-26T23:07:59+00:00
-2026,8154,4241474,Brian Robinson Jr.,RB,ATL,Injured Reserve,IR,2026-12-13,14,false,,Hamstring,2026-11-07T21:13,id,2026-11-26T23:07:59+00:00
-2026,12171,4373273,British Brooks,RB,HOU,Injured Reserve,IR,2026-11-29,12,false,,Hamstring,2026-10-03T00:35,id,2026-11-26T23:07:59+00:00
-2026,8423,4036032,Brittain Brown,RB,CHI,Injured Reserve,IR,2027-02-15,,true,miss the entire season,Undisclosed,2026-08-31T16:21,id,2026-11-26T23:07:59+00:00
-2026,12735,4432208,Caleb Lohner,TE,DEN,Injured Reserve,IR-R,2026-12-06,13,false,,Foot - Surgery,2026-11-26T23:03,id,2026-11-26T23:07:59+00:00
-2026,8125,4243389,Calvin Austin III,WR,NYG,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Knee,2026-08-27T22:48,id,2026-11-26T23:07:59+00:00
-2026,13407,4702120,Carson Towt,TE,IND,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-09-08T20:42,name,2026-11-26T23:07:59+00:00
-2026,13353,5091739,Chris Brazzell II,WR,CAR,Injured Reserve,IR,2027-02-15,,true,entire rookie season,Knee - Surgery,2026-07-31T18:57,id,2026-11-26T23:07:59+00:00
-2026,4950,3895856,Christian Kirk,WR,SF,Injured Reserve,IR,2026-12-06,13,false,,Knee - Meniscus - Surgery,2026-11-19T15:22,id,2026-11-26T23:07:59+00:00
-2026,12210,5192448,Cole Burgess,WR,,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,6826,4258595,Cole Kmet,TE,CHI,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee,2026-10-23T21:36,id,2026-11-26T23:07:59+00:00
-2026,8214,4361438,Cole Turner,TE,MIA,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-27T23:35,id,2026-11-26T23:07:59+00:00
-2026,6453,4249030,D.J. Montgomery,WR,IND,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Abdomen,2026-08-31T17:16,id,2026-11-26T23:07:59+00:00
-2026,2133,16800,Davante Adams,WR,LAR,Injured Reserve,IR,2026-12-13,14,false,,Hamstring - Surgery,2026-11-22T14:32,id,2026-11-26T23:07:59+00:00
-2026,9226,4429160,De'Von Achane,RB,MIA,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-09-28T20:10,id,2026-11-26T23:07:59+00:00
-2026,13417,4710714,De'Zhaun Stribling,WR,SF,Injured Reserve,IR,2026-12-13,14,false,,Ankle - Surgery,2026-11-25T20:43,id,2026-11-26T23:07:59+00:00
-2026,13315,5082269,Dean Connors,RB,LAR,Injured Reserve,IR,2026-12-13,14,false,,Hand - Surgery,2026-11-04T01:20,id,2026-11-26T23:07:59+00:00
-2026,13347,4832846,Demond Claiborne,RB,MIN,Injured Reserve,IR,2026-12-06,13,false,,Knee,2026-11-10T00:10,id,2026-11-26T23:07:59+00:00
-2026,9486,4428850,Dontayvion Wicks,WR,PHI,Injured Reserve,IR,2026-12-19,15,false,,Ankle,2026-11-21T21:09,id,2026-11-26T23:07:59+00:00
-2026,5008,3052897,Durham Smythe,TE,BAL,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Achilles - Surgery,2026-10-07T23:18,id,2026-11-26T23:07:59+00:00
-2026,7587,4361577,Dyami Brown,WR,WAS,Injured Reserve,IR,2026-12-06,13,false,,Calf,2026-11-07T23:15,id,2026-11-26T23:07:59+00:00
-2026,12521,4678006,Elijah Arroyo,TE,SEA,Injured Reserve,IR,2027-02-15,,true,rest of the season,Shoulder - Surgery,2026-10-23T21:48,id,2026-11-26T23:07:59+00:00
-2026,11592,4427834,Erick All Jr.,TE,CIN,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - ACL - Surgery,2026-10-28T19:05,id,2026-11-26T23:07:59+00:00
-2026,6011,4038524,Gardner Minshew II,QB,ARI,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Elbow - Surgery,2026-11-18T04:40,id,2026-11-26T23:07:59+00:00
-2026,12048,4429835,George Holani,RB,SEA,Injured Reserve,IR,2026-12-25,16,false,,Knee - MCL - Sprain,2026-11-23T23:11,id,2026-11-26T23:07:59+00:00
-2026,12705,4426335,Graham Mertz,QB,HOU,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,6699,4424106,Gunner Olszewski,WR,NYG,Injured Reserve,IR,2027-02-15,,true,miss the 2026 campaign,Achilles - Surgery,2026-06-02T00:10,id,2026-11-26T23:07:59+00:00
-2026,13712,5150662,Hayden Large,TE,CHI,Injured Reserve,IR,2026-12-06,13,false,,Undisclosed,2026-09-01T23:40,name,2026-11-26T23:07:59+00:00
-2026,8205,4361529,Isiah Pacheco,RB,DET,Injured Reserve,IR,2026-12-28,16,false,,Back,2026-10-30T17:09,id,2026-11-26T23:07:59+00:00
-2026,10867,4360405,Jake Bobo,WR,SEA,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 season,Knee,2026-08-22T17:45,id,2026-11-26T23:07:59+00:00
-2026,8698,4259147,Jake Tonges,TE,SF,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Knee - MCL - Surgery,2026-09-16T20:04,id,2026-11-26T23:07:59+00:00
-2026,11034,4692835,Jalen Brooks,WR,ARI,Injured Reserve,IR,2027-02-15,,true,season-ending,Wrist - Surgery,2026-10-27T21:53,id,2026-11-26T23:07:59+00:00
-2026,6904,4040715,Jalen Hurts,QB,PHI,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Calf,2026-10-19T14:18,id,2026-11-26T23:07:59+00:00
-2026,11618,4430834,Jalen McMillan,WR,TB,Injured Reserve,IR-R,2026-11-30,12,false,,Knee - PCL - Sprain,2026-11-26T22:27,id,2026-11-26T23:07:59+00:00
-2026,4137,3045147,James Conner,RB,ARI,Injured Reserve,IR-R,2026-12-20,15,false,,Foot - Surgery,2026-11-18T21:40,id,2026-11-26T23:07:59+00:00
-2026,11595,4430723,Jared Wiley,TE,KC,Injured Reserve,IR,2026-12-21,15,false,,Ankle - Fracture,2026-11-19T01:06,id,2026-11-26T23:07:59+00:00
-2026,13422,4877034,Jaren Kanak,TE,TEN,Injured Reserve,IR,2027-02-15,,false,,Pectoral,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,12508,4689114,Jaxson Dart,QB,NYG,Injured Reserve,IR,2027-01-17,19,false,,Knee - Meniscus - Surgery,2026-09-30T20:35,id,2026-11-26T23:07:59+00:00
-2026,12484,4877706,Jayden Higgins,WR,HOU,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-09-08T20:42,id,2026-11-26T23:07:59+00:00
-2026,10222,4362249,Jayden Reed,WR,GB,Injured Reserve,IR,2027-02-15,,false,,Neck - Surgery,2026-09-30T15:55,id,2026-11-26T23:07:59+00:00
-2026,12641,4602667,Jaylin Lane,WR,WAS,Injured Reserve,IR,2027-02-15,,true,season-ending,Ankle - Surgery,2026-10-22T00:47,id,2026-11-26T23:07:59+00:00
-2026,12536,4586312,Jaylin Noel,WR,HOU,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Toe - Surgery,2026-10-28T22:30,id,2026-11-26T23:07:59+00:00
-2026,13392,4885466,Jeff Caldwell,WR,KC,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 regular season,Knee - Soreness,2026-08-25T23:12,id,2026-11-26T23:07:59+00:00
-2026,13287,4870808,Jeremiyah Love,RB,ARI,Injured Reserve,IR,2026-12-06,13,false,,Ankle - Sprain,2026-11-25T19:50,id,2026-11-26T23:07:59+00:00
-2026,4219,3127586,Jeremy McNichols,RB,WAS,Injured Reserve,IR,2027-02-15,,true,out for the season,Foot,2026-11-04T17:09,id,2026-11-26T23:07:59+00:00
-2026,13173,4431142,Jimmy Holiday,WR,KC,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Undisclosed,2026-08-31T17:40,name,2026-11-26T23:07:59+00:00
-2026,13342,4708490,John Michael Gyllenborg,TE,KC,Injured Reserve,IR,2027-02-15,,false,,Knee - Sprain,2026-07-28T21:54,id,2026-11-26T23:07:59+00:00
-2026,11636,4686104,Johnny Wilson,WR,PHI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-22T21:59,id,2026-11-26T23:07:59+00:00
-2026,11583,4678008,Jonathon Brooks,RB,CAR,Injured Reserve,IR-R,2026-11-30,12,false,,Groin - Surgery,2026-11-26T22:16,id,2026-11-26T23:07:59+00:00
-2026,11623,4569382,Jordan Whittington,WR,LAR,Injured Reserve,IR,2026-12-20,15,false,,Back,2026-11-11T00:38,id,2026-11-26T23:07:59+00:00
-2026,5973,3921690,Josh Oliver,TE,MIN,Injured Reserve,IR,2027-01-17,19,false,,Biceps - Surgery,2026-09-30T00:26,id,2026-11-26T23:07:59+00:00
-2026,10212,4360086,Josh Whyle,TE,GB,Injured Reserve,IR,2026-12-20,15,false,,Concussion - Concussion,2026-11-14T22:35,id,2026-11-26T23:07:59+00:00
-2026,7670,4242433,Joshua Palmer,WR,BUF,Injured Reserve,IR,2026-12-06,13,false,,Hamstring,2026-11-09T22:24,id,2026-11-26T23:07:59+00:00
-2026,11371,4365395,Julian Hill,TE,NE,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-06-01T21:13,id,2026-11-26T23:07:59+00:00
-2026,4454,3045523,Kendrick Bourne,WR,ARI,Injured Reserve,IR,2027-02-15,,false,,Lower Leg - Fracture,2026-11-03T21:12,id,2026-11-26T23:07:59+00:00
-2026,13412,4685441,Kendrick Law,WR,DET,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-06-17T20:34,id,2026-11-26T23:07:59+00:00
-2026,4881,3916387,Lamar Jackson,QB,BAL,Injured Reserve,IR,2026-12-27,16,false,,Thumb - Surgery,2026-11-18T15:52,id,2026-11-26T23:07:59+00:00
-2026,8800,4240603,Malik Davis,RB,DAL,Injured Reserve,IR,2027-02-15,,true,entire 2026 season,Hip - Surgery,2026-09-12T18:20,id,2026-11-26T23:07:59+00:00
-2026,8161,4242512,Malik Willis,QB,MIA,Injured Reserve,IR,2026-12-13,14,false,,Abdomen,2026-11-23T17:19,id,2026-11-26T23:07:59+00:00
-2026,13597,4877717,Matthew Caldwell,QB,LAR,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-29T22:20,name,2026-11-26T23:07:59+00:00
-2026,10232,4360761,Michael Wilson,WR,ARI,Injured Reserve,IR,2027-02-15,,true,rest of the season,Neck - Fracture,2026-11-10T22:53,id,2026-11-26T23:07:59+00:00
-2026,4054,2998565,Mo Alie-Cox,TE,IND,Injured Reserve,IR,2026-12-20,15,false,,Groin,2026-11-14T17:24,id,2026-11-26T23:07:59+00:00
-2026,12480,4432731,Moliki Matavao,TE,NO,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 regular season,Knee,2026-08-25T22:41,id,2026-11-26T23:07:59+00:00
-2026,13964,4676889,Myles Montgomery,RB,NE,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,8107,4916349,Nikola Kalinic,TE,CHI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,11508,4242442,Princeton Fant,TE,DAL,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL + MCL - Surgery,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,9493,4426515,Puka Nacua,WR,LAR,Injured Reserve,IR,2027-02-15,,false,,Knee - MCL - Surgery,2026-11-22T01:25,id,2026-11-26T23:07:59+00:00
-2026,12489,4568490,RJ Harvey,RB,DEN,Injured Reserve,IR,2026-12-06,13,false,,Knee,2026-10-31T20:18,id,2026-11-26T23:07:59+00:00
-2026,12472,4601080,Raheim Sanders,RB,CLE,Injured Reserve,IR-R,2026-11-29,12,false,,Hip,2026-11-26T01:48,id,2026-11-26T23:07:59+00:00
-2026,11638,4428209,Ricky Pearsall,WR,SF,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - PCL - Surgery,2026-08-13T15:11,id,2026-11-26T23:07:59+00:00
-2026,12656,4691688,Robbie Ouzts,RB,SEA,Injured Reserve,IR,2027-02-15,,false,,Neck,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,8121,4361432,Romeo Doubs,WR,NE,Injured Reserve,IR-R,2026-11-29,12,false,,Shoulder,2026-11-26T22:41,id,2026-11-26T23:07:59+00:00
-2026,8206,4036419,Skylar Thompson,QB,BAL,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-26T23:07:59+00:00
-2026,9225,4429013,Tank Bigsby,RB,PHI,Injured Reserve,IR,2026-12-06,13,false,,Abdomen - Surgery,2026-10-06T23:17,id,2026-11-26T23:07:59+00:00
-2026,5409,3050481,Tanner Hudson,TE,CIN,Injured Reserve,IR,2027-02-15,,false,,Pectoral - Strain,2026-10-19T23:18,id,2026-11-26T23:07:59+00:00
-2026,12487,4570037,Terrance Ferguson,TE,LAR,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Ankle - Surgery,2026-11-23T19:35,id,2026-11-26T23:07:59+00:00
-2026,5927,3121422,Terry McLaurin,WR,WAS,Injured Reserve,IR,2027-02-15,,true,remainder of the 2026 season,Knee - Surgery,2026-10-30T17:12,id,2026-11-26T23:07:59+00:00
-2026,12113,4361027,Thomas Yassmin,TE,GB,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 season,Undisclosed,2026-08-31T23:12,name,2026-11-26T23:07:59+00:00
-2026,6588,3126997,Tom Kennedy,WR,DET,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - MCL - Surgery,2026-10-17T01:51,id,2026-11-26T23:07:59+00:00
-2026,12529,4432710,TreVeyon Henderson,RB,NE,Injured Reserve,IR,2026-12-21,15,false,,Illness,2026-11-14T21:14,id,2026-11-26T23:07:59+00:00
-2026,11589,4429275,Trey Benson,RB,ARI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-25T23:07,id,2026-11-26T23:07:59+00:00
-2026,7610,4383351,Trey Lance,QB,LAC,Injured Reserve,IR,2026-11-29,12,false,,Groin,2026-10-11T00:57,id,2026-11-26T23:07:59+00:00
-2026,7593,4241401,Trey Sermon,RB,ATL,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-09-08T20:42,id,2026-11-26T23:07:59+00:00
-2026,8230,4242431,Ty Chandler,RB,NO,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee,2026-08-25T22:39,id,2026-11-26T23:07:59+00:00
-2026,9508,4428557,Tyjae Spears,RB,TEN,Injured Reserve,IR,2026-12-20,15,false,,Knee,2026-11-21T18:44,id,2026-11-26T23:07:59+00:00
-2026,8208,4362748,Tyler Badie,RB,DEN,Injured Reserve,IR-R,2026-11-27,12,false,,Thumb - Fracture,2026-11-26T21:28,id,2026-11-26T23:07:59+00:00
-2026,8207,4429676,Tyler Goodson,RB,DAL,Injured Reserve,IR,2026-12-20,15,false,,Knee - ACL + MCL - Sprain,2026-11-14T18:50,id,2026-11-26T23:07:59+00:00
-2026,7083,4035671,Tyler Huntley,QB,BAL,Injured Reserve,IR,2027-02-15,,true,season-ending,Toe - Sprain,2026-11-05T21:20,id,2026-11-26T23:07:59+00:00
-2026,12711,4697745,Tyler Loop,K,BAL,Injured Reserve,IR,2026-12-13,14,false,,Groin,2026-11-03T21:44,id,2026-11-26T23:07:59+00:00
-2026,8188,4362921,Tyquan Thornton,WR,KC,Injured Reserve,IR,2027-01-17,19,false,,Ankle - Surgery,2026-10-13T18:29,id,2026-11-26T23:07:59+00:00
-2026,11655,4360516,Tyrone Tracy Jr.,RB,NYG,Injured Reserve,IR,2026-12-06,13,false,,Hamstring - Strain,2026-11-18T20:16,id,2026-11-26T23:07:59+00:00
-2026,8126,4569587,Wan'Dale Robinson,WR,TEN,Injured Reserve,IR,2027-02-15,,true,rest of the season,Ankle,2026-11-18T17:29,id,2026-11-26T23:07:59+00:00
-2026,11299,4257364,Zavier Scott,RB,CHI,Injured Reserve,IR,2026-12-13,14,false,,Wrist,2026-11-05T21:19,id,2026-11-26T23:07:59+00:00
-2026,1737,15168,Case Keenum,QB,CHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T16:53,id,2026-11-26T23:07:59+00:00
-2026,13335,4879250,Cole Payton,QB,PHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T20:20,id,2026-11-26T23:07:59+00:00
-2026,5022,3121023,Dallas Goedert,TE,PHI,Out,OUT,2026-12-06,13,false,,Shoulder,2026-11-26T23:03,id,2026-11-26T23:07:59+00:00
-2026,11564,4431452,Drake Maye,QB,NE,Out,OUT,2026-12-27,16,false,,Lower Leg - Fracture,2026-11-23T20:26,id,2026-11-26T23:07:59+00:00
-2026,8177,4241374,Grant Calcaterra,TE,PHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T20:14,id,2026-11-26T23:07:59+00:00
-2026,11651,4372561,Isaac Guerendo,RB,SF,Out,PUP-R,2026-11-29,12,false,,Pectoral - Surgery,2026-11-20T00:28,id,2026-11-26T23:07:59+00:00
-2026,8110,4242355,Jake Ferguson,TE,DAL,Out,INACTIVE,2026-12-07,13,false,,Knee,2026-11-26T20:13,id,2026-11-26T23:07:59+00:00
-2026,13435,4565859,Joe Royer,TE,CLE,Out,NFI-R,2026-11-29,12,false,,Personal,2026-08-30T21:32,id,2026-11-26T23:07:59+00:00
-2026,10225,4426485,Jonathan Mingo,WR,DAL,Out,INACTIVE,2026-12-07,13,false,,Ankle,2026-11-26T00:36,id,2026-11-26T23:07:59+00:00
-2026,5850,4047365,Josh Jacobs,RB,GB,Out,INACTIVE,2026-12-06,13,false,,Finger - Surgery,2026-11-25T23:53,id,2026-11-26T23:07:59+00:00
-2026,8151,4567048,Kenneth Walker III,RB,KC,Out,OUT,2026-12-03,13,false,,Groin - Soreness,2026-11-25T16:48,id,2026-11-26T23:07:59+00:00
-2026,9481,4428085,Luke Musgrave,TE,GB,Out,PUP-R,2027-02-15,,false,,Neck,2026-11-22T14:06,id,2026-11-26T23:07:59+00:00
-2026,11895,4573697,Mason Tipton,WR,NO,Out,PUP-R,2026-11-29,12,false,,Leg,2026-08-31T18:40,id,2026-11-26T23:07:59+00:00
-2026,10235,4426386,Roschon Johnson,RB,CHI,Out,INACTIVE,2026-12-06,13,false,,Ankle,2026-11-25T20:15,id,2026-11-26T23:07:59+00:00
-2026,13424,4686468,Seth McGowan,RB,IND,Out,OUT,2026-12-13,14,false,,Hamstring,2026-11-23T20:02,id,2026-11-26T23:07:59+00:00
-2026,11716,4696700,Tip Reiman,TE,ARI,Out,PUP-R,2026-11-29,12,false,,Ankle,2026-10-26T22:29,id,2026-11-26T23:07:59+00:00
-2026,13275,4685522,Ty Simpson,QB,LAR,Out,INACTIVE,2026-12-03,13,false,,Coach's Decision,2026-11-26T00:04,id,2026-11-26T23:07:59+00:00
-2026,12490,4882093,Bhayshul Tuten,RB,JAX,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T20:35,id,2026-11-26T23:07:59+00:00
-2026,13380,4685553,Brenen Thompson,WR,LAC,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-26T02:24,id,2026-11-26T23:07:59+00:00
-2026,7568,4362504,Brevin Jordan,TE,HOU,Questionable,QUESTIONABLE,2026-11-29,12,false,,Foot,2026-11-24T12:39,id,2026-11-26T23:07:59+00:00
-2026,11604,4432665,Brock Bowers,TE,LV,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T22:23,id,2026-11-26T23:07:59+00:00
-2026,8183,4361741,Brock Purdy,QB,SF,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T22:01,id,2026-11-26T23:07:59+00:00
-2026,11560,4431611,Caleb Williams,QB,CHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Abdomen - Bruise,2026-11-26T22:41,id,2026-11-26T23:07:59+00:00
-2026,13272,4430841,Carson Beck,QB,ARI,Questionable,QUESTIONABLE,2026-11-29,12,false,,Back - Spasms,2026-11-26T20:11,id,2026-11-26T23:07:59+00:00
-2026,8167,4248528,Christian Watson,WR,GB,Questionable,QUESTIONABLE,2026-12-06,13,false,,Concussion - Concussion,2026-11-26T03:09,id,2026-11-26T23:07:59+00:00
-2026,12517,4723086,Colston Loveland,TE,CHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Knee,2026-11-26T18:45,id,2026-11-26T23:07:59+00:00
-2026,10236,4385690,Dalton Kincaid,TE,BUF,Questionable,QUESTIONABLE,2026-11-26,12,false,,Thumb,2026-11-25T18:53,id,2026-11-26T23:07:59+00:00
-2026,5001,3117256,Dalton Schultz,TE,HOU,Questionable,QUESTIONABLE,2026-11-29,12,false,,Illness,2026-11-26T22:10,id,2026-11-26T23:07:59+00:00
-2026,2505,2576925,Darren Waller,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Knee,2026-11-26T21:43,id,2026-11-26T23:07:59+00:00
-2026,4033,3123076,David Njoku,TE,LAC,Questionable,QUESTIONABLE,2026-11-29,12,false,,Shoulder,2026-11-26T21:33,id,2026-11-26T23:07:59+00:00
-2026,10214,4426553,Davis Allen,TE,LAR,Questionable,QUESTIONABLE,2026-12-03,13,false,,Ankle,2026-11-26T03:24,id,2026-11-26T23:07:59+00:00
-2026,13346,4832800,Denzel Boston,WR,CLE,Questionable,QUESTIONABLE,2026-11-29,12,false,,Quadriceps,2026-11-26T22:31,id,2026-11-26T23:07:59+00:00
-2026,3198,3043078,Derrick Henry,RB,BAL,Questionable,QUESTIONABLE,2026-11-29,12,false,,Concussion - Concussion,2026-11-26T21:50,id,2026-11-26T23:07:59+00:00
-2026,5854,3924327,Drew Lock,QB,SEA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Elbow,2026-11-26T22:32,id,2026-11-26T23:07:59+00:00
-2026,7531,4034948,Feleipe Franks,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Wrist,2026-11-26T21:36,id,2026-11-26T23:07:59+00:00
-2026,7535,4239944,Hunter Long,TE,ARI,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T20:30,id,2026-11-26T23:07:59+00:00
-2026,8131,4361050,Isaiah Likely,TE,NYG,Questionable,QUESTIONABLE,2026-11-29,12,false,,Groin,2026-11-26T21:09,id,2026-11-26T23:07:59+00:00
-2026,8119,4361409,Jahan Dotson,WR,ATL,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-26T18:35,id,2026-11-26T23:07:59+00:00
-2026,5947,3916433,Jakobi Meyers,WR,JAX,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-25T21:19,id,2026-11-26T23:07:59+00:00
-2026,12510,4432734,Jalen Milroe,QB,SEA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Illness,2026-11-26T00:26,id,2026-11-26T23:07:59+00:00
-2026,11056,4430681,Jared Wayne,WR,MIA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Quadriceps,2026-11-26T01:21,id,2026-11-26T23:07:59+00:00
-2026,9488,4430878,Jaxon Smith-Njigba,WR,SEA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T22:14,id,2026-11-26T23:07:59+00:00
-2026,12634,4431466,Jordan Watkins,WR,SF,Questionable,QUESTIONABLE,2026-11-29,12,false,,Groin,2026-11-26T22:29,id,2026-11-26T23:07:59+00:00
-2026,6797,4038941,Justin Herbert,QB,LAC,Questionable,QUESTIONABLE,2026-11-29,12,false,,Concussion - Concussion,2026-11-26T21:00,id,2026-11-26T23:07:59+00:00
-2026,7002,3929645,Juwan Johnson,TE,NO,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-26T20:05,id,2026-11-26T23:07:59+00:00
-2026,9504,4429022,Kayshon Boutte,WR,HOU,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hip,2026-11-26T22:06,id,2026-11-26T23:07:59+00:00
-2026,9511,4596334,Keaton Mitchell,RB,LAC,Questionable,QUESTIONABLE,2026-11-29,12,false,,Knee,2026-11-25T23:44,id,2026-11-26T23:07:59+00:00
-2026,5849,3917315,Kyler Murray,QB,MIN,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring - Strain,2026-11-26T19:47,id,2026-11-26T23:07:59+00:00
-2026,2216,16737,Mike Evans,WR,SF,Questionable,QUESTIONABLE,2026-11-29,12,false,,Achilles - Tendinitis,2026-11-26T22:08,id,2026-11-26T23:07:59+00:00
-2026,12473,4683243,Mitchell Evans,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Achilles,2026-11-26T22:20,id,2026-11-26T23:07:59+00:00
-2026,13075,4430656,Myles Price,WR,MIN,Questionable,QUESTIONABLE,2026-11-29,12,false,,Knee,2026-11-26T22:56,id,2026-11-26T23:07:59+00:00
-2026,7828,4240472,Noah Gray,TE,KC,Questionable,QUESTIONABLE,2026-11-26,12,false,,Ribs,2026-11-25T17:36,id,2026-11-26T23:07:59+00:00
-2026,13276,4723820,Omar Cooper Jr.,WR,NYJ,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T20:43,id,2026-11-26T23:07:59+00:00
-2026,9487,4432620,Parker Washington,WR,JAX,Questionable,QUESTIONABLE,2026-11-29,12,false,,Shoulder,2026-11-26T20:29,id,2026-11-26T23:07:59+00:00
-2026,7204,4039505,Reggie Gilliam,RB,NE,Questionable,QUESTIONABLE,2026-11-29,12,false,,Knee,2026-11-26T00:12,id,2026-11-26T23:07:59+00:00
-2026,4866,3929630,Saquon Barkley,RB,PHI,Questionable,QUESTIONABLE,2026-11-26,12,false,,Neck - Stinger,2026-11-26T22:49,id,2026-11-26T23:07:59+00:00
-2026,12526,4685472,Tetairoa McMillan,WR,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Foot - Soreness,2026-11-26T21:26,id,2026-11-26T23:07:59+00:00
-2026,7694,4372780,Tommy Tremble,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Knee,2026-11-26T22:18,id,2026-11-26T23:07:59+00:00
-2026,8135,4567156,Treylon Burks,WR,WAS,Questionable,QUESTIONABLE,2026-11-29,12,false,,Foot,2026-11-26T20:35,id,2026-11-26T23:07:59+00:00
-2026,3271,2573401,Tyler Higbee,TE,LAR,Questionable,QUESTIONABLE,2026-12-03,13,false,,Chest,2026-11-26T03:47,id,2026-11-26T23:07:59+00:00
-2026,10220,4362523,Will Mallory,TE,IND,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-24T12:39,id,2026-11-26T23:07:59+00:00
-2026,12474,4429059,Woody Marks,RB,HOU,Questionable,QUESTIONABLE,2026-11-29,12,false,,Concussion - Concussion,2026-11-25T23:16,id,2026-11-26T23:07:59+00:00
-2026,13320,4870612,Zachariah Branch,WR,ATL,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-25T22:30,id,2026-11-26T23:07:59+00:00
-2026,6806,4241985,J.K. Dobbins,RB,DEN,Suspension,RESERVE-SUS,2026-12-06,13,false,,Suspension,2026-11-25T22:13,id,2026-11-26T23:07:59+00:00
+2026,13380,4685553,Brenen Thompson,WR,LAC,Doubtful,DOUBTFUL,2026-11-29,12,false,,Hamstring,2026-11-27T22:30,id,2026-11-27T22:47:41+00:00
+2026,12517,4723086,Colston Loveland,TE,CHI,Doubtful,DOUBTFUL,2026-12-06,13,false,,Knee,2026-11-27T18:04,id,2026-11-27T22:47:41+00:00
+2026,10214,4426553,Davis Allen,TE,LAR,Doubtful,DOUBTFUL,2026-12-03,13,false,,Ankle - Sprain,2026-11-27T20:01,id,2026-11-27T22:47:41+00:00
+2026,8142,4360078,Alec Pierce,WR,IND,Injured Reserve,IR,2027-01-10,18,false,,Heel,2026-11-25T18:36,id,2026-11-27T22:47:41+00:00
+2026,10226,4368003,Andrei Iosivas,WR,CIN,Injured Reserve,IR-R,2026-11-29,12,false,,Thumb - Surgery,2026-11-27T21:34,id,2026-11-27T22:47:41+00:00
+2026,12539,4429105,Arian Smith,WR,NYJ,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Knee - ACL - Surgery,2026-09-23T21:53,id,2026-11-27T22:47:41+00:00
+2026,7757,4035656,Ben Skowronek,WR,PIT,Injured Reserve,IR,2026-12-27,16,false,,Calf,2026-11-26T22:43,id,2026-11-27T22:47:41+00:00
+2026,11273,4372070,Ben VanSumeren,RB,KC,Injured Reserve,IR,2026-12-27,16,false,,Knee - Sprain,2026-11-24T21:28,id,2026-11-27T22:47:41+00:00
+2026,11058,4259619,Blake Grupe,K,LAR,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Knee - ACL,2026-10-19T22:01,id,2026-11-27T22:47:41+00:00
+2026,12455,4596602,Brashard Smith,RB,KC,Injured Reserve,IR,2026-12-03,13,false,,Hamstring,2026-10-24T18:05,id,2026-11-27T22:47:41+00:00
+2026,5121,3123075,Braxton Berrios,WR,NYG,Injured Reserve,IR,2027-02-15,,true,remainder of the 2026 season,Foot - Surgery,2026-10-14T21:17,id,2026-11-27T22:47:41+00:00
+2026,8154,4241474,Brian Robinson Jr.,RB,ATL,Injured Reserve,IR,2026-12-13,14,false,,Hamstring,2026-11-07T21:13,id,2026-11-27T22:47:41+00:00
+2026,12171,4373273,British Brooks,RB,HOU,Injured Reserve,IR,2026-11-29,12,false,,Hamstring,2026-10-03T00:35,id,2026-11-27T22:47:41+00:00
+2026,8423,4036032,Brittain Brown,RB,CHI,Injured Reserve,IR,2027-02-15,,true,miss the entire season,Undisclosed,2026-08-31T16:21,id,2026-11-27T22:47:41+00:00
+2026,12735,4432208,Caleb Lohner,TE,DEN,Injured Reserve,IR-R,2026-12-06,13,false,,Foot - Surgery,2026-11-26T23:03,id,2026-11-27T22:47:41+00:00
+2026,8125,4243389,Calvin Austin III,WR,NYG,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Knee,2026-08-27T22:48,id,2026-11-27T22:47:41+00:00
+2026,13407,4702120,Carson Towt,TE,IND,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-09-08T20:42,name,2026-11-27T22:47:41+00:00
+2026,13353,5091739,Chris Brazzell II,WR,CAR,Injured Reserve,IR,2027-02-15,,true,entire rookie season,Knee - Surgery,2026-07-31T18:57,id,2026-11-27T22:47:41+00:00
+2026,4950,3895856,Christian Kirk,WR,SF,Injured Reserve,IR,2026-12-06,13,false,,Knee - Meniscus - Surgery,2026-11-19T15:22,id,2026-11-27T22:47:41+00:00
+2026,12210,5192448,Cole Burgess,WR,,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,6826,4258595,Cole Kmet,TE,CHI,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee,2026-10-23T21:36,id,2026-11-27T22:47:41+00:00
+2026,8214,4361438,Cole Turner,TE,MIA,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-27T23:35,id,2026-11-27T22:47:41+00:00
+2026,6453,4249030,D.J. Montgomery,WR,IND,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Abdomen,2026-08-31T17:16,id,2026-11-27T22:47:41+00:00
+2026,2133,16800,Davante Adams,WR,LAR,Injured Reserve,IR,2026-12-13,14,false,,Hamstring - Surgery,2026-11-22T14:32,id,2026-11-27T22:47:41+00:00
+2026,9226,4429160,De'Von Achane,RB,MIA,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-09-28T20:10,id,2026-11-27T22:47:41+00:00
+2026,13417,4710714,De'Zhaun Stribling,WR,SF,Injured Reserve,IR,2026-12-13,14,false,,Ankle - Surgery,2026-11-25T20:43,id,2026-11-27T22:47:41+00:00
+2026,13315,5082269,Dean Connors,RB,LAR,Injured Reserve,IR,2026-12-13,14,false,,Hand - Surgery,2026-11-04T01:20,id,2026-11-27T22:47:41+00:00
+2026,13347,4832846,Demond Claiborne,RB,MIN,Injured Reserve,IR,2026-12-06,13,false,,Knee,2026-11-10T00:10,id,2026-11-27T22:47:41+00:00
+2026,9486,4428850,Dontayvion Wicks,WR,PHI,Injured Reserve,IR,2026-12-19,15,false,,Ankle,2026-11-21T21:09,id,2026-11-27T22:47:41+00:00
+2026,5008,3052897,Durham Smythe,TE,BAL,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Achilles - Surgery,2026-10-07T23:18,id,2026-11-27T22:47:41+00:00
+2026,7587,4361577,Dyami Brown,WR,WAS,Injured Reserve,IR,2026-12-06,13,false,,Calf,2026-11-07T23:15,id,2026-11-27T22:47:41+00:00
+2026,12521,4678006,Elijah Arroyo,TE,SEA,Injured Reserve,IR,2027-02-15,,true,rest of the season,Shoulder - Surgery,2026-10-23T21:48,id,2026-11-27T22:47:41+00:00
+2026,11592,4427834,Erick All Jr.,TE,CIN,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - ACL - Surgery,2026-10-28T19:05,id,2026-11-27T22:47:41+00:00
+2026,6011,4038524,Gardner Minshew II,QB,ARI,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Elbow - Surgery,2026-11-18T04:40,id,2026-11-27T22:47:41+00:00
+2026,12048,4429835,George Holani,RB,SEA,Injured Reserve,IR,2026-12-25,16,false,,Knee - MCL - Sprain,2026-11-23T23:11,id,2026-11-27T22:47:41+00:00
+2026,12705,4426335,Graham Mertz,QB,HOU,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,6699,4424106,Gunner Olszewski,WR,NYG,Injured Reserve,IR,2027-02-15,,true,miss the 2026 campaign,Achilles - Surgery,2026-06-02T00:10,id,2026-11-27T22:47:41+00:00
+2026,13712,5150662,Hayden Large,TE,CHI,Injured Reserve,IR,2026-12-06,13,false,,Undisclosed,2026-09-01T23:40,name,2026-11-27T22:47:41+00:00
+2026,8205,4361529,Isiah Pacheco,RB,DET,Injured Reserve,IR,2026-12-28,16,false,,Back,2026-10-30T17:09,id,2026-11-27T22:47:41+00:00
+2026,10867,4360405,Jake Bobo,WR,SEA,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 season,Knee,2026-08-22T17:45,id,2026-11-27T22:47:41+00:00
+2026,8698,4259147,Jake Tonges,TE,SF,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Knee - MCL - Surgery,2026-09-16T20:04,id,2026-11-27T22:47:41+00:00
+2026,11034,4692835,Jalen Brooks,WR,ARI,Injured Reserve,IR,2027-02-15,,true,season-ending,Wrist - Surgery,2026-10-27T21:53,id,2026-11-27T22:47:41+00:00
+2026,6904,4040715,Jalen Hurts,QB,PHI,Injured Reserve,IR,2027-02-15,,true,miss the rest of the season,Calf,2026-10-19T14:18,id,2026-11-27T22:47:41+00:00
+2026,11618,4430834,Jalen McMillan,WR,TB,Injured Reserve,IR-R,2026-11-30,12,false,,Knee - PCL - Sprain,2026-11-27T20:51,id,2026-11-27T22:47:41+00:00
+2026,4137,3045147,James Conner,RB,ARI,Injured Reserve,IR-R,2026-12-20,15,false,,Foot - Surgery,2026-11-18T21:40,id,2026-11-27T22:47:41+00:00
+2026,11595,4430723,Jared Wiley,TE,KC,Injured Reserve,IR,2026-12-21,15,false,,Ankle - Fracture,2026-11-19T01:06,id,2026-11-27T22:47:41+00:00
+2026,13422,4877034,Jaren Kanak,TE,TEN,Injured Reserve,IR,2027-02-15,,false,,Pectoral,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,12508,4689114,Jaxson Dart,QB,NYG,Injured Reserve,IR,2027-01-17,19,false,,Knee - Meniscus - Surgery,2026-09-30T20:35,id,2026-11-27T22:47:41+00:00
+2026,12484,4877706,Jayden Higgins,WR,HOU,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-09-08T20:42,id,2026-11-27T22:47:41+00:00
+2026,10222,4362249,Jayden Reed,WR,GB,Injured Reserve,IR,2027-02-15,,false,,Neck - Surgery,2026-09-30T15:55,id,2026-11-27T22:47:41+00:00
+2026,12641,4602667,Jaylin Lane,WR,WAS,Injured Reserve,IR,2027-02-15,,true,season-ending,Ankle - Surgery,2026-10-22T00:47,id,2026-11-27T22:47:41+00:00
+2026,12536,4586312,Jaylin Noel,WR,HOU,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Toe - Surgery,2026-10-28T22:30,id,2026-11-27T22:47:41+00:00
+2026,13392,4885466,Jeff Caldwell,WR,KC,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 regular season,Knee - Soreness,2026-08-25T23:12,id,2026-11-27T22:47:41+00:00
+2026,13287,4870808,Jeremiyah Love,RB,ARI,Injured Reserve,IR,2026-12-06,13,false,,Ankle - Sprain,2026-11-27T18:12,id,2026-11-27T22:47:41+00:00
+2026,4219,3127586,Jeremy McNichols,RB,WAS,Injured Reserve,IR,2027-02-15,,true,out for the season,Foot,2026-11-04T17:09,id,2026-11-27T22:47:41+00:00
+2026,13173,4431142,Jimmy Holiday,WR,KC,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 campaign,Undisclosed,2026-08-31T17:40,name,2026-11-27T22:47:41+00:00
+2026,13342,4708490,John Michael Gyllenborg,TE,KC,Injured Reserve,IR,2027-02-15,,false,,Knee - Sprain,2026-07-28T21:54,id,2026-11-27T22:47:41+00:00
+2026,11636,4686104,Johnny Wilson,WR,PHI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-22T21:59,id,2026-11-27T22:47:41+00:00
+2026,11583,4678008,Jonathon Brooks,RB,CAR,Injured Reserve,IR-R,2026-11-30,12,false,,Groin - Surgery,2026-11-27T20:49,id,2026-11-27T22:47:41+00:00
+2026,11623,4569382,Jordan Whittington,WR,LAR,Injured Reserve,IR,2026-12-20,15,false,,Back,2026-11-11T00:38,id,2026-11-27T22:47:41+00:00
+2026,5973,3921690,Josh Oliver,TE,MIN,Injured Reserve,IR,2027-01-17,19,false,,Biceps - Surgery,2026-09-30T00:26,id,2026-11-27T22:47:41+00:00
+2026,10212,4360086,Josh Whyle,TE,GB,Injured Reserve,IR,2026-12-20,15,false,,Concussion - Concussion,2026-11-14T22:35,id,2026-11-27T22:47:41+00:00
+2026,7670,4242433,Joshua Palmer,WR,BUF,Injured Reserve,IR,2026-12-06,13,false,,Hamstring,2026-11-09T22:24,id,2026-11-27T22:47:41+00:00
+2026,11371,4365395,Julian Hill,TE,NE,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-06-01T21:13,id,2026-11-27T22:47:41+00:00
+2026,4454,3045523,Kendrick Bourne,WR,ARI,Injured Reserve,IR,2027-02-15,,false,,Lower Leg - Fracture,2026-11-03T21:12,id,2026-11-27T22:47:41+00:00
+2026,13412,4685441,Kendrick Law,WR,DET,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL - Surgery,2026-06-17T20:34,id,2026-11-27T22:47:41+00:00
+2026,4881,3916387,Lamar Jackson,QB,BAL,Injured Reserve,IR,2026-12-27,16,false,,Thumb - Surgery,2026-11-18T15:52,id,2026-11-27T22:47:41+00:00
+2026,8800,4240603,Malik Davis,RB,DAL,Injured Reserve,IR,2027-02-15,,true,entire 2026 season,Hip - Surgery,2026-09-12T18:20,id,2026-11-27T22:47:41+00:00
+2026,8161,4242512,Malik Willis,QB,MIA,Injured Reserve,IR,2026-12-13,14,false,,Abdomen,2026-11-23T17:19,id,2026-11-27T22:47:41+00:00
+2026,13597,4877717,Matthew Caldwell,QB,LAR,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-29T22:20,name,2026-11-27T22:47:41+00:00
+2026,10232,4360761,Michael Wilson,WR,ARI,Injured Reserve,IR,2027-02-15,,true,rest of the season,Neck - Fracture,2026-11-10T22:53,id,2026-11-27T22:47:41+00:00
+2026,4054,2998565,Mo Alie-Cox,TE,IND,Injured Reserve,IR,2026-12-20,15,false,,Groin,2026-11-14T17:24,id,2026-11-27T22:47:41+00:00
+2026,12480,4432731,Moliki Matavao,TE,NO,Injured Reserve,IR,2027-02-15,,true,entirety of the 2026 regular season,Knee,2026-08-25T22:41,id,2026-11-27T22:47:41+00:00
+2026,13964,4676889,Myles Montgomery,RB,NE,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,8107,4916349,Nikola Kalinic,TE,CHI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,11508,4242442,Princeton Fant,TE,DAL,Injured Reserve,IR,2027-02-15,,true,acl tear,Knee - ACL + MCL - Surgery,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,9493,4426515,Puka Nacua,WR,LAR,Injured Reserve,IR,2027-02-15,,false,,Knee - MCL - Surgery,2026-11-22T01:25,id,2026-11-27T22:47:41+00:00
+2026,12489,4568490,RJ Harvey,RB,DEN,Injured Reserve,IR,2026-12-06,13,false,,Knee,2026-10-31T20:18,id,2026-11-27T22:47:41+00:00
+2026,12472,4601080,Raheim Sanders,RB,CLE,Injured Reserve,IR-R,2026-11-29,12,false,,Hip,2026-11-27T18:31,id,2026-11-27T22:47:41+00:00
+2026,11638,4428209,Ricky Pearsall,WR,SF,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - PCL - Surgery,2026-08-13T15:11,id,2026-11-27T22:47:41+00:00
+2026,12656,4691688,Robbie Ouzts,RB,SEA,Injured Reserve,IR,2027-02-15,,false,,Neck,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,8121,4361432,Romeo Doubs,WR,NE,Injured Reserve,IR-R,2026-11-29,12,false,,Shoulder,2026-11-27T19:43,id,2026-11-27T22:47:41+00:00
+2026,8206,4036419,Skylar Thompson,QB,BAL,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-08-19T12:07,id,2026-11-27T22:47:41+00:00
+2026,9225,4429013,Tank Bigsby,RB,PHI,Injured Reserve,IR,2026-12-06,13,false,,Abdomen - Surgery,2026-10-06T23:17,id,2026-11-27T22:47:41+00:00
+2026,5409,3050481,Tanner Hudson,TE,CIN,Injured Reserve,IR,2027-02-15,,false,,Pectoral - Strain,2026-10-19T23:18,id,2026-11-27T22:47:41+00:00
+2026,12487,4570037,Terrance Ferguson,TE,LAR,Injured Reserve,IR,2027-02-15,,true,remainder of the season,Ankle - Surgery,2026-11-23T19:35,id,2026-11-27T22:47:41+00:00
+2026,5927,3121422,Terry McLaurin,WR,WAS,Injured Reserve,IR,2027-02-15,,true,remainder of the 2026 season,Knee - Surgery,2026-10-30T17:12,id,2026-11-27T22:47:41+00:00
+2026,12113,4361027,Thomas Yassmin,TE,GB,Injured Reserve,IR,2027-02-15,,true,miss the entire 2026 season,Undisclosed,2026-08-31T23:12,name,2026-11-27T22:47:41+00:00
+2026,6588,3126997,Tom Kennedy,WR,DET,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee - MCL - Surgery,2026-10-17T01:51,id,2026-11-27T22:47:41+00:00
+2026,12529,4432710,TreVeyon Henderson,RB,NE,Injured Reserve,IR,2026-12-21,15,false,,Illness,2026-11-14T21:14,id,2026-11-27T22:47:41+00:00
+2026,11589,4429275,Trey Benson,RB,ARI,Injured Reserve,IR,2027-02-15,,false,,Knee,2026-08-25T23:07,id,2026-11-27T22:47:41+00:00
+2026,7610,4383351,Trey Lance,QB,LAC,Injured Reserve,IR,2026-11-29,12,false,,Groin,2026-10-11T00:57,id,2026-11-27T22:47:41+00:00
+2026,7593,4241401,Trey Sermon,RB,ATL,Injured Reserve,IR,2027-02-15,,false,,Undisclosed,2026-09-08T20:42,id,2026-11-27T22:47:41+00:00
+2026,8230,4242431,Ty Chandler,RB,NO,Injured Reserve,IR,2027-02-15,,true,season-ending,Knee,2026-08-25T22:39,id,2026-11-27T22:47:41+00:00
+2026,9508,4428557,Tyjae Spears,RB,TEN,Injured Reserve,IR,2026-12-20,15,false,,Knee,2026-11-21T18:44,id,2026-11-27T22:47:41+00:00
+2026,8207,4429676,Tyler Goodson,RB,DAL,Injured Reserve,IR,2026-12-20,15,false,,Knee - ACL + MCL - Sprain,2026-11-14T18:50,id,2026-11-27T22:47:41+00:00
+2026,7083,4035671,Tyler Huntley,QB,BAL,Injured Reserve,IR,2027-02-15,,true,season-ending,Toe - Sprain,2026-11-05T21:20,id,2026-11-27T22:47:41+00:00
+2026,12711,4697745,Tyler Loop,K,BAL,Injured Reserve,IR,2026-12-13,14,false,,Groin,2026-11-03T21:44,id,2026-11-27T22:47:41+00:00
+2026,8188,4362921,Tyquan Thornton,WR,KC,Injured Reserve,IR,2027-01-17,19,false,,Ankle - Surgery,2026-10-13T18:29,id,2026-11-27T22:47:41+00:00
+2026,11655,4360516,Tyrone Tracy Jr.,RB,NYG,Injured Reserve,IR,2026-12-06,13,false,,Hamstring - Strain,2026-11-18T20:16,id,2026-11-27T22:47:41+00:00
+2026,8126,4569587,Wan'Dale Robinson,WR,TEN,Injured Reserve,IR,2027-02-15,,true,rest of the season,Ankle,2026-11-18T17:29,id,2026-11-27T22:47:41+00:00
+2026,11299,4257364,Zavier Scott,RB,CHI,Injured Reserve,IR,2026-12-13,14,false,,Wrist,2026-11-05T21:19,id,2026-11-27T22:47:41+00:00
+2026,5859,4047646,A.J. Brown,WR,NE,Out,OUT,2026-12-06,13,false,,Hamstring,2026-11-27T18:18,id,2026-11-27T22:47:41+00:00
+2026,12490,4882093,Bhayshul Tuten,RB,JAX,Out,OUT,2026-12-06,13,false,,Ankle,2026-11-27T21:02,id,2026-11-27T22:47:41+00:00
+2026,7568,4362504,Brevin Jordan,TE,HOU,Out,OUT,2026-12-06,13,false,,Foot,2026-11-27T20:56,id,2026-11-27T22:47:41+00:00
+2026,8183,4361741,Brock Purdy,QB,SF,Out,OUT,2026-12-06,13,false,,Ankle,2026-11-27T22:25,id,2026-11-27T22:47:41+00:00
+2026,13272,4430841,Carson Beck,QB,ARI,Out,OUT,2026-12-06,13,false,,Back - Spasms,2026-11-27T17:36,id,2026-11-27T22:47:41+00:00
+2026,1737,15168,Case Keenum,QB,CHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T16:53,id,2026-11-27T22:47:41+00:00
+2026,13335,4879250,Cole Payton,QB,PHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T20:20,id,2026-11-27T22:47:41+00:00
+2026,13577,5159802,Dallen Bentley,TE,DEN,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T18:39,id,2026-11-27T22:47:41+00:00
+2026,11564,4431452,Drake Maye,QB,NE,Out,OUT,2026-12-27,16,false,,Lower Leg - Fracture,2026-11-23T20:26,id,2026-11-27T22:47:41+00:00
+2026,13289,4714771,Drew Allar,QB,PIT,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T19:05,id,2026-11-27T22:47:41+00:00
+2026,13423,5081508,Eli Heidenreich,RB,PIT,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T18:42,id,2026-11-27T22:47:41+00:00
+2026,13404,4567747,Garrett Nussmeier,QB,KC,Out,INACTIVE,2026-12-03,13,false,,Coach's Decision,2026-11-27T00:05,id,2026-11-27T22:47:41+00:00
+2026,8177,4241374,Grant Calcaterra,TE,PHI,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T20:14,id,2026-11-27T22:47:41+00:00
+2026,11651,4372561,Isaac Guerendo,RB,SF,Out,PUP-R,2026-11-29,12,false,,Pectoral - Surgery,2026-11-20T00:28,id,2026-11-27T22:47:41+00:00
+2026,8119,4361409,Jahan Dotson,WR,ATL,Out,OUT,2026-12-06,13,false,,Hamstring,2026-11-27T19:03,id,2026-11-27T22:47:41+00:00
+2026,8110,4242355,Jake Ferguson,TE,DAL,Out,INACTIVE,2026-12-07,13,false,,Knee,2026-11-26T20:13,id,2026-11-27T22:47:41+00:00
+2026,11056,4430681,Jared Wayne,WR,MIA,Out,OUT,2026-12-06,13,false,,Quadriceps,2026-11-27T21:28,id,2026-11-27T22:47:41+00:00
+2026,13435,4565859,Joe Royer,TE,CLE,Out,NFI-R,2026-11-29,12,false,,Personal,2026-08-30T21:32,id,2026-11-27T22:47:41+00:00
+2026,10225,4426485,Jonathan Mingo,WR,DAL,Out,INACTIVE,2026-12-07,13,false,,Ankle,2026-11-26T00:36,id,2026-11-27T22:47:41+00:00
+2026,9756,4429205,Jordan Addison,WR,MIN,Out,OUT,2026-12-06,13,false,,Thumb - Surgery,2026-11-27T20:02,id,2026-11-27T22:47:41+00:00
+2026,5850,4047365,Josh Jacobs,RB,GB,Out,INACTIVE,2026-12-06,13,false,,Finger - Surgery,2026-11-25T23:53,id,2026-11-27T22:47:41+00:00
+2026,6797,4038941,Justin Herbert,QB,LAC,Out,OUT,2026-12-06,13,false,,Concussion - Concussion,2026-11-27T22:24,id,2026-11-27T22:47:41+00:00
+2026,7002,3929645,Juwan Johnson,TE,NO,Out,OUT,2026-12-06,13,false,,Hamstring,2026-11-27T19:55,id,2026-11-27T22:47:41+00:00
+2026,13491,5081338,Kaden Wetjen,WR,PIT,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T19:21,id,2026-11-27T22:47:41+00:00
+2026,9504,4429022,Kayshon Boutte,WR,HOU,Out,OUT,2026-12-06,13,false,,Hip,2026-11-27T21:37,id,2026-11-27T22:47:41+00:00
+2026,9511,4596334,Keaton Mitchell,RB,LAC,Out,OUT,2026-12-06,13,false,,Knee,2026-11-27T22:20,id,2026-11-27T22:47:41+00:00
+2026,8151,4567048,Kenneth Walker III,RB,KC,Out,INACTIVE,2026-12-03,13,false,,Groin - Soreness,2026-11-27T00:01,id,2026-11-27T22:47:41+00:00
+2026,5938,4039057,Lil'Jordan Humphrey,WR,DEN,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T18:39,id,2026-11-27T22:47:41+00:00
+2026,9481,4428085,Luke Musgrave,TE,GB,Out,PUP-R,2027-02-15,,false,,Neck,2026-11-22T14:06,id,2026-11-27T22:47:41+00:00
+2026,11895,4573697,Mason Tipton,WR,NO,Out,PUP-R,2026-11-29,12,false,,Leg,2026-08-31T18:40,id,2026-11-27T22:47:41+00:00
+2026,13276,4723820,Omar Cooper Jr.,WR,NYJ,Out,OUT,2026-12-13,14,false,,Ankle,2026-11-27T15:56,id,2026-11-27T22:47:41+00:00
+2026,9487,4432620,Parker Washington,WR,JAX,Out,OUT,2026-12-06,13,false,,Shoulder,2026-11-27T15:44,id,2026-11-27T22:47:41+00:00
+2026,10235,4426386,Roschon Johnson,RB,CHI,Out,INACTIVE,2026-12-06,13,false,,Ankle,2026-11-25T20:15,id,2026-11-27T22:47:41+00:00
+2026,7583,4241820,Sam Ehlinger,QB,DEN,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-27T18:59,id,2026-11-27T22:47:41+00:00
+2026,13424,4686468,Seth McGowan,RB,IND,Out,OUT,2026-12-13,14,false,,Hamstring,2026-11-27T18:33,id,2026-11-27T22:47:41+00:00
+2026,13402,4683153,Skyler Bell,WR,BUF,Out,INACTIVE,2026-12-06,13,false,,Coach's Decision,2026-11-26T23:53,id,2026-11-27T22:47:41+00:00
+2026,11716,4696700,Tip Reiman,TE,ARI,Out,PUP-R,2026-11-29,12,false,,Ankle,2026-10-26T22:29,id,2026-11-27T22:47:41+00:00
+2026,13275,4685522,Ty Simpson,QB,LAR,Out,INACTIVE,2026-12-03,13,false,,Coach's Decision,2026-11-26T00:04,id,2026-11-27T22:47:41+00:00
+2026,10220,4362523,Will Mallory,TE,IND,Out,OUT,2026-12-13,14,false,,Hamstring,2026-11-27T18:29,id,2026-11-27T22:47:41+00:00
+2026,13320,4870612,Zachariah Branch,WR,ATL,Out,OUT,2026-12-06,13,false,,Hamstring,2026-11-27T19:39,id,2026-11-27T22:47:41+00:00
+2026,11604,4432665,Brock Bowers,TE,LV,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-27T20:47,id,2026-11-27T22:47:41+00:00
+2026,11560,4431611,Caleb Williams,QB,CHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Abdomen - Bruise,2026-11-26T22:41,id,2026-11-27T22:47:41+00:00
+2026,8167,4248528,Christian Watson,WR,GB,Questionable,QUESTIONABLE,2026-12-06,13,false,,Concussion - Concussion,2026-11-26T03:09,id,2026-11-27T22:47:41+00:00
+2026,5022,3121023,Dallas Goedert,TE,PHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Shoulder,2026-11-27T02:30,id,2026-11-27T22:47:41+00:00
+2026,2505,2576925,Darren Waller,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Knee,2026-11-27T20:26,id,2026-11-27T22:47:41+00:00
+2026,4033,3123076,David Njoku,TE,LAC,Questionable,QUESTIONABLE,2026-11-29,12,false,,Shoulder,2026-11-27T22:23,id,2026-11-27T22:47:41+00:00
+2026,7525,4241478,DeVonta Smith,WR,PHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Back,2026-11-27T02:39,id,2026-11-27T22:47:41+00:00
+2026,13346,4832800,Denzel Boston,WR,CLE,Questionable,QUESTIONABLE,2026-11-29,12,false,,Quadriceps,2026-11-27T18:36,id,2026-11-27T22:47:41+00:00
+2026,5854,3924327,Drew Lock,QB,SEA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Elbow,2026-11-26T22:32,id,2026-11-27T22:47:41+00:00
+2026,8489,4722908,Drew Ogletree,TE,IND,Questionable,QUESTIONABLE,2026-11-29,12,false,,Knee,2026-11-26T22:51,id,2026-11-27T22:47:41+00:00
+2026,7531,4034948,Feleipe Franks,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Wrist,2026-11-26T21:36,id,2026-11-27T22:47:41+00:00
+2026,7535,4239944,Hunter Long,TE,ARI,Questionable,QUESTIONABLE,2026-11-29,12,false,,Ankle,2026-11-26T20:30,id,2026-11-27T22:47:41+00:00
+2026,12510,4432734,Jalen Milroe,QB,SEA,Questionable,QUESTIONABLE,2026-11-29,12,false,,Illness,2026-11-26T00:26,id,2026-11-27T22:47:41+00:00
+2026,12505,5082630,Jalen Royals,WR,KC,Questionable,QUESTIONABLE,2026-12-03,13,false,,Ankle - Sprain,2026-11-27T05:17,id,2026-11-27T22:47:41+00:00
+2026,12634,4431466,Jordan Watkins,WR,SF,Questionable,OUT,2026-12-06,13,false,,Groin,2026-11-26T22:29,id,2026-11-27T22:47:41+00:00
+2026,2216,16737,Mike Evans,WR,SF,Questionable,QUESTIONABLE,2026-11-29,12,false,,Achilles - Tendinitis,2026-11-27T22:32,id,2026-11-27T22:47:41+00:00
+2026,12473,4683243,Mitchell Evans,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Achilles,2026-11-27T20:57,id,2026-11-27T22:47:41+00:00
+2026,5857,4036131,Noah Fant,TE,NO,Questionable,QUESTIONABLE,2026-11-29,12,false,,Calf,2026-11-27T20:45,id,2026-11-27T22:47:41+00:00
+2026,7204,4039505,Reggie Gilliam,RB,NE,Questionable,QUESTIONABLE,2026-11-29,12,false,,Knee,2026-11-26T00:12,id,2026-11-27T22:47:41+00:00
+2026,4866,3929630,Saquon Barkley,RB,PHI,Questionable,QUESTIONABLE,2026-12-06,13,false,,Neck - Stinger,2026-11-26T22:49,id,2026-11-27T22:47:41+00:00
+2026,6801,4239993,Tee Higgins,WR,CIN,Questionable,QUESTIONABLE,2026-11-29,12,false,,Hamstring,2026-11-27T20:21,id,2026-11-27T22:47:41+00:00
+2026,12526,4685472,Tetairoa McMillan,WR,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Foot - Soreness,2026-11-27T18:33,id,2026-11-27T22:47:41+00:00
+2026,12485,4608810,Tez Johnson,WR,TB,Questionable,QUESTIONABLE,2026-11-30,12,false,,Illness,2026-11-27T20:42,id,2026-11-27T22:47:41+00:00
+2026,7694,4372780,Tommy Tremble,TE,CAR,Questionable,QUESTIONABLE,2026-11-30,12,false,,Knee,2026-11-27T20:51,id,2026-11-27T22:47:41+00:00
+2026,3271,2573401,Tyler Higbee,TE,LAR,Questionable,QUESTIONABLE,2026-12-03,13,false,,Chest - Bruise,2026-11-27T19:53,id,2026-11-27T22:47:41+00:00
+2026,6806,4241985,J.K. Dobbins,RB,DEN,Suspension,RESERVE-SUS,2026-12-06,13,false,,Suspension,2026-11-25T22:13,id,2026-11-27T22:47:41+00:00
